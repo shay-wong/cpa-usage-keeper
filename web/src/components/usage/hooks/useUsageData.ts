@@ -36,11 +36,15 @@ const toCustomDateParam = (value: string | undefined): string | undefined => {
   return trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
 };
 
+const buildUsageQueryKey = (range: UsageTimeRange, start?: string, end?: string): string =>
+  `${range}:${start ?? ''}:${end ?? ''}`;
+
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
   const { onAuthRequired, range = 'all', customStart, customEnd, enabled = true } = options;
   const usageSnapshot = useUsageStatsStore((state) => state.usage);
   const loading = useUsageStatsStore((state) => state.loading);
   const storeError = useUsageStatsStore((state) => state.error);
+  const lastQueryKey = useUsageStatsStore((state) => state.lastQueryKey);
   const lastRefreshedAtTs = useUsageStatsStore((state) => state.lastRefreshedAt);
   const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
 
@@ -83,11 +87,14 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
     });
   }, [customRangeReady, enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
+  const currentQueryKey = customRangeReady ? buildUsageQueryKey(resolvedRange, requestStart, requestEnd) : null;
+  const currentUsage = currentQueryKey !== null && lastQueryKey === currentQueryKey ? usageSnapshot : null;
+
   return {
-    usage: usageSnapshot as UsageOverviewPayload | null,
+    usage: currentUsage as UsageOverviewPayload | null,
     loading,
     error: storeError || '',
-    lastRefreshedAt: lastRefreshedAtTs ? new Date(lastRefreshedAtTs) : null,
+    lastRefreshedAt: currentUsage && lastRefreshedAtTs ? new Date(lastRefreshedAtTs) : null,
     loadUsage,
   };
 }

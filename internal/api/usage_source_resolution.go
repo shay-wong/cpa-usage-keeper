@@ -89,7 +89,7 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 	normalizedAuthIndex := strings.TrimSpace(authIndex)
 	if normalizedAuthIndex != "" {
 		if identity, ok := r.authIdentities[normalizedAuthIndex]; ok {
-			displayName := firstNonEmptyString(identity.Name, normalizedAuthIndex)
+			displayName := safeAuthIdentityDisplayName(identity.Name, normalizedAuthIndex)
 			return usageSourceResolution{
 				DisplayName: displayName,
 				SourceType:  firstNonEmptyString(identity.Type, identity.Provider),
@@ -102,9 +102,10 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 		return usageSourceResolution{DisplayName: "-", SourceKey: "raw:-"}
 	}
 	if looksLikeEmail(normalizedSource) {
+		masked := redact.APIKeyDisplayName(normalizedSource)
 		return usageSourceResolution{
-			DisplayName: normalizedSource,
-			SourceKey:   "email:" + normalizedSource,
+			DisplayName: masked,
+			SourceKey:   "email:" + redact.APIAlias(normalizedSource),
 		}
 	}
 	if inferredProvider := inferUsageProviderType(normalizedSource); inferredProvider != "" {
@@ -119,6 +120,31 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 		DisplayName: masked,
 		SourceKey:   "raw:" + masked,
 	}
+}
+
+func safeUsageSourceDisplay(resolved usageSourceResolution, authIndex string) string {
+	if strings.TrimSpace(resolved.DisplayName) == strings.TrimSpace(authIndex) && strings.TrimSpace(authIndex) != "" {
+		return redact.APIKeyDisplayName(authIndex)
+	}
+	return resolved.DisplayName
+}
+
+func safeUsageSourceKey(resolved usageSourceResolution) string {
+	if value, ok := strings.CutPrefix(resolved.SourceKey, "auth:"); ok {
+		return "auth:" + redact.APIAlias(value)
+	}
+	return resolved.SourceKey
+}
+
+func safeAuthIdentityDisplayName(name string, fallbackIdentity string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return redact.APIKeyDisplayName(fallbackIdentity)
+	}
+	if looksLikeEmail(trimmed) || trimmed == strings.TrimSpace(fallbackIdentity) {
+		return redact.APIKeyDisplayName(trimmed)
+	}
+	return trimmed
 }
 
 func uintToString(value uint) string {

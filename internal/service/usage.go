@@ -16,16 +16,16 @@ func NewUsageService(db *gorm.DB) UsageProvider {
 	return &usageService{db: db}
 }
 
-func (s *usageService) GetUsageWithFilter(_ context.Context, filter UsageFilter) (*cpa.StatisticsSnapshot, error) {
-	return repository.BuildUsageSnapshotWithFilter(s.db, repository.UsageQueryFilter{
+func (s *usageService) GetUsageWithFilter(ctx context.Context, filter UsageFilter) (*cpa.StatisticsSnapshot, error) {
+	return repository.BuildUsageSnapshotWithFilter(s.db.WithContext(ctx), repository.UsageQueryFilter{
 		Range:     filter.Range,
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 	})
 }
 
-func (s *usageService) GetUsageOverview(_ context.Context, filter UsageFilter) (*UsageOverviewSnapshot, error) {
-	overview, err := repository.BuildUsageOverviewWithFilter(s.db, repository.UsageQueryFilter{
+func (s *usageService) GetUsageOverview(ctx context.Context, filter UsageFilter) (*UsageOverviewSnapshot, error) {
+	overview, err := repository.BuildUsageOverviewWithFilter(s.db.WithContext(ctx), repository.UsageQueryFilter{
 		Range:     filter.Range,
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
@@ -94,8 +94,8 @@ func mapUsageOverviewSeries(series repository.UsageOverviewSeriesRecord) UsageOv
 	}
 }
 
-func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) (*UsageEventsPage, error) {
-	page, err := repository.ListUsageEventsWithFilter(s.db, repository.UsageQueryFilter{
+func (s *usageService) ListUsageEvents(ctx context.Context, filter UsageFilter) (*UsageEventsPage, error) {
+	page, err := repository.ListUsageEventsWithFilter(s.db.WithContext(ctx), repository.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 		Limit:     filter.Limit,
@@ -135,8 +135,8 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter UsageFilter) (*
 	return &UsageEventsPage{Events: result, Models: page.Models, Sources: page.Sources, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
 }
 
-func (s *usageService) ListUsageEventFilterOptions(_ context.Context, filter UsageFilter) (*UsageEventFilterOptions, error) {
-	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db, repository.UsageQueryFilter{
+func (s *usageService) ListUsageEventFilterOptions(ctx context.Context, filter UsageFilter) (*UsageEventFilterOptions, error) {
+	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db.WithContext(ctx), repository.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 	})
@@ -146,8 +146,8 @@ func (s *usageService) ListUsageEventFilterOptions(_ context.Context, filter Usa
 	return &UsageEventFilterOptions{Models: options.Models, Sources: options.Sources}, nil
 }
 
-func (s *usageService) ListUsageCredentialStats(_ context.Context, filter UsageFilter) ([]UsageCredentialStat, error) {
-	rows, err := repository.ListUsageCredentialStatsWithFilter(s.db, repository.UsageQueryFilter{
+func (s *usageService) ListUsageCredentialStats(ctx context.Context, filter UsageFilter) ([]UsageCredentialStat, error) {
+	rows, err := repository.ListUsageCredentialStatsWithFilter(s.db.WithContext(ctx), repository.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 	})
@@ -166,8 +166,8 @@ func (s *usageService) ListUsageCredentialStats(_ context.Context, filter UsageF
 	return result, nil
 }
 
-func (s *usageService) GetUsageAnalysis(_ context.Context, filter UsageFilter) (*UsageAnalysisSnapshot, error) {
-	apiRows, modelRows, err := repository.ListUsageAnalysisWithFilter(s.db, repository.UsageQueryFilter{
+func (s *usageService) GetUsageAnalysis(ctx context.Context, filter UsageFilter) (*UsageAnalysisSnapshot, error) {
+	apiRows, modelRows, err := repository.ListUsageAnalysisWithFilter(s.db.WithContext(ctx), repository.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 	})

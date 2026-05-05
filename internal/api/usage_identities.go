@@ -72,6 +72,9 @@ func mapUsageIdentityResponse(item models.UsageIdentity) usageIdentityResponse {
 		identityType = safeAIProviderDisplayValue(item.Type, item.Identity, item.AuthTypeName)
 		provider = safeAIProviderDisplayValue(item.Provider, item.Identity, firstNonEmptyString(identityType, identity))
 		name = safeAIProviderDisplayValue(item.Name, item.Identity, firstNonEmptyString(provider, identityType, identity))
+	} else if item.AuthType == models.UsageIdentityAuthTypeAuthFile {
+		identity = redact.APIKeyDisplayName(item.Identity)
+		name = safeAuthIdentityDisplayName(item.Name, item.Identity)
 	}
 
 	return usageIdentityResponse{

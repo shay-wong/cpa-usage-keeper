@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -305,7 +306,7 @@ func BuildUsageSnapshotWithFilter(db *gorm.DB, filter UsageQueryFilter) (*cpa.St
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	events, err := loadUsageEventsWithFilter(db, filter)
+	events, err := loadUsageEventsWithFilter(nil, db, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +319,7 @@ func BuildUsageOverviewWithFilter(db *gorm.DB, filter UsageQueryFilter) (*UsageO
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	events, err := loadUsageEventsWithFilter(db, filter)
+	events, err := loadUsageEventsWithFilter(nil, db, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +364,10 @@ func buildUsageOverviewFromEvents(events []models.UsageEvent, filter UsageQueryF
 	return overview
 }
 
-func loadUsageEventsWithFilter(db *gorm.DB, filter UsageQueryFilter) ([]models.UsageEvent, error) {
+func loadUsageEventsWithFilter(ctx context.Context, db *gorm.DB, filter UsageQueryFilter) ([]models.UsageEvent, error) {
+	if ctx != nil {
+		db = db.WithContext(ctx)
+	}
 	query := applyUsageEventsListFilter(db.Model(&models.UsageEvent{}), filter).Order("timestamp asc")
 
 	var events []models.UsageEvent

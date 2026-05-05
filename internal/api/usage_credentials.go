@@ -63,16 +63,17 @@ func buildUsageCredentialsPayload(rows []service.UsageCredentialStat, resolver u
 	orderedKeys := make([]string, 0, len(rows))
 	for _, row := range rows {
 		resolved := resolver.resolve(row.Source, row.AuthIndex)
-		bucketKey := resolved.SourceKey
+		sourceKey := safeUsageSourceKey(resolved)
+		bucketKey := sourceKey
 		if bucketKey == "" {
-			bucketKey = resolved.DisplayName
+			bucketKey = safeUsageSourceDisplay(resolved, row.AuthIndex)
 		}
 		payload, ok := buckets[bucketKey]
 		if !ok {
 			payload = &usageCredentialPayload{
-				Source:     resolved.DisplayName,
+				Source:     safeUsageSourceDisplay(resolved, row.AuthIndex),
 				SourceType: resolved.SourceType,
-				SourceKey:  resolved.SourceKey,
+				SourceKey:  sourceKey,
 			}
 			buckets[bucketKey] = payload
 			orderedKeys = append(orderedKeys, bucketKey)

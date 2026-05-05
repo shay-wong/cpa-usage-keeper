@@ -36,6 +36,8 @@ import {
   TokenBreakdownChart,
   CostTrendChart,
   ServiceHealthCard,
+  MonitoringCenterTab,
+  useMonitoringCenterData,
   useUsageData,
   usePricingData,
   useSparklines,
@@ -91,11 +93,12 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'analysis', 'events', 'credentials', 'pricing'] as const;
+const USAGE_TAB_OPTIONS = ['overview', 'monitoring', 'analysis', 'events', 'credentials', 'pricing'] as const;
 type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
+  monitoring: 'usage_stats.tab_monitoring',
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   credentials: 'usage_stats.tab_credentials',
@@ -273,6 +276,30 @@ export const buildCustomDateRangeQuery = (range: { start: string; end: string })
   }
   return { valid: true, start: range.start, end: range.end };
 };
+
+type UsageRangeQueryState = {
+  valid: boolean;
+  start?: string;
+  end?: string;
+  errorKey?: string;
+};
+
+export const resolveUsageRangeQueryState = (range: UsageTimeRange, customRange: { start: string; end: string }): UsageRangeQueryState => {
+  if (range !== 'custom') {
+    return { valid: true, start: undefined, end: undefined, errorKey: undefined };
+  }
+  if (!customRange.start || !customRange.end) {
+    return { valid: false, start: undefined, end: undefined, errorKey: 'usage_stats.custom_incomplete' };
+  }
+  const queryWindow = buildCustomDateRangeQuery(customRange);
+  return queryWindow.valid
+    ? { valid: true, start: queryWindow.start, end: queryWindow.end, errorKey: undefined }
+    : { valid: false, start: undefined, end: undefined, errorKey: 'usage_stats.custom_invalid' };
+};
+
+export const shouldUseOverviewUsage = (queryState: UsageRangeQueryState): boolean => queryState.valid;
+
+export const resolveMonitoringQueryState = resolveUsageRangeQueryState;
 
 const buildDefaultCustomRange = (anchorMs: number) => ({
   start: toDateInputValue(anchorMs - DEFAULT_CUSTOM_WINDOW_HOURS * 60 * 60 * 1000),
@@ -478,18 +505,23 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     [t]
   );
 
-  const resolvedRangeStartMs = toTimestampMs(usage?.range_start);
-  const resolvedRangeEndMs = toTimestampMs(usage?.range_end);
+  const usageQueryState = useMemo(
+    () => resolveUsageRangeQueryState(timeRange, customTimeRange),
+    [customTimeRange, timeRange]
+  );
+  const overviewUsage = shouldUseOverviewUsage(usageQueryState) ? usage : null;
+  const resolvedRangeStartMs = toTimestampMs(overviewUsage?.range_start);
+  const resolvedRangeEndMs = toTimestampMs(overviewUsage?.range_end);
   const filterWindow = useMemo<UsageFilterWindow>(() => {
-    if (!usage) return {};
-    return resolveUsageFilterWindow(usage.usage, timeRange, {
+    if (!overviewUsage) return {};
+    return resolveUsageFilterWindow(overviewUsage.usage, timeRange, {
       nowMs: resolvedRangeEndMs ?? lastRefreshedAt?.getTime() ?? Date.now(),
       customStart:
         timeRange === 'custom' ? (resolvedRangeStartMs ?? parseCustomDateStart(customTimeRange.start)) : customTimeRange.start,
       customEnd:
         timeRange === 'custom' ? (resolvedRangeEndMs ?? parseCustomDateEnd(customTimeRange.end)) : customTimeRange.end
     });
-  }, [customTimeRange.end, customTimeRange.start, lastRefreshedAt, resolvedRangeEndMs, resolvedRangeStartMs, timeRange, usage]);
+  }, [customTimeRange.end, customTimeRange.start, lastRefreshedAt, overviewUsage, resolvedRangeEndMs, resolvedRangeStartMs, timeRange]);
 
   useEffect(() => {
     if (timeRange !== 'custom') {
@@ -634,13 +666,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [customTimeRange.end, customTimeRange.start, timeRange]);
 
   useEffect(() => {
-    if (timeRange !== 'custom') return;
-    if (customTimeRange.start && customTimeRange.end) return;
-    const anchorMs = lastRefreshedAt?.getTime() ?? Date.now();
-    setCustomTimeRange(buildDefaultCustomRange(anchorMs));
-  }, [customTimeRange.end, customTimeRange.start, lastRefreshedAt, timeRange]);
-
-  useEffect(() => {
     let controller: AbortController | null = null;
     const loadStatus = async () => {
       controller?.abort();
@@ -682,6 +707,26 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
     return buildCustomDateRangeQuery({ start: customTimeRange.start, end: customTimeRange.end });
   }, [customTimeRange.end, customTimeRange.start, timeRange]);
+
+  const monitoringQueryState = useMemo(
+    () => resolveMonitoringQueryState(timeRange, customTimeRange),
+    [customTimeRange, timeRange]
+  );
+  const monitoringFilterError = monitoringQueryState.errorKey ? t(monitoringQueryState.errorKey) : undefined;
+
+  const {
+    data: monitoringData,
+    loading: monitoringLoading,
+    error: monitoringError,
+    refresh: refreshMonitoring,
+  } = useMonitoringCenterData({
+    range: timeRange,
+    start: monitoringQueryState.start,
+    end: monitoringQueryState.end,
+    filterError: monitoringFilterError,
+    enabled: activeTab === 'monitoring',
+    onAuthRequired,
+  });
 
   const loadEventFilterOptions = useCallback(async () => {
     const optionsKey = 'stable';
@@ -839,6 +884,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired]);
 
   const refreshActiveTab = useCallback(async () => {
+    if (activeTab === 'monitoring') {
+      await refreshMonitoring();
+      return;
+    }
     if (activeTab === 'events') {
       await loadEventFilterOptions();
       await loadEvents();
@@ -857,7 +906,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     await loadUsage();
-  }, [activeTab, loadAnalysis, loadCredentials, loadEventFilterOptions, loadEvents, loadPricing, loadUsage]);
+  }, [activeTab, loadAnalysis, loadCredentials, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshMonitoring]);
 
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
@@ -994,7 +1043,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     rpmSparkline,
     tpmSparkline,
     costSparkline
-  } = useSparklines({ usage, loading });
+  } = useSparklines({ usage: overviewUsage, loading });
 
   const {
     requestsPeriod,
@@ -1005,11 +1054,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     tokensChartData,
     requestsChartOptions,
     tokensChartOptions
-  } = useChartData({ usage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
+  } = useChartData({ usage: overviewUsage, chartLines, isDark, isMobile, hourWindowHours, endMs: filterWindowEndMs });
 
   const overviewModelNames = useMemo(
-    () => getModelNamesFromUsage(usage?.usage ?? null),
-    [usage]
+    () => getModelNamesFromUsage(overviewUsage?.usage ?? null),
+    [overviewUsage]
   );
 
   useEffect(() => {
@@ -1073,7 +1122,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     [analysisData.models, modelPrices]
   );
   const hasPrices = Object.keys(modelPrices).length > 0;
-  const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(usage) });
+  const overviewDisplayLoading = getOverviewDisplayLoading({ loading, hasUsage: Boolean(overviewUsage) });
 
   return (
     <div className={styles.pageShell}>
@@ -1245,13 +1294,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             </div>
 
             {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
+            {activeTab === 'monitoring' && monitoringError && <div className={styles.errorBox}>{monitoringError === 'AUTH_REQUIRED' ? t('auth.session_expired') : monitoringError}</div>}
             {activeTab === 'pricing' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
-            {!(activeTab === 'overview' ? error : activeTab === 'pricing' ? pricingError : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
+            {!(activeTab === 'overview' ? error : activeTab === 'monitoring' ? monitoringError : activeTab === 'pricing' ? pricingError : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
 
             {activeTab === 'overview' && (
               <>
                 <StatCards
-                  usage={usage}
+                  usage={overviewUsage}
                   loading={overviewDisplayLoading}
                   sparklines={{
                     requests: requestsSparkline,
@@ -1262,7 +1312,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   }}
                 />
 
-                <ServiceHealthCard usage={usage} loading={overviewDisplayLoading} />
+                <ServiceHealthCard usage={overviewUsage} loading={overviewDisplayLoading} />
 
                 <ChartLineSelector
                   chartLines={chartLines}
@@ -1295,7 +1345,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 </div>
 
                 <TokenBreakdownChart
-                  usage={usage}
+                  usage={overviewUsage}
                   loading={overviewDisplayLoading}
                   isDark={isDark}
                   isMobile={isMobile}
@@ -1304,7 +1354,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 />
 
                 <CostTrendChart
-                  usage={usage}
+                  usage={overviewUsage}
                   loading={overviewDisplayLoading}
                   isDark={isDark}
                   isMobile={isMobile}
@@ -1312,6 +1362,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   endMs={filterWindowEndMs}
                 />
               </>
+            )}
+
+            {activeTab === 'monitoring' && !monitoringError && (
+              <MonitoringCenterTab data={monitoringData} loading={monitoringLoading} />
             )}
 
             {activeTab === 'analysis' && (

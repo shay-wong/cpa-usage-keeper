@@ -9,6 +9,7 @@ export { RequestEventsDetailsCard } from './RequestEventsDetailsCard';
 export { TokenBreakdownChart } from './TokenBreakdownChart';
 export { CostTrendChart } from './CostTrendChart';
 export { ServiceHealthCard } from './ServiceHealthCard';
+export { MonitoringCenterTab, useMonitoringCenterData } from './monitoring';
 export { useUsageData } from './hooks/useUsageData';
 export { usePricingData } from './hooks/usePricingData';
 export { useSparklines } from './hooks/useSparklines';

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getTimeRangeOptions, getUsageTabOptions, refreshPageData, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, syncCpaData } from './UsagePage';
+import { buildCustomDateRangeQuery, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getTimeRangeOptions, getUsageTabOptions, refreshPageData, resolveMonitoringQueryState, resolveUsageRangeQueryState, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldUseOverviewUsage, syncCpaData } from './UsagePage';
 import { ApiError } from '@/lib/api';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
 import type { StatusResponse, UsageSnapshot } from '@/lib/types';
@@ -242,12 +242,40 @@ describe('UsagePage custom date query', () => {
     });
   });
 
-  it('rejects rollover calendar dates before sending them to the backend', () => {
-    expect(buildCustomDateRangeQuery({ start: '2026-02-31', end: '2026-03-31' })).toEqual({
+  it('keeps invalid custom range visible as a monitoring filter error', () => {
+    expect(resolveMonitoringQueryState('custom', { start: '2026-04-22', end: '2026-04-21' })).toEqual({
       valid: false,
       start: undefined,
       end: undefined,
+      errorKey: 'usage_stats.custom_invalid',
     });
+  });
+
+  it('keeps incomplete custom range visible as a monitoring filter error', () => {
+    expect(resolveMonitoringQueryState('custom', { start: '2026-04-22', end: '' })).toEqual({
+      valid: false,
+      start: undefined,
+      end: undefined,
+      errorKey: 'usage_stats.custom_incomplete',
+    });
+  });
+
+  it('prevents Overview from using stale data for incomplete custom range', () => {
+    const queryState = resolveUsageRangeQueryState('custom', { start: '2026-04-22', end: '' });
+
+    expect(shouldUseOverviewUsage(queryState)).toBe(false);
+  });
+
+  it('prevents Overview from using stale data for invalid custom range', () => {
+    const queryState = resolveUsageRangeQueryState('custom', { start: '2026-04-22', end: '2026-04-21' });
+
+    expect(shouldUseOverviewUsage(queryState)).toBe(false);
+  });
+
+  it('allows Overview to use data for valid custom range', () => {
+    const queryState = resolveUsageRangeQueryState('custom', { start: '2026-04-21', end: '2026-04-22' });
+
+    expect(shouldUseOverviewUsage(queryState)).toBe(true);
   });
 });
 
@@ -275,6 +303,7 @@ describe('UsagePage tab labels', () => {
 
     expect(labels).toEqual([
       'translated:usage_stats.tab_overview',
+      'translated:usage_stats.tab_monitoring',
       'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_events',
       'translated:usage_stats.tab_credentials',

@@ -26,6 +26,8 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndDeletedRows(t *testing.T) {
 	statsUpdatedAt := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
 	createdAt := time.Date(2026, 5, 3, 8, 0, 0, 0, time.UTC)
 	updatedAt := time.Date(2026, 5, 4, 10, 30, 0, 0, time.UTC)
+	authFileIdentity := "2"
+	maskedAuthFileIdentity := redact.APIKeyDisplayName(authFileIdentity)
 	deletedAt := time.Date(2026, 5, 4, 11, 0, 0, 0, time.UTC)
 
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{
@@ -34,7 +36,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndDeletedRows(t *testing.T) {
 			Name:                       "Claude Desktop",
 			AuthType:                   models.UsageIdentityAuthTypeAuthFile,
 			AuthTypeName:               "oauth",
-			Identity:                   "2",
+			Identity:                   authFileIdentity,
 			Type:                       "auth-file",
 			Provider:                   "anthropic",
 			TotalRequests:              10,
@@ -75,8 +77,8 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndDeletedRows(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if !contains(body, `"identities":[`) || !contains(body, `"id":1`) || !contains(body, `"identity":"2"`) {
-		t.Fatalf("expected auth file identity row in response, got %s", body)
+	if !contains(body, `"identities":[`) || !contains(body, `"id":1`) || !contains(body, `"identity":"`+maskedAuthFileIdentity+`"`) {
+		t.Fatalf("expected masked auth file identity row in response, got %s", body)
 	}
 	for _, expected := range []string{
 		`"name":"Claude Desktop"`,
@@ -102,6 +104,29 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndDeletedRows(t *testing.T) {
 		if !contains(body, expected) {
 			t.Fatalf("expected %s in response body: %s", expected, body)
 		}
+	}
+}
+
+func TestUsageIdentitiesRouteMasksAuthFileEmailIdentity(t *testing.T) {
+	rawEmail := "user@example.com"
+	rawIdentity := "auth-secret"
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{
+		{ID: 1, Name: rawEmail, AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: rawIdentity, Type: "claude", Provider: "Claude"},
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
+	}
+	if contains(body, rawEmail) || contains(body, rawIdentity) {
+		t.Fatalf("expected raw auth file email and identity to be hidden, got %s", body)
+	}
+	if !contains(body, `"name":"`+redact.APIKeyDisplayName(rawEmail)+`"`) || !contains(body, `"identity":"`+redact.APIKeyDisplayName(rawIdentity)+`"`) {
+		t.Fatalf("expected masked auth file identity values in response body: %s", body)
 	}
 }
 

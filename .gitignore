@@ -44,3 +44,6 @@ lerna-debug.log*
 *.njsproj
 *.sln
 *.sw?
+.omc
+.playwright-mcp
+.playwright-cli

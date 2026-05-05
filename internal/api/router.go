@@ -87,6 +87,7 @@ func NewRouter(
 	registerStatusRoutes(protected, statusProvider)
 	registerSyncRoutes(protected, statusProvider, &syncLimiter{window: manualSyncRateLimitWindow})
 	registerUsageOverviewRoute(protected, usageProvider)
+	registerUsageMonitoringRoute(protected, usageProvider, usageIdentityProvider)
 	registerUsageAnalysisRoute(protected, usageProvider)
 	registerUsageEventsRoute(protected, usageProvider, usageIdentityProvider)
 	registerUsageCredentialsRoute(protected, usageProvider, usageIdentityProvider)

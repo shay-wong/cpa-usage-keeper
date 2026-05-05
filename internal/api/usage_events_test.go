@@ -102,8 +102,8 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if contains(body, `"source_type"`) || !contains(body, `"source_key":"provider:OpenAI Mirror"`) {
 		t.Fatalf("expected provider source key from usage event provider only, got %s", body)
 	}
-	if !contains(body, `"auth_index":"2"`) {
-		t.Fatalf("expected auth index in response body: %s", body)
+	if contains(body, `"auth_index"`) {
+		t.Fatalf("expected auth index to be omitted from response body: %s", body)
 	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)
@@ -116,6 +116,62 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if provider.lastFilter.StartTime == nil || provider.lastFilter.EndTime == nil {
 		t.Fatalf("expected resolved time bounds in filter, got %+v", provider.lastFilter)
+	}
+}
+
+func TestUsageEventsRedactsAuthAndRawSources(t *testing.T) {
+	rawEmail := "user@example.com"
+	rawAuthIndex := "auth-secret"
+	rawAPIKey := "sk-live-secret-value"
+	provider := &usageEventsStub{events: []service.UsageEventRecord{
+		{ID: 1, Timestamp: time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC), Model: "claude-sonnet", AuthType: "oauth", Source: rawEmail, AuthIndex: rawAuthIndex, Failed: false},
+		{ID: 2, Timestamp: time.Date(2026, 4, 22, 11, 1, 0, 0, time.UTC), Model: "gpt-5", Source: rawAPIKey, Failed: true},
+	}}
+	identities := usageIdentitiesStub{items: []models.UsageIdentity{{ID: 7, Name: rawEmail, AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: rawAuthIndex, Type: "claude", Provider: "Claude", TotalRequests: 2}}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", identities)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
+	}
+	if contains(body, rawEmail) || contains(body, rawAuthIndex) || contains(body, rawAPIKey) || contains(body, `"auth_index"`) {
+		t.Fatalf("expected raw auth/source values to be hidden, got %s", body)
+	}
+	if !contains(body, `"source_key":"auth:redacted_api_`) || !contains(body, `"source":"openai"`) || !contains(body, `"source_key":"provider:fallback:openai"`) {
+		t.Fatalf("expected redacted auth and inferred provider event sources, got %s", body)
+	}
+}
+
+
+func TestUsageEventsRedactsSensitiveProviderValue(t *testing.T) {
+	rawProvider := "OpenAI sk-live-secret-value"
+	provider := &usageEventsStub{events: []service.UsageEventRecord{{
+		ID:        77,
+		Timestamp: time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC),
+		Model:     "gpt-5",
+		AuthType:  "apikey",
+		Provider:  rawProvider,
+		Failed:    false,
+	}}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
+	}
+	if contains(body, rawProvider) || contains(body, `sk-live-secret-value`) {
+		t.Fatalf("expected sensitive provider value to be hidden, got %s", body)
+	}
+	if !contains(body, `"source":"`) || !contains(body, `"source_key":"provider:`) {
+		t.Fatalf("expected sanitized provider source in response body: %s", body)
 	}
 }
 
@@ -144,8 +200,9 @@ func TestUsageEventsPassesPaginationAndProviderSourceFilter(t *testing.T) {
 
 func TestUsageEventsPassesAuthSourceFilter(t *testing.T) {
 	provider := &usageEventsStub{eventsPage: &service.UsageEventsPage{Events: []service.UsageEventRecord{}, TotalCount: 0, Page: 1, PageSize: 100, TotalPages: 0}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?source=auth:2", nil)
+	identities := usageIdentitiesStub{items: []models.UsageIdentity{{ID: 1, Name: "Auth User", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-1", Type: "claude", Provider: "Claude"}}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", identities)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events?source=auth:id:1", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
@@ -153,7 +210,7 @@ func TestUsageEventsPassesAuthSourceFilter(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	if provider.lastFilter.AuthType != "oauth" || provider.lastFilter.AuthIndex != "2" || provider.lastFilter.Source != "2" {
+	if provider.lastFilter.AuthType != "oauth" || provider.lastFilter.AuthIndex != "auth-1" || provider.lastFilter.Source != "auth-1" {
 		t.Fatalf("expected auth source filter to be translated, got %+v", provider.lastFilter)
 	}
 }
@@ -200,7 +257,7 @@ func TestUsageEventsReturnsFilterOptions(t *testing.T) {
 	if !contains(body, `"models":["claude-sonnet","gpt-5"]`) {
 		t.Fatalf("expected model filter options, got %s", body)
 	}
-	if !contains(body, `"sources":[`) || !contains(body, `"value":"auth:auth-1"`) || !contains(body, `"label":"Auth User"`) || !contains(body, `"value":"provider:Provider A"`) || !contains(body, `"label":"Provider A"`) {
+	if !contains(body, `"sources":[`) || !contains(body, `"value":"auth:id:3"`) || !contains(body, `"label":"Auth User"`) || !contains(body, `"value":"provider:Provider A"`) || !contains(body, `"label":"Provider A"`) {
 		t.Fatalf("expected prefixed source filter options, got %s", body)
 	}
 	if contains(body, `"value":"source-a"`) || contains(body, `"value":"source-b"`) || contains(body, `"provider:1"`) || contains(body, `"provider:2"`) || contains(body, `sk-source-prefix`) {
@@ -232,7 +289,7 @@ func TestUsageEventFilterOptionsReturnsStableModelsAndSources(t *testing.T) {
 	if !contains(body, `"models":["claude-sonnet","gpt-5"]`) {
 		t.Fatalf("expected stable model filter options, got %s", body)
 	}
-	if !contains(body, `"sources":[`) || !contains(body, `"value":"auth:auth-1"`) || !contains(body, `"label":"Auth User"`) || !contains(body, `"value":"provider:Provider A"`) || !contains(body, `"label":"Provider A"`) {
+	if !contains(body, `"sources":[`) || !contains(body, `"value":"auth:id:3"`) || !contains(body, `"label":"Auth User"`) || !contains(body, `"value":"provider:Provider A"`) || !contains(body, `"label":"Provider A"`) {
 		t.Fatalf("expected stable prefixed source filter options, got %s", body)
 	}
 	if contains(body, `"value":"source-a"`) || contains(body, `"value":"source-b"`) || contains(body, `"provider:1"`) || contains(body, `"provider:2"`) || contains(body, `sk-source-prefix`) {
@@ -240,6 +297,33 @@ func TestUsageEventFilterOptionsReturnsStableModelsAndSources(t *testing.T) {
 	}
 	if contains(body, `Zero Request User`) || contains(body, `Zero Provider`) || contains(body, `auth-zero`) || contains(body, `source-zero`) {
 		t.Fatalf("expected zero-request source filter options to be omitted, got %s", body)
+	}
+}
+
+func TestUsageCredentialsRedactsAuthSourceKey(t *testing.T) {
+	rawAuthIndex := "auth-secret"
+	provider := &usageEventsStub{credentialStats: []service.UsageCredentialStat{{
+		Source:       "user@example.com",
+		AuthIndex:    rawAuthIndex,
+		Failed:       false,
+		RequestCount: 2,
+	}}}
+	identities := usageIdentitiesStub{items: []models.UsageIdentity{{ID: 9, Name: "user@example.com", AuthType: models.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: rawAuthIndex, Type: "claude", Provider: "Claude"}}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", identities)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/credentials?range=24h", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
+	}
+	if contains(body, rawAuthIndex) || contains(body, `"source_key":"auth:`+rawAuthIndex+`"`) {
+		t.Fatalf("expected auth credential source key to be redacted, got %s", body)
+	}
+	if !contains(body, `"source_key":"auth:redacted_api_`) {
+		t.Fatalf("expected redacted auth source key, got %s", body)
 	}
 }
 
