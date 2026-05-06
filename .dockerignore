@@ -17,6 +17,16 @@ backups/
 # frontend deps and build cache
 web/node_modules/
 web/dist/
+web/dist-ssr/
 
 # docs / temp
 .tmp-test.db
+
+.claude/
+.omc/
+.playwright-mcp/
+.playwright-cli/
+.vscode/
+.idea/
+logs/
+*.log
