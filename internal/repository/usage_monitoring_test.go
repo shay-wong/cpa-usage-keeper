@@ -59,6 +59,45 @@ func TestListUsageMonitoringRecentRequestsWithFilterReturnsRowsPerTarget(t *test
 	}
 }
 
+func TestListUsageMonitoringStatsWithFilterParsesAggregateTimestamps(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-aggregate-time.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	base := time.Date(2026, 4, 22, 11, 0, 0, 123000000, time.UTC)
+	events := []models.UsageEvent{
+		{EventKey: "event-a-old", Source: "source-a", AuthIndex: "1", Model: "claude-sonnet", Timestamp: base, Failed: false, TotalTokens: 10},
+		{EventKey: "event-a-new-failed", Source: "source-a", AuthIndex: "1", Model: "claude-sonnet", Timestamp: base.Add(time.Minute), Failed: true, TotalTokens: 20},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	channels, channelModels, err := ListUsageMonitoringChannelStatsWithFilter(context.Background(), db, UsageQueryFilter{})
+	if err != nil {
+		t.Fatalf("ListUsageMonitoringChannelStatsWithFilter returned error: %v", err)
+	}
+	if len(channels) != 1 || len(channelModels) != 1 {
+		t.Fatalf("expected one channel and model row, got channels=%+v models=%+v", channels, channelModels)
+	}
+	if !channels[0].LastRequestTime.Equal(base.Add(time.Minute)) || !channelModels[0].LastRequestTime.Equal(base.Add(time.Minute)) {
+		t.Fatalf("expected aggregate last request times to parse, got channel=%s model=%s", channels[0].LastRequestTime, channelModels[0].LastRequestTime)
+	}
+
+	failures, failureModels, err := ListUsageMonitoringFailureStatsWithFilter(context.Background(), db, UsageQueryFilter{})
+	if err != nil {
+		t.Fatalf("ListUsageMonitoringFailureStatsWithFilter returned error: %v", err)
+	}
+	if len(failures) != 1 || len(failureModels) != 1 {
+		t.Fatalf("expected one failure and model row, got failures=%+v models=%+v", failures, failureModels)
+	}
+	if !failures[0].LastFailTime.Equal(base.Add(time.Minute)) || !failureModels[0].LastTimestamp.Equal(base.Add(time.Minute)) {
+		t.Fatalf("expected aggregate failure times to parse, got failure=%s model=%s", failures[0].LastFailTime, failureModels[0].LastTimestamp)
+	}
+}
+
 func TestListUsageMonitoringRecentRequestsWithFilterMatchesChannelRecentRequestsBySource(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-channel-source.db")})
 	if err != nil {

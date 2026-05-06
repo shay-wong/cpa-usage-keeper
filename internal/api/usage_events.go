@@ -235,7 +235,7 @@ func usageEventSourceResolution(row service.UsageEventRecord, resolver usageSour
 		return resolver.resolve(row.Source, row.AuthIndex)
 	}
 	provider := strings.TrimSpace(row.Provider)
-	if safeProvider := safeAIProviderDisplayValue(provider, strings.TrimSpace(row.Source), ""); safeProvider != "" {
+	if safeProvider := safeAIProviderDisplayValue(provider, strings.TrimSpace(row.Source), inferUsageProviderType(provider)); safeProvider != "" {
 		return usageSourceResolution{DisplayName: safeProvider, SourceKey: "provider:" + safeProvider}
 	}
 	return resolver.resolve(row.Source, row.AuthIndex)

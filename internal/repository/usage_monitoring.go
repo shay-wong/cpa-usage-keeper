@@ -4,12 +4,65 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"cpa-usage-keeper/internal/models"
 	"gorm.io/gorm"
 )
 
 const monitoringRepositoryTopListLimit = 10
+
+var usageMonitoringAggregateTimeLayouts = []string{
+	time.RFC3339Nano,
+	"2006-01-02 15:04:05.999999999-07:00",
+	"2006-01-02T15:04:05.999999999-07:00",
+	"2006-01-02 15:04:05.999999999",
+	"2006-01-02T15:04:05.999999999",
+	"2006-01-02 15:04:05",
+	"2006-01-02T15:04:05",
+}
+
+type usageMonitoringChannelStatRow struct {
+	Source          string
+	AuthIndex       string
+	TotalRequests   int64
+	SuccessRequests int64
+	FailedRequests  int64
+	TotalTokens     int64
+	InputTokens     int64
+	OutputTokens    int64
+	CachedTokens    int64
+	ReasoningTokens int64
+	LastRequestTime string
+}
+
+type usageMonitoringChannelModelStatRow struct {
+	Source          string
+	AuthIndex       string
+	Model           string
+	Requests        int64
+	Success         int64
+	Failed          int64
+	TotalTokens     int64
+	LastRequestTime string
+}
+
+type usageMonitoringFailureStatRow struct {
+	Source       string
+	AuthIndex    string
+	FailedCount  int64
+	LastFailTime string
+}
+
+type usageMonitoringFailureModelStatRow struct {
+	Source        string
+	AuthIndex     string
+	Model         string
+	Success       int64
+	Failure       int64
+	Total         int64
+	LastTimestamp string
+}
 
 func ListUsageMonitoringRecentRequestsWithFilter(ctx context.Context, db *gorm.DB, filter UsageQueryFilter, sourceTargets []UsageMonitoringSourceTargetRecord, sourceModelTargets []UsageMonitoringSourceModelTargetRecord, limit int) ([]UsageMonitoringRecentRequestRecord, error) {
 	if db == nil {
@@ -284,9 +337,13 @@ func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB,
 	channelQuery = channelQuery.Order("total_requests DESC, source ASC, auth_index ASC")
 	channelQuery = channelQuery.Limit(10)
 
-	var channels []UsageMonitoringChannelStatRecord
-	if err := channelQuery.Scan(&channels).Error; err != nil {
+	var channelRows []usageMonitoringChannelStatRow
+	if err := channelQuery.Scan(&channelRows).Error; err != nil {
 		return nil, nil, fmt.Errorf("load usage monitoring channel stats: %w", err)
+	}
+	channels, err := mapUsageMonitoringChannelStatRows(channelRows)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	models, err := listUsageMonitoringChannelModelStatsForChannels(ctx, db, filter, channels)
@@ -308,9 +365,13 @@ func ListUsageMonitoringFailureStatsWithFilter(ctx context.Context, db *gorm.DB,
 	failureQuery = failureQuery.Order("failed_count DESC, source ASC, auth_index ASC")
 	failureQuery = failureQuery.Limit(10)
 
-	var failures []UsageMonitoringFailureStatRecord
-	if err := failureQuery.Scan(&failures).Error; err != nil {
+	var failureRows []usageMonitoringFailureStatRow
+	if err := failureQuery.Scan(&failureRows).Error; err != nil {
 		return nil, nil, fmt.Errorf("load usage monitoring failure stats: %w", err)
+	}
+	failures, err := mapUsageMonitoringFailureStatRows(failureRows)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	models, err := listUsageMonitoringFailureModelStatsForFailures(ctx, db, filter, failures)
@@ -342,7 +403,7 @@ aggregated AS (
 	FROM usage_events
 	JOIN targets ON TRIM(usage_events.source) = targets.source AND TRIM(usage_events.auth_index) = targets.auth_index
 	%s
-	GROUP BY targets.target_index, source, auth_index, model
+	GROUP BY targets.target_index, TRIM(usage_events.source), TRIM(usage_events.auth_index), TRIM(usage_events.model)
 ),
 ranked AS (
 	SELECT *, ROW_NUMBER() OVER (PARTITION BY target_index ORDER BY requests DESC, model ASC) AS row_number
@@ -354,11 +415,11 @@ WHERE row_number <= ?
 ORDER BY target_index ASC, requests DESC, model ASC`, targetSQL, filterSQL)
 	args := append(targetArgs, filterArgs...)
 	args = append(args, monitoringRepositoryTopListLimit)
-	rows := []UsageMonitoringChannelModelStatRecord{}
-	if err := db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+	rowValues := []usageMonitoringChannelModelStatRow{}
+	if err := db.WithContext(ctx).Raw(query, args...).Scan(&rowValues).Error; err != nil {
 		return nil, fmt.Errorf("load usage monitoring channel model stats: %w", err)
 	}
-	return rows, nil
+	return mapUsageMonitoringChannelModelStatRows(rowValues)
 }
 
 func listUsageMonitoringFailureModelStatsForFailures(ctx context.Context, db *gorm.DB, filter UsageQueryFilter, failures []UsageMonitoringFailureStatRecord) ([]UsageMonitoringFailureModelStatRecord, error) {
@@ -382,7 +443,7 @@ aggregated AS (
 	FROM usage_events
 	JOIN targets ON TRIM(usage_events.source) = targets.source AND TRIM(usage_events.auth_index) = targets.auth_index
 	%s
-	GROUP BY targets.target_index, source, auth_index, model
+	GROUP BY targets.target_index, TRIM(usage_events.source), TRIM(usage_events.auth_index), TRIM(usage_events.model)
 	HAVING SUM(CASE WHEN usage_events.failed THEN 1 ELSE 0 END) > 0
 ),
 ranked AS (
@@ -395,11 +456,107 @@ WHERE row_number <= ?
 ORDER BY target_index ASC, failure DESC, model ASC`, targetSQL, filterSQL)
 	args := append(targetArgs, filterArgs...)
 	args = append(args, monitoringRepositoryTopListLimit)
-	rows := []UsageMonitoringFailureModelStatRecord{}
-	if err := db.WithContext(ctx).Raw(query, args...).Scan(&rows).Error; err != nil {
+	rowValues := []usageMonitoringFailureModelStatRow{}
+	if err := db.WithContext(ctx).Raw(query, args...).Scan(&rowValues).Error; err != nil {
 		return nil, fmt.Errorf("load usage monitoring failure model stats: %w", err)
 	}
-	return rows, nil
+	return mapUsageMonitoringFailureModelStatRows(rowValues)
+}
+
+func mapUsageMonitoringChannelStatRows(rows []usageMonitoringChannelStatRow) ([]UsageMonitoringChannelStatRecord, error) {
+	result := make([]UsageMonitoringChannelStatRecord, 0, len(rows))
+	for _, row := range rows {
+		lastRequestTime, err := parseUsageMonitoringAggregateTime(row.LastRequestTime)
+		if err != nil {
+			return nil, fmt.Errorf("parse usage monitoring channel last request time: %w", err)
+		}
+		result = append(result, UsageMonitoringChannelStatRecord{
+			Source:          row.Source,
+			AuthIndex:       row.AuthIndex,
+			TotalRequests:   row.TotalRequests,
+			SuccessRequests: row.SuccessRequests,
+			FailedRequests:  row.FailedRequests,
+			TotalTokens:     row.TotalTokens,
+			InputTokens:     row.InputTokens,
+			OutputTokens:    row.OutputTokens,
+			CachedTokens:    row.CachedTokens,
+			ReasoningTokens: row.ReasoningTokens,
+			LastRequestTime: lastRequestTime,
+		})
+	}
+	return result, nil
+}
+
+func mapUsageMonitoringChannelModelStatRows(rows []usageMonitoringChannelModelStatRow) ([]UsageMonitoringChannelModelStatRecord, error) {
+	result := make([]UsageMonitoringChannelModelStatRecord, 0, len(rows))
+	for _, row := range rows {
+		lastRequestTime, err := parseUsageMonitoringAggregateTime(row.LastRequestTime)
+		if err != nil {
+			return nil, fmt.Errorf("parse usage monitoring channel model last request time: %w", err)
+		}
+		result = append(result, UsageMonitoringChannelModelStatRecord{
+			Source:          row.Source,
+			AuthIndex:       row.AuthIndex,
+			Model:           row.Model,
+			Requests:        row.Requests,
+			Success:         row.Success,
+			Failed:          row.Failed,
+			TotalTokens:     row.TotalTokens,
+			LastRequestTime: lastRequestTime,
+		})
+	}
+	return result, nil
+}
+
+func mapUsageMonitoringFailureStatRows(rows []usageMonitoringFailureStatRow) ([]UsageMonitoringFailureStatRecord, error) {
+	result := make([]UsageMonitoringFailureStatRecord, 0, len(rows))
+	for _, row := range rows {
+		lastFailTime, err := parseUsageMonitoringAggregateTime(row.LastFailTime)
+		if err != nil {
+			return nil, fmt.Errorf("parse usage monitoring failure last fail time: %w", err)
+		}
+		result = append(result, UsageMonitoringFailureStatRecord{
+			Source:       row.Source,
+			AuthIndex:    row.AuthIndex,
+			FailedCount:  row.FailedCount,
+			LastFailTime: lastFailTime,
+		})
+	}
+	return result, nil
+}
+
+func mapUsageMonitoringFailureModelStatRows(rows []usageMonitoringFailureModelStatRow) ([]UsageMonitoringFailureModelStatRecord, error) {
+	result := make([]UsageMonitoringFailureModelStatRecord, 0, len(rows))
+	for _, row := range rows {
+		lastTimestamp, err := parseUsageMonitoringAggregateTime(row.LastTimestamp)
+		if err != nil {
+			return nil, fmt.Errorf("parse usage monitoring failure model last timestamp: %w", err)
+		}
+		result = append(result, UsageMonitoringFailureModelStatRecord{
+			Source:        row.Source,
+			AuthIndex:     row.AuthIndex,
+			Model:         row.Model,
+			Success:       row.Success,
+			Failure:       row.Failure,
+			Total:         row.Total,
+			LastTimestamp: lastTimestamp,
+		})
+	}
+	return result, nil
+}
+
+func parseUsageMonitoringAggregateTime(value string) (time.Time, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return time.Time{}, fmt.Errorf("empty timestamp")
+	}
+	for _, layout := range usageMonitoringAggregateTimeLayouts {
+		parsed, err := time.Parse(layout, trimmed)
+		if err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid timestamp %q", trimmed)
 }
 
 func channelRowsToSourceTargets(rows []UsageMonitoringChannelStatRecord) []UsageMonitoringSourceTargetRecord {
