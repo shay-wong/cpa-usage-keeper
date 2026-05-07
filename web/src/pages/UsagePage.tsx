@@ -14,7 +14,7 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageEventFilterOptions, fetchUsageEvents, fetchUsageIdentities } from '@/lib/api';
+import { ApiError, fetchStatus, fetchUsageAnalysis, fetchUsageEventFilterOptions, fetchUsageEvents, fetchUsageIdentities, triggerSync } from '@/lib/api';
 import type { StatusResponse, UsageAnalysisResponse, UsageEvent, UsageIdentity, UsageSourceFilterOption } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
@@ -97,7 +97,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
 const USAGE_TAB_OPTIONS = ['overview', 'monitoring', 'analysis', 'events', 'credentials', 'pricing'] as const;
-type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
+export type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
 const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
   overview: 'usage_stats.tab_overview',
@@ -490,6 +490,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsResultFilter, setEventsResultFilter] = useState(ALL_REQUEST_EVENTS_FILTER);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
+  const [manualSyncLoading, setManualSyncLoading] = useState(false);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const [credentialsLoading, setCredentialsLoading] = useState(false);
   const [credentialsError, setCredentialsError] = useState('');
@@ -511,7 +512,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       })),
     [t]
   );
-
   const usageQueryState = useMemo(
     () => resolveUsageRangeQueryState(timeRange, customTimeRange),
     [customTimeRange, timeRange]
@@ -910,6 +910,29 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     await loadUsage();
   }, [activeTab, loadAnalysis, loadCredentials, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshMonitoring]);
 
+  const handleManualSync = useCallback(async () => {
+    setManualSyncLoading(true);
+    try {
+      await syncCpaData({
+        triggerBackendSync: triggerSync,
+        refreshActiveTab,
+        refreshStatus: fetchStatus,
+        onStatus: (nextStatus) => {
+          setStatus(nextStatus);
+          setStatusError(nextStatus.last_error || '');
+        },
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setStatusError(error instanceof Error ? error.message : t('notification.refresh_failed'));
+    } finally {
+      setManualSyncLoading(false);
+    }
+  }, [onAuthRequired, refreshActiveTab, t]);
+
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
     try {
@@ -1158,6 +1181,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 );
               })}
             </div>
+            <div className={styles.syncSwitcher} role="group" aria-label={t('usage_stats.sync_now')}>
+              <button
+                type="button"
+                className={styles.syncPill}
+                onClick={() => void handleManualSync().catch(() => {})}
+                disabled={manualSyncLoading || manualRefreshLoading}
+                title={t('usage_stats.sync_now')}
+              >
+                {manualSyncLoading ? t('common.loading') : t('usage_stats.sync_now')}
+              </button>
+            </div>
           </div>
         </header>
 
@@ -1263,7 +1297,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   size="sm"
                   onClick={() => void handleManualRefresh().catch(() => {})}
                   loading={manualRefreshLoading}
-                  disabled={manualRefreshLoading}
+                  disabled={manualRefreshLoading || manualSyncLoading}
                   className={styles.refreshButton}
                 >
                   <IconRefreshCw size={14} />
@@ -1273,9 +1307,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             </div>
 
             {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
-            {activeTab === 'monitoring' && monitoringError && <div className={styles.errorBox}>{monitoringError === 'AUTH_REQUIRED' ? t('auth.session_expired') : monitoringError}</div>}
             {activeTab === 'pricing' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
-            {!(activeTab === 'overview' ? error : activeTab === 'monitoring' ? monitoringError : activeTab === 'pricing' ? pricingError : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
+            {!(activeTab === 'overview' ? error : activeTab === 'pricing' ? pricingError : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
 
             {activeTab === 'overview' && (
               <>
@@ -1345,8 +1378,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </>
             )}
 
-            {activeTab === 'monitoring' && !monitoringError && (
-              <MonitoringCenterTab data={monitoringData} loading={monitoringLoading} />
+            {activeTab === 'monitoring' && (
+              <MonitoringCenterTab
+                data={monitoringData}
+                loading={monitoringLoading}
+                error={monitoringError === 'AUTH_REQUIRED' ? t('auth.session_expired') : monitoringError}
+                lastUpdatedAt={lastSyncAt}
+              />
             )}
 
             {activeTab === 'analysis' && (
