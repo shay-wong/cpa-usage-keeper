@@ -237,6 +237,39 @@ func TestUsageMonitoringRedactsAuthIdentityEmailDisplayName(t *testing.T) {
 	}
 }
 
+func TestUsageMonitoringResolvesProviderByLookupKeyAndAuthIndex(t *testing.T) {
+	requestTime := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
+	provider := &usageMonitoringStub{monitoring: &service.UsageMonitoringSnapshot{
+		KPIs: service.UsageMonitoringKPI{TotalRequests: 2},
+		ChannelStats: []service.UsageMonitoringChannelStat{{
+			Source: "sk-provider-key", AuthIndex: "codex-auth", TotalRequests: 1, SuccessRequests: 1, LastRequestTime: &requestTime,
+		}, {
+			Source: "sk-other-key", AuthIndex: "codex-auth", TotalRequests: 1, SuccessRequests: 1, LastRequestTime: &requestTime,
+		}},
+		RequestLogs: []service.UsageMonitoringRequestLog{{
+			ID: 31, Timestamp: requestTime, Model: "codex-model", Source: "sk-provider-key", AuthIndex: "codex-auth", Failed: false,
+		}, {
+			ID: 32, Timestamp: requestTime, Model: "codex-model", Source: "sk-other-key", AuthIndex: "codex-auth", Failed: false,
+		}},
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []models.UsageIdentity{{ID: 3, Name: "Codex Key", AuthType: models.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "codex-auth", Type: "codex", Provider: "Codex", LookupKey: "sk-provider-key"}}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"source":"Codex Key"`) || !contains(body, `"source_type":"codex"`) || !contains(body, `"source_key":"provider:3"`) {
+		t.Fatalf("expected codex provider resolution, got %s", body)
+	}
+	if contains(body, `"source":"openai"`) || contains(body, `"source_type":"openai"`) || contains(body, `"source_key":"provider:fallback:openai"`) {
+		t.Fatalf("expected codex provider fields only, got %s", body)
+	}
+}
+
 func TestUsageMonitoringNilProviderReturnsEmptyPayload(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=custom&start=2026-04-20&end=2026-04-21", nil)

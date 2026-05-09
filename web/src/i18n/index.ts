@@ -219,6 +219,8 @@ const resources = {
         monitoring_daily_trend_summary: '{{count}} day trend from {{start}} to {{end}}; peak {{peakDate}} with {{peakRequests}} requests and {{peakTokens}} tokens.',
         monitoring_recent_requests_count: '{{count}} recent requests',
         monitoring_recent_request_item: '{{time}} {{result}}',
+        monitoring_recent_request_buckets_count: '{{count}} recent request windows',
+        monitoring_recent_request_bucket_item: '{{start}} - {{end}} · {{success}} success / {{failed}} failed · {{total}} total',
         monitoring_channels: 'Channel Stats',
         monitoring_recent_requests: 'Recent Requests',
         monitoring_failures: 'Failure Analysis',
@@ -242,6 +244,11 @@ const resources = {
         monitoring_table_models: 'Models',
         monitoring_table_recent_status: 'Recent Status',
         monitoring_table_failed_requests: 'Failed Requests',
+        monitoring_all_sources: 'All Sources',
+        monitoring_all_models: 'All Models',
+        monitoring_all_statuses: 'All Statuses',
+        monitoring_primary_failure_models: 'Primary Failure Models',
+        monitoring_page_size: '{{count}} / page',
         last_request: 'Last Request',
         last_failure: 'Last Failure'
       }
@@ -452,6 +459,8 @@ const resources = {
         monitoring_daily_trend_summary: '{{count}} 天趋势，从 {{start}} 到 {{end}}；峰值为 {{peakDate}}，{{peakRequests}} 个请求、{{peakTokens}} 个 Token。',
         monitoring_recent_requests_count: '最近 {{count}} 个请求',
         monitoring_recent_request_item: '{{time}} {{result}}',
+        monitoring_recent_request_buckets_count: '最近 {{count}} 个请求时间段',
+        monitoring_recent_request_bucket_item: '{{start}} - {{end}} · 成功 {{success}} / 失败 {{failed}} · 总计 {{total}}',
         monitoring_channels: '渠道统计',
         monitoring_recent_requests: '最近请求',
         monitoring_failures: '失败分析',
@@ -475,6 +484,11 @@ const resources = {
         monitoring_table_models: '模型',
         monitoring_table_recent_status: '最近状态',
         monitoring_table_failed_requests: '失败请求数',
+        monitoring_all_sources: '全部来源',
+        monitoring_all_models: '全部模型',
+        monitoring_all_statuses: '全部状态',
+        monitoring_primary_failure_models: '主要失败模型',
+        monitoring_page_size: '每页 {{count}} 条',
         last_request: '最近请求',
         last_failure: '最近失败'
       }

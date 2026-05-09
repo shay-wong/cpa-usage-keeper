@@ -25,17 +25,26 @@ func newUsageSourceResolver(identities []models.UsageIdentity) usageSourceResolv
 			continue
 		}
 		key := strings.TrimSpace(identity.Identity)
-		if key == "" {
-			continue
-		}
+		lookupKey := strings.TrimSpace(identity.LookupKey)
 		switch identity.AuthType {
 		case models.UsageIdentityAuthTypeAuthFile:
-			authIdentities[key] = identity
+			if key != "" {
+				authIdentities[key] = identity
+			}
 		case models.UsageIdentityAuthTypeAIProvider:
-			providerIdentities[key] = identity
-			resolved := usageSourceResolutionFromIdentity(identity, key)
+			if key != "" {
+				providerIdentities[key] = identity
+			}
+			if lookupKey != "" {
+				providerIdentities[lookupKey] = identity
+			}
+			rawKey := firstNonEmptyString(lookupKey, key)
+			if rawKey == "" {
+				continue
+			}
+			resolved := usageSourceResolutionFromIdentity(identity, rawKey)
 			if resolved.SourceKey != "" {
-				providerRawByKey[resolved.SourceKey] = key
+				providerRawByKey[resolved.SourceKey] = rawKey
 			}
 		}
 	}
@@ -95,8 +104,15 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 		}
 	}
 
-	// provider source 没有命中时，再用 oauth/auth file 的 auth_index 解析账号身份。
+	// provider source 没有命中时，再用 AI provider 的 auth_index 解析账号身份。
 	normalizedAuthIndex := strings.TrimSpace(authIndex)
+	if normalizedAuthIndex != "" {
+		if identity, ok := r.providerIdentities[normalizedAuthIndex]; ok {
+			return usageSourceResolutionFromIdentity(identity, firstNonEmptyString(normalizedSource, normalizedAuthIndex))
+		}
+	}
+
+	// AI provider 没有命中时，再用 oauth/auth file 的 auth_index 解析账号身份。
 	if normalizedAuthIndex != "" {
 		if identity, ok := r.authIdentities[normalizedAuthIndex]; ok {
 			displayName := safeAuthIdentityDisplayName(identity.Name, normalizedAuthIndex)
@@ -194,14 +210,14 @@ func inferUsageProviderType(source string) string {
 		return "ampcode"
 	case strings.HasPrefix(value, "sk-ant-") || strings.Contains(value, "anthropic") || strings.Contains(value, "claude"):
 		return "claude"
+	case strings.Contains(value, "codex"):
+		return "codex"
 	case strings.HasPrefix(value, "sk-proj-") || strings.HasPrefix(value, "sk-") || strings.Contains(value, "openai") || strings.Contains(value, "gpt"):
 		return "openai"
 	case strings.HasPrefix(value, "aiza") || strings.Contains(value, "gemini"):
 		return "gemini"
 	case strings.Contains(value, "vertex"):
 		return "vertex"
-	case strings.Contains(value, "codex"):
-		return "codex"
 	default:
 		return ""
 	}

@@ -386,7 +386,7 @@
 .statsGrid {
   display: grid;
   gap: 20px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
 }
 
 .chartCard {
@@ -626,6 +626,67 @@
   overflow-x: auto;
 }
 
+.statsTableWrapper {
+  overflow-x: auto;
+}
+
+.statsTable {
+  min-width: 960px;
+  table-layout: fixed;
+}
+
+.statsTable th,
+.statsTable td {
+  padding: 11px 8px;
+}
+
+.channelTable th:nth-child(1),
+.channelTable td:nth-child(1) {
+  width: 16%;
+}
+
+.channelTable th:nth-child(2),
+.channelTable td:nth-child(2) {
+  width: 22%;
+}
+
+.channelTable th:nth-child(3),
+.channelTable td:nth-child(3),
+.channelTable th:nth-child(4),
+.channelTable td:nth-child(4) {
+  width: 10%;
+}
+
+.channelTable th:nth-child(5),
+.channelTable td:nth-child(5) {
+  width: 26%;
+}
+
+.channelTable th:nth-child(6),
+.channelTable td:nth-child(6) {
+  width: 16%;
+}
+
+.failureTable th:nth-child(1),
+.failureTable td:nth-child(1) {
+  width: 16%;
+}
+
+.failureTable th:nth-child(2),
+.failureTable td:nth-child(2) {
+  width: 12%;
+}
+
+.failureTable th:nth-child(3),
+.failureTable td:nth-child(3) {
+  width: 16%;
+}
+
+.failureTable th:nth-child(4),
+.failureTable td:nth-child(4) {
+  width: 56%;
+}
+
 .table {
   width: 100%;
   min-width: 880px;
@@ -655,14 +716,20 @@
 }
 
 .cellTitle {
+  overflow: hidden;
   color: var(--text-primary);
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cellMeta {
   margin-top: 2px;
+  overflow: hidden;
   color: var(--text-secondary);
   font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modelTagList {
@@ -674,27 +741,115 @@
 .modelTag {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
+  overflow: hidden;
   padding: 4px 9px;
   border: 1px solid color-mix(in srgb, var(--border-color) 56%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-primary) 58%, transparent);
   color: var(--text-secondary);
   font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelTooltipItem {
+  position: relative;
+  display: inline-flex;
+}
+
+.modelTooltipButton {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: help;
+}
+
+.modelTooltipButton:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+.modelTooltipItem:hover .statusTooltip,
+.modelTooltipButton:focus-visible + .statusTooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.failureModelTag {
+  color: #fca5a5;
+  border-color: color-mix(in srgb, #ef4444 55%, var(--border-color));
+  background: color-mix(in srgb, #7f1d1d 34%, var(--bg-primary));
 }
 
 .statusBars {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
+  max-width: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
+  white-space: nowrap;
+}
+
+.statusDotItem {
+  position: relative;
+  display: inline-flex;
+}
+
+.statusDotButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: help;
+}
+
+.statusDotButton:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+.statusTooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: max-content;
+  max-width: 220px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-primary) 96%, #111827);
+  color: var(--text-primary);
+  font-size: 11px;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(4px);
+  transition: opacity 0.14s ease, transform 0.14s ease;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgb(0 0 0 / 0.22);
+}
+
+.statusDotItem:hover .statusTooltip,
+.statusDotButton:focus-visible + .statusTooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .statusBar {
-  width: 4px;
-  height: 20px;
-  border-radius: 2px;
+  width: 6px;
+  height: 24px;
+  border-radius: 3px;
   display: inline-flex;
   box-shadow: none;
 }
@@ -745,45 +900,81 @@
   font-weight: 700;
 }
 
-.logList {
+.requestLogTable {
+  min-width: 1080px;
+}
+
+.requestLogTable th,
+.requestLogTable td {
+  padding: 14px 12px;
+}
+
+.sectionFilters {
   display: flex;
-  flex-direction: column;
   gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
 }
 
-.logItem {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 12px;
-  align-items: center;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--bg-primary) 60%, transparent);
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
-}
-
-.logMeta {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.logMeta strong,
-.logMeta span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.logMeta strong {
+.filterSelect {
+  min-width: 132px;
+  max-width: 160px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 66%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
   color: var(--text-primary);
+  font-size: 12px;
 }
 
-.logMeta span {
+.filterSelectCompact {
+  min-width: 112px;
+  max-width: 132px;
+}
+
+.pageSizeSelect {
+  min-width: 106px;
+  max-width: 122px;
+}
+
+.filterSelect:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 16%, transparent);
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 14px;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.pageButton {
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 66%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.pageButton:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--primary-color);
+}
+
+.pageButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.pageStatus {
+  min-width: 88px;
+  text-align: center;
 }
 
 .errorBox {
@@ -817,8 +1008,7 @@
     gap: 12px;
   }
 
-  .chartsGrid,
-  .statsGrid {
+  .chartsGrid {
     grid-template-columns: 1fr;
   }
 }

@@ -65,6 +65,72 @@ const HOURLY_WINDOW_OPTIONS: ReadonlyArray<{ value: HourlyWindowMode; labelKey: 
 
 const CHART_GRID_COLOR = 'rgba(148, 163, 184, 0.14)';
 const CHART_GRID_COLOR_STRONG = 'rgba(148, 163, 184, 0.18)';
+const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const REQUEST_STATUS_BUCKET_COUNT = 16;
+const REQUEST_STATUS_SINGLE_BUCKET_MS = 60_000;
+
+type RequestLogStatusFilter = '' | 'success' | 'failed';
+
+interface MonitoringSourceLike {
+  source: string;
+  source_key?: string;
+  source_type?: string;
+}
+
+interface FilterOption {
+  value: string;
+  label: string;
+}
+
+
+function compactMaskedText(value: string | undefined): string {
+  if (!value) return '';
+  const collapsedStars = value.replace(/\*{4,}/g, '***');
+  if (collapsedStars.length <= 14) return collapsedStars;
+  return `${collapsedStars.slice(0, 4)}***${collapsedStars.slice(-4)}`;
+}
+
+function resolveSourceLabel(item: MonitoringSourceLike) {
+  const compactSource = compactMaskedText(item.source || '');
+  const sourceType = String(item.source_type || '').trim();
+  const shouldShowMeta = sourceType && sourceType.toLowerCase() !== compactSource.toLowerCase();
+  return {
+    label: compactSource || sourceType || '-',
+    meta: shouldShowMeta ? sourceType : '',
+    title: [item.source, sourceType].filter(Boolean).join(' · '),
+  };
+}
+
+function getSourceFilterKey(item: MonitoringSourceLike): string {
+  return item.source_key ? `${item.source}|||${item.source_key}` : item.source;
+}
+
+function buildMoreModelsTitle(models: Array<{ model: string }>): string {
+  return models.map((model) => model.model).join(', ');
+}
+
+function buildSourceOptions(items: MonitoringSourceLike[]): FilterOption[] {
+  const options = new Map<string, string>();
+  items.forEach((item) => {
+    options.set(getSourceFilterKey(item), resolveSourceLabel(item).label);
+  });
+  return [...options.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+
+function buildModelOptions(items: Array<{ models: Array<{ model: string }> }>): FilterOption[] {
+  return [...new Set(items.flatMap((item) => item.models.map((model) => model.model)))]
+    .sort()
+    .map((model) => ({ value: model, label: model }));
+}
+
+function buildRequestLogModelOptions(items: Array<{ model: string }>): FilterOption[] {
+  return [...new Set(items.map((item) => item.model))]
+    .sort()
+    .map((model) => ({ value: model, label: model }));
+}
 
 function getChartThemeColors(isDark: boolean) {
   const rootStyles = window.getComputedStyle(document.documentElement);
@@ -228,6 +294,44 @@ function summarizeDailyTrend(items: UsageMonitoringResponse['daily_trend'], t: T
   });
 }
 
+interface RequestStatusBucket {
+  start: number;
+  end: number;
+  success: number;
+  failed: number;
+}
+
+function buildRequestStatusBuckets(requests: Array<{ timestamp: string; failed: boolean }>): RequestStatusBucket[] {
+  const parsedRequests = requests
+    .map((request) => ({ ...request, timestampMs: Date.parse(request.timestamp) }))
+    .filter((request) => Number.isFinite(request.timestampMs))
+    .sort((a, b) => a.timestampMs - b.timestampMs);
+  if (!parsedRequests.length) return [];
+
+  const firstTimestamp = parsedRequests[0].timestampMs;
+  const lastTimestamp = parsedRequests[parsedRequests.length - 1].timestampMs;
+  const spanMs = Math.max(REQUEST_STATUS_SINGLE_BUCKET_MS, lastTimestamp - firstTimestamp);
+  const bucketMs = Math.max(REQUEST_STATUS_SINGLE_BUCKET_MS, Math.ceil(spanMs / REQUEST_STATUS_BUCKET_COUNT));
+  const bucketCount = Math.max(1, Math.min(REQUEST_STATUS_BUCKET_COUNT, Math.ceil(spanMs / bucketMs) + 1));
+  const buckets = Array.from({ length: bucketCount }, (_, index) => ({
+    start: firstTimestamp + index * bucketMs,
+    end: firstTimestamp + (index + 1) * bucketMs,
+    success: 0,
+    failed: 0,
+  }));
+
+  parsedRequests.forEach((request) => {
+    const bucketIndex = Math.min(bucketCount - 1, Math.floor((request.timestampMs - firstTimestamp) / bucketMs));
+    if (request.failed) {
+      buckets[bucketIndex] = { ...buckets[bucketIndex], failed: buckets[bucketIndex].failed + 1 };
+    } else {
+      buckets[bucketIndex] = { ...buckets[bucketIndex], success: buckets[bucketIndex].success + 1 };
+    }
+  });
+
+  return buckets;
+}
+
 function RequestDots({
   requests,
   t,
@@ -239,23 +343,35 @@ function RequestDots({
   locale: string;
   timeZone?: string;
 }) {
-  if (!requests.length) {
+  const buckets = buildRequestStatusBuckets(requests);
+  if (!buckets.length) {
     return <span className={styles.muted}>-</span>;
   }
 
   return (
-    <ol className={styles.statusBars} aria-label={t('usage_stats.monitoring_recent_requests_count', { count: requests.length })}>
-      {requests.map((request, index) => (
-        <li key={`${request.timestamp}-${index}`}>
-          <span className={`${styles.statusBar} ${request.failed ? styles.statusFailed : styles.statusSuccess}`.trim()} aria-hidden="true" />
-          <span className={styles.srOnly}>
-            {t('usage_stats.monitoring_recent_request_item', {
-              time: formatDateTime(request.timestamp, locale, timeZone),
-              result: request.failed ? t('usage_stats.failure') : t('usage_stats.success'),
-            })}
-          </span>
-        </li>
-      ))}
+    <ol className={styles.statusBars} aria-label={t('usage_stats.monitoring_recent_request_buckets_count', { count: buckets.length })}>
+      {buckets.map((bucket, index) => {
+        const total = bucket.success + bucket.failed;
+        const hasFailures = bucket.failed > 0;
+        const label = t('usage_stats.monitoring_recent_request_bucket_item', {
+          start: formatDateTime(new Date(bucket.start).toISOString(), locale, timeZone),
+          end: formatDateTime(new Date(bucket.end).toISOString(), locale, timeZone),
+          success: formatFullNumber(bucket.success),
+          failed: formatFullNumber(bucket.failed),
+          total: formatFullNumber(total),
+        });
+        return (
+          <li className={styles.statusDotItem} key={`${bucket.start}-${index}`}>
+            <button className={styles.statusDotButton} type="button" title={label} aria-label={label}>
+              <span
+                className={`${styles.statusBar} ${hasFailures ? styles.statusFailed : styles.statusSuccess}`.trim()}
+                aria-hidden="true"
+              />
+            </button>
+            <span className={styles.statusTooltip} role="tooltip">{label}</span>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -277,6 +393,15 @@ export function MonitoringCenterTab({
   const chartThemeColors = useMemo(() => getChartThemeColors(isDark), [isDark]);
   const [queryInput, setQueryInput] = useState('');
   const [appliedQuery, setAppliedQuery] = useState('');
+  const [channelSourceFilter, setChannelSourceFilter] = useState('');
+  const [channelModelFilter, setChannelModelFilter] = useState('');
+  const [failureSourceFilter, setFailureSourceFilter] = useState('');
+  const [failureModelFilter, setFailureModelFilter] = useState('');
+  const [requestLogSourceFilter, setRequestLogSourceFilter] = useState('');
+  const [requestLogModelFilter, setRequestLogModelFilter] = useState('');
+  const [requestLogStatusFilter, setRequestLogStatusFilter] = useState<RequestLogStatusFilter>('');
+  const [requestLogPage, setRequestLogPage] = useState(1);
+  const [requestLogPageSize, setRequestLogPageSize] = useState<(typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]>(10);
   const [distributionMetric, setDistributionMetric] = useState<DistributionMetric>('requests');
   const [hourlyModelWindowMode, setHourlyModelWindowMode] = useState<HourlyWindowMode>('24h');
   const [hourlyModelDay, setHourlyModelDay] = useState(() => getTodayDateInputValue());
@@ -298,13 +423,12 @@ export function MonitoringCenterTab({
     : Math.max(1, data?.daily_trend.length ?? 1);
   const averageRpd = (kpis?.total_requests ?? 0) / rpdDays;
   const normalizedQuery = normalizeQuery(appliedQuery);
-
   const modelDistribution = useMemo(() => {
     const items = data?.model_distribution ?? [];
     return normalizedQuery ? items.filter((item) => includesQuery([item.model], normalizedQuery)) : items;
   }, [data?.model_distribution, normalizedQuery]);
 
-  const channelStats = useMemo(() => {
+  const baseChannelStats = useMemo(() => {
     const items = data?.channel_stats ?? [];
     return normalizedQuery
       ? items.filter((item) =>
@@ -316,7 +440,15 @@ export function MonitoringCenterTab({
       : items;
   }, [data?.channel_stats, normalizedQuery]);
 
-  const failureAnalysis = useMemo(() => {
+  const channelStats = useMemo(() => {
+    return baseChannelStats.filter((item) => {
+      if (channelSourceFilter && getSourceFilterKey(item) !== channelSourceFilter) return false;
+      if (channelModelFilter && !item.models.some((model) => model.model === channelModelFilter)) return false;
+      return true;
+    });
+  }, [baseChannelStats, channelSourceFilter, channelModelFilter]);
+
+  const baseFailureAnalysis = useMemo(() => {
     const items = data?.failure_analysis ?? [];
     return normalizedQuery
       ? items.filter((item) =>
@@ -328,12 +460,46 @@ export function MonitoringCenterTab({
       : items;
   }, [data?.failure_analysis, normalizedQuery]);
 
-  const requestLogs = useMemo(() => {
+  const failureAnalysis = useMemo(() => {
+    return baseFailureAnalysis.filter((item) => {
+      if (failureSourceFilter && getSourceFilterKey(item) !== failureSourceFilter) return false;
+      if (failureModelFilter && !item.models.some((model) => model.model === failureModelFilter)) return false;
+      return true;
+    });
+  }, [baseFailureAnalysis, failureSourceFilter, failureModelFilter]);
+
+  const baseRequestLogs = useMemo(() => {
     const items = data?.request_logs ?? [];
     return normalizedQuery
       ? items.filter((item) => includesQuery([item.source, item.source_type, item.source_key, item.model], normalizedQuery))
       : items;
   }, [data?.request_logs, normalizedQuery]);
+
+  const requestLogs = useMemo(() => {
+    return baseRequestLogs.filter((item) => {
+      if (requestLogSourceFilter && getSourceFilterKey(item) !== requestLogSourceFilter) return false;
+      if (requestLogModelFilter && item.model !== requestLogModelFilter) return false;
+      if (requestLogStatusFilter === 'success' && item.failed) return false;
+      if (requestLogStatusFilter === 'failed' && !item.failed) return false;
+      return true;
+    });
+  }, [baseRequestLogs, requestLogModelFilter, requestLogSourceFilter, requestLogStatusFilter]);
+
+  const channelSourceOptions = useMemo(() => buildSourceOptions(baseChannelStats), [baseChannelStats]);
+  const channelModelOptions = useMemo(() => buildModelOptions(baseChannelStats), [baseChannelStats]);
+  const failureSourceOptions = useMemo(() => buildSourceOptions(baseFailureAnalysis), [baseFailureAnalysis]);
+  const failureModelOptions = useMemo(() => buildModelOptions(baseFailureAnalysis), [baseFailureAnalysis]);
+  const requestLogSourceOptions = useMemo(() => buildSourceOptions(baseRequestLogs), [baseRequestLogs]);
+  const requestLogModelOptions = useMemo(() => buildRequestLogModelOptions(baseRequestLogs), [baseRequestLogs]);
+  const requestLogTotalPages = Math.max(1, Math.ceil(requestLogs.length / requestLogPageSize));
+  const currentRequestLogPage = Math.min(requestLogPage, requestLogTotalPages);
+  const pagedRequestLogs = requestLogs.slice(
+    (currentRequestLogPage - 1) * requestLogPageSize,
+    currentRequestLogPage * requestLogPageSize,
+  );
+
+
+  const resetRequestLogPage = () => setRequestLogPage(1);
 
   const hourlyModelTrend = useMemo(() => {
     const items = data?.hourly_model_trend ?? [];
@@ -1027,63 +1193,89 @@ export function MonitoringCenterTab({
             </article>
           </div>
 
-          <article className={styles.chartCard}>
-            <div className={styles.chartHeader}>
-              <div>
-                <h3 className={styles.chartTitle}>{t('usage_stats.monitoring_channels')}</h3>
-                <p className={styles.chartSubtitle}>{t('usage_stats.monitoring_recent_requests')}</p>
-              </div>
-            </div>
-
-            {channelStats.length > 0 ? (
-              <div className={styles.tableWrapper}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      <th>{t('usage_stats.source_name')}</th>
-                      <th>{t('usage_stats.monitoring_table_models')}</th>
-                      <th>{t('usage_stats.requests_count')}</th>
-                      <th>{t('usage_stats.success_rate')}</th>
-                      <th>{t('usage_stats.total_tokens')}</th>
-                      <th>{t('usage_stats.last_request')}</th>
-                      <th>{t('usage_stats.monitoring_table_recent_status')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {channelStats.map((channel) => (
-                      <tr key={channel.source_key || channel.source}>
-                        <td>
-                          <div className={styles.cellTitle}>{channel.source}</div>
-                          {channel.source_type && <div className={styles.cellMeta}>{channel.source_type}</div>}
-                        </td>
-                        <td>
-                          <div className={styles.modelTagList}>
-                            {channel.models.slice(0, 4).map((model) => (
-                              <span className={styles.modelTag} key={`${channel.source}-${model.model}`}>
-                                {model.model}
-                              </span>
-                            ))}
-                            {channel.models.length > 4 && <span className={styles.modelTag}>+{channel.models.length - 4}</span>}
-                          </div>
-                        </td>
-                        <td>{formatCompactNumber(channel.total_requests)}</td>
-                        <td className={getRateClass(channel.success_rate)}>{formatRate(channel.success_rate)}</td>
-                        <td>{formatCompactNumber(channel.total_tokens)}</td>
-                        <td>{formatDateTime(channel.last_request_time, locale, timeZone)}</td>
-                        <td>
-                          <RequestDots requests={channel.recent_requests} t={t} locale={locale} timeZone={timeZone} />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <EmptyInline message={t('usage_stats.monitoring_no_matching_data')} />
-            )}
-          </article>
-
           <div className={styles.statsGrid}>
+            <article className={styles.chartCard}>
+              <div className={styles.chartHeader}>
+                <div>
+                  <h3 className={styles.chartTitle}>{t('usage_stats.monitoring_channels')}</h3>
+                  <p className={styles.chartSubtitle}>{t('usage_stats.monitoring_recent_requests')}</p>
+                </div>
+              </div>
+
+              <div className={styles.sectionFilters}>
+                <select
+                  className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                  value={channelSourceFilter}
+                  onChange={(event) => setChannelSourceFilter(event.target.value)}
+                >
+                  <option value="">{t('usage_stats.monitoring_all_sources')}</option>
+                  {channelSourceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <select
+                  className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                  value={channelModelFilter}
+                  onChange={(event) => setChannelModelFilter(event.target.value)}
+                >
+                  <option value="">{t('usage_stats.monitoring_all_models')}</option>
+                  {channelModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {channelStats.length > 0 ? (
+                <div className={styles.statsTableWrapper}>
+                  <table className={`${styles.table} ${styles.statsTable} ${styles.channelTable}`.trim()}>
+                    <thead>
+                      <tr>
+                        <th>{t('usage_stats.source_name')}</th>
+                        <th>{t('usage_stats.monitoring_table_models')}</th>
+                        <th>{t('usage_stats.requests_count')}</th>
+                        <th>{t('usage_stats.success_rate')}</th>
+                        <th>{t('usage_stats.monitoring_table_recent_status')}</th>
+                        <th>{t('usage_stats.last_request')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {channelStats.map((channel) => {
+                        const channelLabel = resolveSourceLabel(channel);
+                        return (
+                        <tr key={channel.source_key || channel.source}>
+                          <td title={channelLabel.title}>
+                            <div className={styles.cellTitle}>{channelLabel.label}</div>
+                            {channelLabel.meta && <div className={styles.cellMeta}>{channelLabel.meta}</div>}
+                          </td>
+                          <td>
+                            <div className={styles.modelTagList}>
+                              {channel.models.slice(0, 3).map((model) => (
+                                <span className={styles.modelTag} key={`${channel.source}-${model.model}`} title={model.model}>
+                                  {model.model}
+                                </span>
+                              ))}
+                              {channel.models.length > 3 && (
+                                <span className={styles.modelTag} title={buildMoreModelsTitle(channel.models.slice(3))}>+{channel.models.length - 3}</span>
+                              )}
+                            </div>
+                          </td>
+                          <td>{formatCompactNumber(channel.total_requests)}</td>
+                          <td className={getRateClass(channel.success_rate)}>{formatRate(channel.success_rate)}</td>
+                          <td>
+                            <RequestDots requests={channel.recent_requests} t={t} locale={locale} timeZone={timeZone} />
+                          </td>
+                          <td>{formatDateTime(channel.last_request_time, locale, timeZone)}</td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyInline message={t('usage_stats.monitoring_no_matching_data')} />
+              )}
+            </article>
+
             <article className={styles.chartCard}>
               <div className={styles.chartHeader}>
                 <div>
@@ -1092,42 +1284,76 @@ export function MonitoringCenterTab({
                 </div>
               </div>
 
+              <div className={styles.sectionFilters}>
+                <select
+                  className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                  value={failureSourceFilter}
+                  onChange={(event) => setFailureSourceFilter(event.target.value)}
+                >
+                  <option value="">{t('usage_stats.monitoring_all_sources')}</option>
+                  {failureSourceOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <select
+                  className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                  value={failureModelFilter}
+                  onChange={(event) => setFailureModelFilter(event.target.value)}
+                >
+                  <option value="">{t('usage_stats.monitoring_all_models')}</option>
+                  {failureModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+
               {failureAnalysis.length > 0 ? (
-                <div className={styles.tableWrapper}>
-                  <table className={styles.table}>
+                <div className={styles.statsTableWrapper}>
+                  <table className={`${styles.table} ${styles.statsTable} ${styles.failureTable}`.trim()}>
                     <thead>
                       <tr>
                         <th>{t('usage_stats.source_name')}</th>
-                        <th>{t('usage_stats.monitoring_table_models')}</th>
                         <th>{t('usage_stats.monitoring_table_failed_requests')}</th>
                         <th>{t('usage_stats.last_failure')}</th>
+                        <th>{t('usage_stats.monitoring_primary_failure_models')}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {failureAnalysis.map((failure) => (
-                        <tr key={failure.source_key || failure.source}>
-                          <td>
-                            <div className={styles.cellTitle}>{failure.source}</div>
-                            {failure.source_type && <div className={styles.cellMeta}>{failure.source_type}</div>}
-                          </td>
-                          <td>
-                            <div className={styles.modelTagList}>
-                              {failure.models.slice(0, 4).map((model) => (
-                                <span className={styles.modelTag} key={`${failure.source}-${model.model}`}>
-                                  {model.model}
-                                </span>
-                              ))}
-                              {failure.models.length > 4 && <span className={styles.modelTag}>+{failure.models.length - 4}</span>}
-                            </div>
-                          </td>
-                          <td>
-                            <span className={`${styles.statusPill} ${styles.statusPillFailed}`.trim()}>
-                              {formatCompactNumber(failure.failed_count)}
-                            </span>
-                          </td>
-                          <td>{formatDateTime(failure.last_fail_time, locale, timeZone)}</td>
-                        </tr>
-                      ))}
+                      {failureAnalysis.map((failure) => {
+                        const visibleModels = failure.models.slice(0, 2);
+                        const failureLabel = resolveSourceLabel(failure);
+                        return (
+                          <tr key={failure.source_key || failure.source}>
+                            <td title={failureLabel.title}>
+                              <div className={styles.cellTitle}>{failureLabel.label}</div>
+                              {failureLabel.meta && <div className={styles.cellMeta}>{failureLabel.meta}</div>}
+                            </td>
+                            <td>
+                              <span className={`${styles.statusPill} ${styles.statusPillFailed}`.trim()}>
+                                {formatCompactNumber(failure.failed_count)}
+                              </span>
+                            </td>
+                            <td>{formatDateTime(failure.last_fail_time, locale, timeZone)}</td>
+                            <td>
+                              <div className={styles.modelTagList}>
+                                {visibleModels.map((model) => {
+                                  const label = `${t('usage_stats.requests_count')}: ${formatCompactNumber(model.failure)}`;
+                                  return (
+                                    <span className={styles.modelTooltipItem} key={`${failure.source}-${model.model}`}>
+                                      <button className={styles.modelTooltipButton} type="button" title={label} aria-label={label}>
+                                        <span className={`${styles.modelTag} ${styles.failureModelTag}`.trim()} aria-hidden="true">
+                                          {model.model}
+                                        </span>
+                                      </button>
+                                      <span className={styles.statusTooltip} role="tooltip">{label}</span>
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1135,37 +1361,137 @@ export function MonitoringCenterTab({
                 <EmptyInline message={normalizedQuery ? t('usage_stats.monitoring_no_matching_data') : t('usage_stats.monitoring_no_failures')} />
               )}
             </article>
-
-            <article className={styles.chartCard}>
-              <div className={styles.chartHeader}>
-                <div>
-                  <h3 className={styles.chartTitle}>{t('usage_stats.monitoring_request_logs')}</h3>
-                  <p className={styles.chartSubtitle}>{t('usage_stats.monitoring_recent_requests')}</p>
-                </div>
-              </div>
-
-              {requestLogs.length > 0 ? (
-                <div className={styles.logList}>
-                  {requestLogs.slice(0, 12).map((log) => (
-                    <div className={styles.logItem} key={log.id ?? `${log.timestamp}-${log.model}-${log.source}`}>
-                      <span className={`${styles.statusPill} ${log.failed ? styles.statusPillFailed : styles.statusPillSuccess}`.trim()}>
-                        {log.failed ? t('usage_stats.failure') : t('usage_stats.success')}
-                      </span>
-                      <div className={styles.logMeta}>
-                        <strong>{log.model}</strong>
-                        <span>{log.source}</span>
-                        <span>{formatDateTime(log.timestamp, locale, timeZone)}</span>
-                      </div>
-                      <span>{formatCompactNumber(log.tokens.total_tokens)} {t('usage_stats.tokens_count')}</span>
-                      <span>{formatDurationMs(log.latency_ms)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyInline message={t('usage_stats.monitoring_request_logs_empty')} />
-              )}
-            </article>
           </div>
+
+          <article className={styles.chartCard}>
+            <div className={styles.chartHeader}>
+              <div>
+                <h3 className={styles.chartTitle}>{t('usage_stats.monitoring_request_logs')}</h3>
+                <p className={styles.chartSubtitle}>{t('usage_stats.monitoring_recent_requests')}</p>
+              </div>
+            </div>
+
+            <div className={styles.sectionFilters}>
+              <select
+                className={styles.filterSelect}
+                value={requestLogSourceFilter}
+                onChange={(event) => {
+                  setRequestLogSourceFilter(event.target.value);
+                  resetRequestLogPage();
+                }}
+              >
+                <option value="">{t('usage_stats.monitoring_all_sources')}</option>
+                {requestLogSourceOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <select
+                className={styles.filterSelect}
+                value={requestLogModelFilter}
+                onChange={(event) => {
+                  setRequestLogModelFilter(event.target.value);
+                  resetRequestLogPage();
+                }}
+              >
+                <option value="">{t('usage_stats.monitoring_all_models')}</option>
+                {requestLogModelOptions.map((option: FilterOption) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              <select
+                className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                value={requestLogStatusFilter}
+                onChange={(event) => {
+                  setRequestLogStatusFilter(event.target.value as RequestLogStatusFilter);
+                  resetRequestLogPage();
+                }}
+              >
+                <option value="">{t('usage_stats.monitoring_all_statuses')}</option>
+                <option value="success">{t('usage_stats.success')}</option>
+                <option value="failed">{t('usage_stats.failure')}</option>
+              </select>
+            </div>
+
+            {requestLogs.length > 0 ? (
+              <>
+                <div className={styles.tableWrapper}>
+                  <table className={`${styles.table} ${styles.requestLogTable}`.trim()}>
+                    <thead>
+                      <tr>
+                        <th>{t('usage_stats.source_name')}</th>
+                        <th>{t('usage_stats.model_name')}</th>
+                        <th>{t('usage_stats.result')}</th>
+                        <th>{t('usage_stats.input_tokens')}</th>
+                        <th>{t('usage_stats.output_tokens')}</th>
+                        <th>{t('usage_stats.tokens_count')}</th>
+                        <th>{t('usage_stats.latency')}</th>
+                        <th>{t('usage_stats.last_request')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagedRequestLogs.map((log) => {
+                        const logLabel = resolveSourceLabel(log);
+                        return (
+                        <tr key={log.id ?? `${log.timestamp}-${log.model}-${log.source}`}>
+                          <td title={logLabel.title}>
+                            <div className={styles.cellTitle}>{logLabel.label}</div>
+                            {logLabel.meta && <div className={styles.cellMeta}>{logLabel.meta}</div>}
+                          </td>
+                          <td>{log.model}</td>
+                          <td>
+                            <span className={`${styles.statusPill} ${log.failed ? styles.statusPillFailed : styles.statusPillSuccess}`.trim()}>
+                              {log.failed ? t('usage_stats.failure') : t('usage_stats.success')}
+                            </span>
+                          </td>
+                          <td>{formatCompactNumber(log.tokens.input_tokens)}</td>
+                          <td>{formatCompactNumber(log.tokens.output_tokens)}</td>
+                          <td>{formatCompactNumber(log.tokens.total_tokens)}</td>
+                          <td>{formatDurationMs(log.latency_ms)}</td>
+                          <td>{formatDateTime(log.timestamp, locale, timeZone)}</td>
+                        </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className={styles.pagination}>
+                  <select
+                    className={`${styles.filterSelect} ${styles.pageSizeSelect}`.trim()}
+                    value={String(requestLogPageSize)}
+                    onChange={(event) => {
+                      setRequestLogPageSize(Number(event.target.value) as (typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]);
+                      resetRequestLogPage();
+                    }}
+                  >
+                    {REQUEST_LOG_PAGE_SIZE_OPTIONS.map((size) => (
+                      <option key={size} value={String(size)}>{t('usage_stats.monitoring_page_size', { count: size })}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className={styles.pageButton}
+                    disabled={currentRequestLogPage <= 1}
+                    onClick={() => setRequestLogPage((page) => Math.max(1, page - 1))}
+                  >
+                    {t('usage_stats.request_events_previous_page')}
+                  </button>
+                  <span className={styles.pageStatus}>
+                    {t('usage_stats.request_events_page_label', { page: currentRequestLogPage, totalPages: requestLogTotalPages })}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.pageButton}
+                    disabled={currentRequestLogPage >= requestLogTotalPages}
+                    onClick={() => setRequestLogPage((page) => Math.min(requestLogTotalPages, page + 1))}
+                  >
+                    {t('usage_stats.request_events_next_page')}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <EmptyInline message={t('usage_stats.monitoring_request_logs_empty')} />
+            )}
+          </article>
         </>
       ) : null}
     </section>
