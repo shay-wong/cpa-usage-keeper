@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/config"
-	"cpa-usage-keeper/internal/models"
+	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository/dto"
 )
 
 func TestListUsageMonitoringRecentRequestsWithFilterReturnsRowsPerTarget(t *testing.T) {
@@ -18,7 +19,7 @@ func TestListUsageMonitoringRecentRequestsWithFilterReturnsRowsPerTarget(t *test
 	closeTestDatabase(t, db)
 
 	base := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
-	events := []models.UsageEvent{
+	events := []entities.UsageEvent{
 		{EventKey: "event-a-model-empty-auth", Source: " source-a ", AuthIndex: "", Model: " claude-sonnet ", Timestamp: base.Add(6 * time.Minute), Failed: false, TotalTokens: 15},
 		{EventKey: "event-a-new", Source: "source-a", AuthIndex: "1", Model: "claude-sonnet", Timestamp: base.Add(4 * time.Minute), Failed: false, TotalTokens: 10},
 		{EventKey: "event-b-new", Source: "source-b", AuthIndex: "2", Model: "claude-opus", Timestamp: base.Add(2 * time.Minute), Failed: false, TotalTokens: 30},
@@ -31,7 +32,7 @@ func TestListUsageMonitoringRecentRequestsWithFilterReturnsRowsPerTarget(t *test
 	rows, err := ListUsageMonitoringRecentRequestsWithFilter(
 		context.Background(),
 		db,
-		UsageQueryFilter{},
+		dto.UsageQueryFilter{},
 		[]UsageMonitoringSourceTargetRecord{{Source: "source-a", AuthIndex: "1"}, {Source: "source-b", AuthIndex: "2"}},
 		[]UsageMonitoringSourceModelTargetRecord{{Source: "source-a", AuthIndex: "1", Model: "claude-sonnet"}},
 		1,
@@ -67,7 +68,7 @@ func TestListUsageMonitoringStatsWithFilterParsesAggregateTimestamps(t *testing.
 	closeTestDatabase(t, db)
 
 	base := time.Date(2026, 4, 22, 11, 0, 0, 123000000, time.UTC)
-	events := []models.UsageEvent{
+	events := []entities.UsageEvent{
 		{EventKey: "event-a-old", Source: "source-a", AuthIndex: "1", Model: "claude-sonnet", Timestamp: base, Failed: false, TotalTokens: 10},
 		{EventKey: "event-a-new-failed", Source: "source-a", AuthIndex: "1", Model: "claude-sonnet", Timestamp: base.Add(time.Minute), Failed: true, TotalTokens: 20},
 	}
@@ -75,7 +76,7 @@ func TestListUsageMonitoringStatsWithFilterParsesAggregateTimestamps(t *testing.
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	channels, channelModels, err := ListUsageMonitoringChannelStatsWithFilter(context.Background(), db, UsageQueryFilter{})
+	channels, channelModels, err := ListUsageMonitoringChannelStatsWithFilter(context.Background(), db, dto.UsageQueryFilter{})
 	if err != nil {
 		t.Fatalf("ListUsageMonitoringChannelStatsWithFilter returned error: %v", err)
 	}
@@ -86,7 +87,7 @@ func TestListUsageMonitoringStatsWithFilterParsesAggregateTimestamps(t *testing.
 		t.Fatalf("expected aggregate last request times to parse, got channel=%s model=%s", channels[0].LastRequestTime, channelModels[0].LastRequestTime)
 	}
 
-	failures, failureModels, err := ListUsageMonitoringFailureStatsWithFilter(context.Background(), db, UsageQueryFilter{})
+	failures, failureModels, err := ListUsageMonitoringFailureStatsWithFilter(context.Background(), db, dto.UsageQueryFilter{})
 	if err != nil {
 		t.Fatalf("ListUsageMonitoringFailureStatsWithFilter returned error: %v", err)
 	}
@@ -106,7 +107,7 @@ func TestListUsageMonitoringRecentRequestsWithFilterMatchesChannelRecentRequests
 	closeTestDatabase(t, db)
 
 	base := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
-	events := []models.UsageEvent{
+	events := []entities.UsageEvent{
 		{EventKey: "event-a-empty-auth", Source: " source-a ", AuthIndex: "", Model: " claude-sonnet ", Timestamp: base.Add(4 * time.Minute), Failed: false, TotalTokens: 10},
 		{EventKey: "event-a-other-auth", Source: "source-a", AuthIndex: "other", Model: "claude-opus", Timestamp: base.Add(3 * time.Minute), Failed: true, TotalTokens: 20},
 		{EventKey: "event-a-target-auth", Source: "source-a", AuthIndex: "1", Model: "claude-haiku", Timestamp: base.Add(2 * time.Minute), Failed: false, TotalTokens: 25},
@@ -119,7 +120,7 @@ func TestListUsageMonitoringRecentRequestsWithFilterMatchesChannelRecentRequests
 	rows, err := ListUsageMonitoringRecentRequestsWithFilter(
 		context.Background(),
 		db,
-		UsageQueryFilter{},
+		dto.UsageQueryFilter{},
 		[]UsageMonitoringSourceTargetRecord{{Source: "source-a", AuthIndex: "1"}},
 		nil,
 		2,

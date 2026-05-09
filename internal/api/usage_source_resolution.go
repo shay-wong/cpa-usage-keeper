@@ -4,20 +4,20 @@ import (
 	"strconv"
 	"strings"
 
-	"cpa-usage-keeper/internal/models"
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/redact"
 )
 
 type usageSourceResolver struct {
-	authIdentities     map[string]models.UsageIdentity
-	providerIdentities map[string]models.UsageIdentity
+	authIdentities     map[string]entities.UsageIdentity
+	providerIdentities map[string]entities.UsageIdentity
 	providerRawByKey   map[string]string
 }
 
 // newUsageSourceResolver 把活跃 usage identity 建成内存索引，供 Credentials 和事件展示快速解析 source。
-func newUsageSourceResolver(identities []models.UsageIdentity) usageSourceResolver {
-	authIdentities := make(map[string]models.UsageIdentity, len(identities))
-	providerIdentities := make(map[string]models.UsageIdentity, len(identities))
+func newUsageSourceResolver(identities []entities.UsageIdentity) usageSourceResolver {
+	authIdentities := make(map[string]entities.UsageIdentity, len(identities))
+	providerIdentities := make(map[string]entities.UsageIdentity, len(identities))
 	providerRawByKey := make(map[string]string, len(identities))
 	for _, identity := range identities {
 		// resolver 索引只收录活跃身份，避免 deleted identity 影响 Credentials 和事件展示解析。
@@ -27,11 +27,11 @@ func newUsageSourceResolver(identities []models.UsageIdentity) usageSourceResolv
 		key := strings.TrimSpace(identity.Identity)
 		lookupKey := strings.TrimSpace(identity.LookupKey)
 		switch identity.AuthType {
-		case models.UsageIdentityAuthTypeAuthFile:
+		case entities.UsageIdentityAuthTypeAuthFile:
 			if key != "" {
 				authIdentities[key] = identity
 			}
-		case models.UsageIdentityAuthTypeAIProvider:
+		case entities.UsageIdentityAuthTypeAIProvider:
 			if key != "" {
 				providerIdentities[key] = identity
 			}
@@ -63,7 +63,7 @@ type usageSourceResolution struct {
 }
 
 // usageSourceResolutionFromIdentity 从 provider identity 生成前端展示名、类型和稳定 source_key。
-func usageSourceResolutionFromIdentity(item models.UsageIdentity, fallbackIdentity string) usageSourceResolution {
+func usageSourceResolutionFromIdentity(item entities.UsageIdentity, fallbackIdentity string) usageSourceResolution {
 	identityType := safeAIProviderDisplayValue(item.Type, fallbackIdentity, "")
 	displayName := firstNonEmptyString(
 		safeAIProviderDisplayValue(item.Name, fallbackIdentity, ""),
@@ -147,6 +147,26 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 		DisplayName: masked,
 		SourceKey:   "raw:" + masked,
 	}
+}
+
+func safeAIProviderDisplayValue(value string, sensitiveValue string, fallback string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return strings.TrimSpace(fallback)
+	}
+	sensitive := strings.TrimSpace(sensitiveValue)
+	if sensitive != "" && strings.Contains(trimmed, sensitive) {
+		return strings.TrimSpace(fallback)
+	}
+	if looksLikeEmail(trimmed) || looksLikeSensitiveAPIValue(trimmed) {
+		return strings.TrimSpace(fallback)
+	}
+	return trimmed
+}
+
+func looksLikeSensitiveAPIValue(value string) bool {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	return strings.Contains(lower, "sk-") || strings.HasPrefix(lower, "aiza")
 }
 
 func safeUsageSourceDisplay(resolved usageSourceResolution, authIndex string) string {

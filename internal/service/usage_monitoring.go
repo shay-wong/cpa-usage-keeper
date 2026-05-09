@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/repository"
+	repodto "cpa-usage-keeper/internal/repository/dto"
+	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
 const (
@@ -17,10 +19,10 @@ const (
 )
 
 type UsageMonitoringProvider interface {
-	GetUsageMonitoring(context.Context, UsageFilter) (*UsageMonitoringSnapshot, error)
+	GetUsageMonitoring(context.Context, servicedto.UsageFilter) (*UsageMonitoringSnapshot, error)
 }
 
-func (s *usageService) GetUsageMonitoring(ctx context.Context, filter UsageFilter) (*UsageMonitoringSnapshot, error) {
+func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto.UsageFilter) (*UsageMonitoringSnapshot, error) {
 	overview, err := s.GetUsageOverview(ctx, filter)
 	if err != nil {
 		return nil, err
@@ -37,7 +39,7 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter UsageFilte
 	if logLimit > monitoringMaxLogLimit {
 		logLimit = monitoringMaxLogLimit
 	}
-	repositoryFilter := repository.UsageQueryFilter{
+	repositoryFilter := repodto.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 	}
@@ -58,7 +60,7 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter UsageFilte
 	if err != nil {
 		return nil, err
 	}
-	recentEvents, err := repository.ListRecentUsageMonitoringEventsWithFilter(ctx, s.db, repository.UsageQueryFilter{
+	recentEvents, err := repository.ListRecentUsageMonitoringEventsWithFilter(ctx, s.db, repodto.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
 		Limit:     logLimit,
@@ -81,7 +83,7 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter UsageFilte
 	}, nil
 }
 
-func buildMonitoringKPI(overview *UsageOverviewSnapshot, analysis *UsageAnalysisSnapshot) UsageMonitoringKPI {
+func buildMonitoringKPI(overview *servicedto.UsageOverviewSnapshot, analysis *servicedto.UsageAnalysisSnapshot) UsageMonitoringKPI {
 	if overview == nil {
 		return UsageMonitoringKPI{}
 	}
@@ -106,7 +108,7 @@ func buildMonitoringKPI(overview *UsageOverviewSnapshot, analysis *UsageAnalysis
 	return kpi
 }
 
-func buildMonitoringModelDistribution(analysis *UsageAnalysisSnapshot) []UsageMonitoringModelDistributionItem {
+func buildMonitoringModelDistribution(analysis *servicedto.UsageAnalysisSnapshot) []UsageMonitoringModelDistributionItem {
 	if analysis == nil || len(analysis.Models) == 0 {
 		return []UsageMonitoringModelDistributionItem{}
 	}
@@ -134,7 +136,7 @@ func buildMonitoringModelDistribution(analysis *UsageAnalysisSnapshot) []UsageMo
 	return items
 }
 
-func buildMonitoringTrend(series UsageOverviewSeries, byDay bool) []UsageMonitoringTrendPoint {
+func buildMonitoringTrend(series servicedto.UsageOverviewSeries, byDay bool) []UsageMonitoringTrendPoint {
 	keys := sortedInt64MapKeys(series.Requests)
 	points := make([]UsageMonitoringTrendPoint, 0, len(keys))
 	for _, key := range keys {
@@ -279,7 +281,7 @@ func buildMonitoringFailureAnalysis(rows []repository.UsageMonitoringFailureStat
 	return failures
 }
 
-func buildMonitoringRequestLogs(events []repository.UsageEventRecord, limit int) []UsageMonitoringRequestLog {
+func buildMonitoringRequestLogs(events []repodto.UsageEventRecord, limit int) []UsageMonitoringRequestLog {
 	logs := make([]UsageMonitoringRequestLog, 0, len(events))
 	for _, event := range events {
 		logs = append(logs, UsageMonitoringRequestLog{

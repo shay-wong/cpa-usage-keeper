@@ -37,6 +37,7 @@ describe('CredentialStatsCard helpers', () => {
       usageIdentity({
         id: 2,
         name: 'High Provider',
+        displayName: 'High Provider(Team Prefix)',
         auth_type: 2,
         auth_type_name: 'apikey',
         identity: 'sk-a***1234',
@@ -49,7 +50,7 @@ describe('CredentialStatsCard helpers', () => {
 
     const rows = buildCredentialRows(credentials);
 
-    expect(rows.map((row) => row.displayName)).toEqual(['High Provider', 'low']);
+    expect(rows.map((row) => row.displayName)).toEqual(['High Provider(Team Prefix)', 'low']);
     expect(rows[0]).toMatchObject({
       success: 8,
       failure: 2,
@@ -58,19 +59,19 @@ describe('CredentialStatsCard helpers', () => {
     });
   });
 
-  it('prefers identity type over auth type name for the credential tag', () => {
+  it('uses credential type directly for the credential tag', () => {
     const credentials = [
       usageIdentity({
         auth_type_name: 'apikey',
         identity: 'sk-a***1234',
-        type: 'openai',
+        type: '',
         total_requests: 1,
       }),
     ] satisfies UsageIdentity[];
 
     const rows = buildCredentialRows(credentials);
 
-    expect(rows[0].type).toBe('openai');
+    expect(rows[0].type).toBe('');
   });
 
   it('omits credentials whose total request count is zero', () => {

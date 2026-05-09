@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"cpa-usage-keeper/internal/models"
+	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/repository/dto"
 	"gorm.io/gorm"
 )
 
@@ -64,7 +65,7 @@ type usageMonitoringFailureModelStatRow struct {
 	LastTimestamp string
 }
 
-func ListUsageMonitoringRecentRequestsWithFilter(ctx context.Context, db *gorm.DB, filter UsageQueryFilter, sourceTargets []UsageMonitoringSourceTargetRecord, sourceModelTargets []UsageMonitoringSourceModelTargetRecord, limit int) ([]UsageMonitoringRecentRequestRecord, error) {
+func ListUsageMonitoringRecentRequestsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter, sourceTargets []UsageMonitoringSourceTargetRecord, sourceModelTargets []UsageMonitoringSourceModelTargetRecord, limit int) ([]UsageMonitoringRecentRequestRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
@@ -125,7 +126,7 @@ func uniqueUsageMonitoringSourceModelTargets(targets []UsageMonitoringSourceMode
 	return unique
 }
 
-func listRecentMonitoringSourceRequests(ctx context.Context, db *gorm.DB, filter UsageQueryFilter, targets []UsageMonitoringSourceTargetRecord, limit int) ([]UsageMonitoringRecentRequestRecord, error) {
+func listRecentMonitoringSourceRequests(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter, targets []UsageMonitoringSourceTargetRecord, limit int) ([]UsageMonitoringRecentRequestRecord, error) {
 	if len(targets) == 0 {
 		return []UsageMonitoringRecentRequestRecord{}, nil
 	}
@@ -157,7 +158,7 @@ ORDER BY target_index ASC, timestamp DESC`, targetSQL, filterSQL)
 	return scanUsageMonitoringRecentRequests(ctx, db, query, args)
 }
 
-func listRecentMonitoringSourceModelRequests(ctx context.Context, db *gorm.DB, filter UsageQueryFilter, targets []UsageMonitoringSourceModelTargetRecord, limit int) ([]UsageMonitoringRecentRequestRecord, error) {
+func listRecentMonitoringSourceModelRequests(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter, targets []UsageMonitoringSourceModelTargetRecord, limit int) ([]UsageMonitoringRecentRequestRecord, error) {
 	if len(targets) == 0 {
 		return []UsageMonitoringRecentRequestRecord{}, nil
 	}
@@ -209,7 +210,7 @@ func buildUsageMonitoringSourceModelTargetSQL(targets []UsageMonitoringSourceMod
 	return strings.Join(parts, " UNION ALL "), args
 }
 
-func usageMonitoringRecentRequestFilterSQL(filter UsageQueryFilter) (string, []any) {
+func usageMonitoringRecentRequestFilterSQL(filter dto.UsageQueryFilter) (string, []any) {
 	conditions := []string{}
 	args := []any{}
 	if filter.StartTime != nil {
@@ -223,14 +224,6 @@ func usageMonitoringRecentRequestFilterSQL(filter UsageQueryFilter) (string, []a
 	if model := strings.TrimSpace(filter.Model); model != "" {
 		conditions = append(conditions, "TRIM(usage_events.model) = ?")
 		args = append(args, model)
-	}
-	if authType := strings.TrimSpace(filter.AuthType); authType != "" {
-		conditions = append(conditions, "TRIM(usage_events.auth_type) = ?")
-		args = append(args, authType)
-	}
-	if provider := strings.TrimSpace(filter.Provider); provider != "" {
-		conditions = append(conditions, "TRIM(usage_events.provider) = ?")
-		args = append(args, provider)
 	}
 	switch strings.TrimSpace(filter.Result) {
 	case "success":
@@ -260,41 +253,55 @@ func scanUsageMonitoringRecentRequests(ctx context.Context, db *gorm.DB, query s
 	return rows, nil
 }
 
-func ListUsageMonitoringEventsWithFilter(ctx context.Context, db *gorm.DB, filter UsageQueryFilter) ([]UsageEventRecord, error) {
+func loadUsageMonitoringEventsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter) ([]entities.UsageEvent, error) {
+	query := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
+	query = query.Order("timestamp DESC, id DESC")
+	if filter.Limit > 0 {
+		query = query.Limit(filter.Limit)
+	}
+
+	var events []entities.UsageEvent
+	if err := query.Find(&events).Error; err != nil {
+		return nil, fmt.Errorf("load usage monitoring events: %w", err)
+	}
+	return events, nil
+}
+
+func ListUsageMonitoringEventsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter) ([]dto.UsageEventRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	events, err := loadUsageEventsWithFilter(ctx, db, filter)
+	events, err := loadUsageMonitoringEventsWithFilter(ctx, db, filter)
 	if err != nil {
 		return nil, err
 	}
-	return mapUsageEventRecords(events), nil
+	return mapUsageMonitoringEventRecords(events), nil
 }
 
-func ListRecentUsageMonitoringEventsWithFilter(ctx context.Context, db *gorm.DB, filter UsageQueryFilter) ([]UsageEventRecord, error) {
+func ListRecentUsageMonitoringEventsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter) ([]dto.UsageEventRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
 	limit := filter.Limit
 	if limit <= 0 {
-		limit = DefaultUsageEventsLimit
+		limit = dto.DefaultUsageEventsLimit
 	}
-	query := applyUsageEventsListFilter(db.WithContext(ctx).Model(&models.UsageEvent{}), filter)
+	query := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
 	query = query.Order("timestamp DESC, id DESC").Limit(limit)
 
-	var events []models.UsageEvent
+	var events []entities.UsageEvent
 	if err := query.Find(&events).Error; err != nil {
 		return nil, fmt.Errorf("load recent usage monitoring events: %w", err)
 	}
-	return mapUsageEventRecords(events), nil
+	return mapUsageMonitoringEventRecords(events), nil
 }
 
-func ListUsageMonitoringHourlyModelStatsWithFilter(ctx context.Context, db *gorm.DB, filter UsageQueryFilter) ([]UsageMonitoringHourlyModelStatRecord, error) {
+func ListUsageMonitoringHourlyModelStatsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter) ([]UsageMonitoringHourlyModelStatRecord, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
-	query := applyUsageEventsListFilter(db.WithContext(ctx).Model(&models.UsageEvent{}), filter)
+	query := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
 	query = query.Select(strings.Join([]string{
 		"strftime('%Y-%m-%dT%H:00:00Z', timestamp) AS hour",
 		"TRIM(model) AS model",
@@ -313,11 +320,11 @@ func ListUsageMonitoringHourlyModelStatsWithFilter(ctx context.Context, db *gorm
 	return rows, nil
 }
 
-func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB, filter UsageQueryFilter) ([]UsageMonitoringChannelStatRecord, []UsageMonitoringChannelModelStatRecord, error) {
+func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter) ([]UsageMonitoringChannelStatRecord, []UsageMonitoringChannelModelStatRecord, error) {
 	if db == nil {
 		return nil, nil, fmt.Errorf("database is nil")
 	}
-	baseQuery := applyUsageEventsListFilter(db.WithContext(ctx).Model(&models.UsageEvent{}), filter)
+	baseQuery := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
 
 	channelQuery := baseQuery.Session(&gorm.Session{})
 	channelQuery = channelQuery.Select(strings.Join([]string{
@@ -353,11 +360,11 @@ func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB,
 	return channels, models, nil
 }
 
-func ListUsageMonitoringFailureStatsWithFilter(ctx context.Context, db *gorm.DB, filter UsageQueryFilter) ([]UsageMonitoringFailureStatRecord, []UsageMonitoringFailureModelStatRecord, error) {
+func ListUsageMonitoringFailureStatsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter) ([]UsageMonitoringFailureStatRecord, []UsageMonitoringFailureModelStatRecord, error) {
 	if db == nil {
 		return nil, nil, fmt.Errorf("database is nil")
 	}
-	baseQuery := applyUsageEventsListFilter(db.WithContext(ctx).Model(&models.UsageEvent{}), filter)
+	baseQuery := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
 
 	failureQuery := baseQuery.Session(&gorm.Session{}).Where("failed = ?", true)
 	failureQuery = failureQuery.Select("TRIM(source) AS source, TRIM(auth_index) AS auth_index, COUNT(*) AS failed_count, MAX(timestamp) AS last_fail_time")
@@ -381,7 +388,7 @@ func ListUsageMonitoringFailureStatsWithFilter(ctx context.Context, db *gorm.DB,
 	return failures, models, nil
 }
 
-func listUsageMonitoringChannelModelStatsForChannels(ctx context.Context, db *gorm.DB, filter UsageQueryFilter, channels []UsageMonitoringChannelStatRecord) ([]UsageMonitoringChannelModelStatRecord, error) {
+func listUsageMonitoringChannelModelStatsForChannels(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter, channels []UsageMonitoringChannelStatRecord) ([]UsageMonitoringChannelModelStatRecord, error) {
 	if len(channels) == 0 {
 		return []UsageMonitoringChannelModelStatRecord{}, nil
 	}
@@ -422,7 +429,7 @@ ORDER BY target_index ASC, requests DESC, model ASC`, targetSQL, filterSQL)
 	return mapUsageMonitoringChannelModelStatRows(rowValues)
 }
 
-func listUsageMonitoringFailureModelStatsForFailures(ctx context.Context, db *gorm.DB, filter UsageQueryFilter, failures []UsageMonitoringFailureStatRecord) ([]UsageMonitoringFailureModelStatRecord, error) {
+func listUsageMonitoringFailureModelStatsForFailures(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter, failures []UsageMonitoringFailureStatRecord) ([]UsageMonitoringFailureModelStatRecord, error) {
 	if len(failures) == 0 {
 		return []UsageMonitoringFailureModelStatRecord{}, nil
 	}
@@ -575,14 +582,16 @@ func failureRowsToSourceTargets(rows []UsageMonitoringFailureStatRecord) []Usage
 	return targets
 }
 
-func mapUsageEventRecords(events []models.UsageEvent) []UsageEventRecord {
-	rows := make([]UsageEventRecord, 0, len(events))
+func mapUsageMonitoringEventRecords(events []entities.UsageEvent) []dto.UsageEventRecord {
+	rows := make([]dto.UsageEventRecord, 0, len(events))
 	for _, event := range events {
-		rows = append(rows, UsageEventRecord{
+		rows = append(rows, dto.UsageEventRecord{
 			ID:              event.ID,
 			Timestamp:       event.Timestamp.UTC(),
 			APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
 			Model:           strings.TrimSpace(event.Model),
+			AuthType:        strings.TrimSpace(event.AuthType),
+			Provider:        strings.TrimSpace(event.Provider),
 			Source:          strings.TrimSpace(event.Source),
 			AuthIndex:       strings.TrimSpace(event.AuthIndex),
 			Failed:          event.Failed,

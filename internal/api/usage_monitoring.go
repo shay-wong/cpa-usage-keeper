@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/service"
+	servicedto "cpa-usage-keeper/internal/service/dto"
 	"github.com/gin-gonic/gin"
 )
 
@@ -191,10 +192,10 @@ func registerUsageMonitoringRoute(
 	})
 }
 
-func parseUsageMonitoringFilterQuery(req *http.Request, anchor time.Time) (service.UsageFilter, error) {
+func parseUsageMonitoringFilterQuery(req *http.Request, anchor time.Time) (servicedto.UsageFilter, error) {
 	filter, err := parseUsageTimeFilterQuery(req, anchor)
 	if err != nil {
-		return service.UsageFilter{}, err
+		return servicedto.UsageFilter{}, err
 	}
 	logLimitValue := strings.TrimSpace(req.URL.Query().Get("log_limit"))
 	if logLimitValue == "" {
@@ -202,13 +203,13 @@ func parseUsageMonitoringFilterQuery(req *http.Request, anchor time.Time) (servi
 	}
 	logLimit, err := strconv.Atoi(logLimitValue)
 	if err != nil || logLimit <= 0 {
-		return service.UsageFilter{}, fmt.Errorf("invalid log_limit %q", logLimitValue)
+		return servicedto.UsageFilter{}, fmt.Errorf("invalid log_limit %q", logLimitValue)
 	}
 	filter.Limit = logLimit
 	return filter, nil
 }
 
-func buildUsageMonitoringPayload(snapshot *service.UsageMonitoringSnapshot, resolver usageSourceResolver, filter service.UsageFilter) usageMonitoringResponse {
+func buildUsageMonitoringPayload(snapshot *service.UsageMonitoringSnapshot, resolver usageSourceResolver, filter servicedto.UsageFilter) usageMonitoringResponse {
 	if snapshot == nil {
 		return usageMonitoringResponse{
 			ModelDistribution: []usageMonitoringModelDistributionItemPayload{},
