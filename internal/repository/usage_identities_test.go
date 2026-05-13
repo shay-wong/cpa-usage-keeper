@@ -2,11 +2,14 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"gorm.io/gorm"
 )
 
 func TestUsageIdentityReplaceForAuthTypeMarksStaleRowsDeletedAndPreservesStats(t *testing.T) {
@@ -105,6 +108,46 @@ func TestUsageIdentityReplaceForAuthTypeMarksStaleRowsDeletedAndPreservesStats(t
 	}
 }
 
+func TestUsageIdentityReplaceForAuthTypeRefreshesProjectID(t *testing.T) {
+	db := openTestDatabase(t)
+	ctx := context.Background()
+	now := time.Date(2026, 5, 9, 10, 30, 0, 0, time.UTC)
+	oldProjectID := "old-project"
+	newProjectID := " new-project "
+
+	if err := db.Create(&entities.UsageIdentity{
+		Name:         "Old Gemini",
+		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthTypeName: "oauth",
+		Identity:     "gemini-auth",
+		Type:         "gemini-cli",
+		Provider:     "Gemini",
+		ProjectID:    &oldProjectID,
+	}).Error; err != nil {
+		t.Fatalf("seed usage identity: %v", err)
+	}
+
+	if err := ReplaceUsageIdentitiesForAuthType(ctx, db, []entities.UsageIdentity{{
+		Name:         "New Gemini",
+		AuthTypeName: "oauth",
+		Identity:     "gemini-auth",
+		Type:         "gemini-cli",
+		Provider:     "Gemini",
+		ProjectID:    &newProjectID,
+	}}, entities.UsageIdentityAuthTypeAuthFile, now); err != nil {
+		t.Fatalf("ReplaceUsageIdentitiesForAuthType returned error: %v", err)
+	}
+
+	rows, err := ListUsageIdentities(ctx, db)
+	if err != nil {
+		t.Fatalf("ListUsageIdentities returned error: %v", err)
+	}
+	updated := usageIdentitiesByIdentity(rows)["gemini-auth"]
+	if updated.ProjectID == nil || *updated.ProjectID != "new-project" {
+		t.Fatalf("expected trimmed project id to refresh, got %+v", updated)
+	}
+}
+
 func TestUsageIdentityReplaceForAuthTypeRevivesDeletedIdentity(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
@@ -149,6 +192,79 @@ func TestUsageIdentityReplaceForAuthTypeRevivesDeletedIdentity(t *testing.T) {
 	}
 	if deletedRow.Name != "Incoming Deleted" || deletedRow.Provider != "claude-code" || deletedRow.TotalRequests != 7 {
 		t.Fatalf("expected restored identity metadata update with stats preserved, got %+v", deletedRow)
+	}
+}
+
+func TestGetActiveAuthFileUsageIdentityByAuthIndexReturnsOnlyAuthFile(t *testing.T) {
+	db := openTestDatabase(t)
+	ctx := context.Background()
+	if err := db.Create(&[]entities.UsageIdentity{{
+		Name:         "Provider",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "shared-auth-index",
+		Type:         "openai",
+		Provider:     "OpenAI",
+	}, {
+		Name:         "Auth File",
+		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthTypeName: "oauth",
+		Identity:     "shared-auth-index",
+		Type:         "codex",
+		Provider:     "Codex",
+	}}).Error; err != nil {
+		t.Fatalf("seed usage identities: %v", err)
+	}
+
+	identity, err := GetActiveAuthFileUsageIdentityByAuthIndex(ctx, db, " shared-auth-index ")
+	if err != nil {
+		t.Fatalf("GetActiveAuthFileUsageIdentityByAuthIndex returned error: %v", err)
+	}
+	if identity.AuthType != entities.UsageIdentityAuthTypeAuthFile || identity.Type != "codex" || identity.Name != "Auth File" {
+		t.Fatalf("expected active auth-file identity, got %+v", identity)
+	}
+}
+
+func TestGetActiveAuthFileUsageIdentityByAuthIndexIgnoresDeletedAuthFile(t *testing.T) {
+	db := openTestDatabase(t)
+	ctx := context.Background()
+	deletedAt := time.Date(2026, 5, 9, 11, 0, 0, 0, time.UTC)
+	if err := db.Create(&entities.UsageIdentity{
+		Name:         "Deleted Auth File",
+		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthTypeName: "oauth",
+		Identity:     "deleted-auth-index",
+		Type:         "claude",
+		Provider:     "Claude",
+		IsDeleted:    true,
+		DeletedAt:    &deletedAt,
+	}).Error; err != nil {
+		t.Fatalf("seed usage identity: %v", err)
+	}
+
+	_, err := GetActiveAuthFileUsageIdentityByAuthIndex(ctx, db, "deleted-auth-index")
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected not found for deleted auth file, got %v", err)
+	}
+}
+
+func TestGetActiveAuthFileUsageIdentityByAuthIndexIgnoresProviderOnlyIdentity(t *testing.T) {
+	db := openTestDatabase(t)
+	ctx := context.Background()
+	if err := db.Create(&entities.UsageIdentity{
+		Name:         "Provider Only",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "provider-only-auth-index",
+		Type:         "claude",
+		Provider:     "Claude",
+	}).Error; err != nil {
+		t.Fatalf("seed usage identity: %v", err)
+	}
+
+	_, err := GetActiveAuthFileUsageIdentityByAuthIndex(ctx, db, "provider-only-auth-index")
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected not found for provider-only identity, got %v", err)
 	}
 }
 
@@ -207,25 +323,22 @@ func TestUsageIdentityReplaceForProviderTypesMarksOnlyScopedProviderTypesDeleted
 	}
 }
 
-func TestUsageIdentityReplaceForProviderTypesRefreshesSourceMetadataAndPreservesReservedFields(t *testing.T) {
+func TestUsageIdentityReplaceForProviderTypesRefreshesSourceMetadataAndPreservesStats(t *testing.T) {
 	db := openTestDatabase(t)
 	ctx := context.Background()
 	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
-	limitReached := true
-	primaryUsed := 80
-	primaryResetAt := now.Add(time.Hour)
 	seed := entities.UsageIdentity{
-		Name:                     "Old Provider",
-		AuthType:                 entities.UsageIdentityAuthTypeAIProvider,
-		AuthTypeName:             "apikey",
-		Identity:                 "provider-auth-index",
-		Type:                     "claude",
-		Provider:                 "Old Provider",
-		LookupKey:                "old-key",
-		Prefix:                   "old-prefix",
-		LimitReached:             &limitReached,
-		PrimaryWindowUsedPercent: &primaryUsed,
-		PrimaryWindowResetAt:     &primaryResetAt,
+		Name:          "Old Provider",
+		AuthType:      entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName:  "apikey",
+		Identity:      "provider-auth-index",
+		Type:          "claude",
+		Provider:      "Old Provider",
+		LookupKey:     "old-key",
+		Prefix:        "old-prefix",
+		TotalRequests: 12,
+		SuccessCount:  10,
+		FailureCount:  2,
 	}
 	if err := db.Create(&seed).Error; err != nil {
 		t.Fatalf("seed provider identity: %v", err)
@@ -254,8 +367,8 @@ func TestUsageIdentityReplaceForProviderTypesRefreshesSourceMetadataAndPreserves
 	if updated.Prefix != "new-prefix" || updated.LookupKey != "new-key" || updated.Provider != "New Provider" {
 		t.Fatalf("expected source metadata refreshed, got %+v", updated)
 	}
-	if updated.LimitReached == nil || !*updated.LimitReached || updated.PrimaryWindowUsedPercent == nil || *updated.PrimaryWindowUsedPercent != 80 || updated.PrimaryWindowResetAt == nil || !updated.PrimaryWindowResetAt.Equal(primaryResetAt) {
-		t.Fatalf("expected reserved fields preserved, got %+v", updated)
+	if updated.TotalRequests != 12 || updated.SuccessCount != 10 || updated.FailureCount != 2 {
+		t.Fatalf("expected stats preserved, got %+v", updated)
 	}
 }
 
@@ -556,6 +669,43 @@ func TestUsageIdentityListActiveExcludesDeletedRows(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("expected active identities ordered as %v, got %v", want, got)
 		}
+	}
+}
+
+func TestUsageIdentityListActivePageOrdersByTotalRequestsDesc(t *testing.T) {
+	db := openTestDatabase(t)
+	now := time.Date(2026, 5, 11, 10, 0, 0, 0, time.UTC)
+	rows := []entities.UsageIdentity{
+		{Identity: "low", Name: "Low", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 10, CreatedAt: now, UpdatedAt: now},
+		{Identity: "high", Name: "High", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 30, CreatedAt: now, UpdatedAt: now},
+		{Identity: "middle", Name: "Middle", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Type: "claude", Provider: "Claude", TotalRequests: 20, CreatedAt: now, UpdatedAt: now},
+		{Identity: "provider", Name: "Provider", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "api_key", Type: "openai", Provider: "OpenAI", TotalRequests: 99, CreatedAt: now, UpdatedAt: now},
+	}
+	if err := db.Create(&rows).Error; err != nil {
+		t.Fatalf("seed usage identities: %v", err)
+	}
+	authType := entities.UsageIdentityAuthTypeAuthFile
+
+	items, total, err := ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{AuthType: &authType, Page: 1, PageSize: 2})
+	if err != nil {
+		t.Fatalf("list page: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("expected total 3, got %d", total)
+	}
+	if got := []string{items[0].Identity, items[1].Identity}; !reflect.DeepEqual(got, []string{"high", "middle"}) {
+		t.Fatalf("expected first page sorted by total requests desc, got %v", got)
+	}
+
+	items, total, err = ListActiveUsageIdentitiesPage(context.Background(), db, ListUsageIdentitiesPageRequest{AuthType: &authType, Page: 2, PageSize: 2})
+	if err != nil {
+		t.Fatalf("list second page: %v", err)
+	}
+	if total != 3 {
+		t.Fatalf("expected total 3 on second page, got %d", total)
+	}
+	if got := []string{items[0].Identity}; !reflect.DeepEqual(got, []string{"low"}) {
+		t.Fatalf("expected second page sorted by total requests desc, got %v", got)
 	}
 }
 

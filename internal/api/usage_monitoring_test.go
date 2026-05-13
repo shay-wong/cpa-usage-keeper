@@ -82,7 +82,7 @@ func TestUsageMonitoringReturnsResolvedPayload(t *testing.T) {
 			ID: 42, Timestamp: requestTime, Model: "claude-sonnet", Source: "sk-provider-key", AuthIndex: "2", Failed: true, LatencyMS: 321, InputTokens: 30, OutputTokens: 9, ReasoningTokens: 2, CachedTokens: 1, TotalTokens: 42,
 		}},
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 2, Name: "OpenAI Mirror", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "sk-provider-key", Type: "openai", Provider: "OpenAI Mirror"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 2, Name: "OpenAI Mirror", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "sk-provider-key", Type: "openai", Provider: "OpenAI Mirror"}}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h&log_limit=250", nil)
 	resp := httptest.NewRecorder()
 
@@ -120,7 +120,7 @@ func TestUsageMonitoringReturnsPayloadWhenIdentityResolutionFails(t *testing.T) 
 			ID: 7, Timestamp: requestTime, Model: "claude-sonnet", Source: "sk-provider-key", Failed: false, TotalTokens: 10,
 		}},
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{err: errors.New("identity store unavailable")})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{err: errors.New("identity store unavailable")}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
 	resp := httptest.NewRecorder()
 
@@ -152,7 +152,7 @@ func TestUsageMonitoringDoesNotExposeAuthIdentityFallbackIndex(t *testing.T) {
 			ID: 11, Timestamp: requestTime, Model: "claude-sonnet", AuthIndex: "auth-secret", Failed: false, TotalTokens: 10,
 		}},
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-secret", Type: "claude", Provider: "Claude"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-secret", Type: "claude", Provider: "Claude"}}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
 	resp := httptest.NewRecorder()
 
@@ -216,7 +216,7 @@ func TestUsageMonitoringRedactsAuthIdentityEmailDisplayName(t *testing.T) {
 			ID: 12, Timestamp: requestTime, Model: "claude-sonnet", AuthIndex: "auth-secret", Failed: false, TotalTokens: 10,
 		}},
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, Name: "user@example.com", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-secret", Type: "claude", Provider: "Claude"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 1, Name: "user@example.com", AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-secret", Type: "claude", Provider: "Claude"}}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
 	resp := httptest.NewRecorder()
 
@@ -249,7 +249,7 @@ func TestUsageMonitoringResolvesProviderByLookupKeyAndAuthIndex(t *testing.T) {
 			ID: 32, Timestamp: requestTime, Model: "codex-model", Source: "sk-other-key", AuthIndex: "codex-auth", Failed: false,
 		}},
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 3, Name: "Codex Key", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "codex-auth", Type: "codex", Provider: "Codex", LookupKey: "sk-provider-key"}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 3, Name: "Codex Key", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "codex-auth", Type: "codex", Provider: "Codex", LookupKey: "sk-provider-key"}}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
 	resp := httptest.NewRecorder()
 

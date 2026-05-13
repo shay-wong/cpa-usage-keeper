@@ -87,46 +87,6 @@
   }
 }
 
-.languageSwitcher {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 4px;
-  min-height: 42px;
-  padding: 4px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-.languagePill {
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 8px 12px;
-  border-radius: 999px;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
-
-  &:hover {
-    color: var(--text-primary);
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 2px;
-  }
-}
-
-.languagePillActive {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
-}
-
 .themeSwitcher {
   display: inline-flex;
   align-items: stretch;
@@ -287,6 +247,80 @@
   box-shadow: 0 0 0 3px rgba($error-color, 0.18);
 }
 
+// Usage 子页面统一复用这组 pill 控件，避免每个卡片单独维护按钮/输入框圆角。
+.usagePillControl {
+  min-height: 40px;
+  border-radius: 999px;
+  border-color: var(--border-color);
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+
+  &:focus,
+  &:focus-visible {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba($primary-color, 0.14);
+    outline: none;
+  }
+
+  > button {
+    min-height: 40px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  }
+}
+
+.usagePillShell {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: 40px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.usagePillAction {
+  min-height: 32px;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+
+  &:global(.btn) {
+    border-radius: 999px;
+  }
+
+  &:global(.btn-primary) {
+    box-shadow: 0 8px 20px rgba($primary-color, 0.18);
+  }
+
+  &:global(.btn-secondary),
+  &:global(.btn-ghost) {
+    border-color: var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+  }
+
+  &:hover:not(:disabled) {
+    transform: translateY(-1px);
+  }
+}
+
+.usagePillActionDanger {
+  color: #b91c1c;
+
+  &:global(.btn-danger) {
+    border-color: color-mix(in srgb, #dc2626 34%, var(--border-color));
+    background: color-mix(in srgb, #dc2626 10%, var(--bg-primary));
+    color: #b91c1c;
+    box-shadow: none;
+  }
+}
+
 .contentColumn {
   width: 100%;
 }
@@ -393,8 +427,9 @@
   align-items: center;
   gap: 8px;
   flex-wrap: nowrap;
+  width: fit-content;
   min-width: 0;
-  max-width: 620px;
+  max-width: min(620px, 100%);
   padding: 6px 8px;
   border: 1px solid var(--border-color);
   border-radius: 9999px;
@@ -405,7 +440,6 @@
   transition: max-width 340ms cubic-bezier(0.22, 1, 0.36, 1), padding 340ms cubic-bezier(0.22, 1, 0.36, 1), border-width 340ms cubic-bezier(0.22, 1, 0.36, 1), opacity 260ms ease, transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
 
   @include mobile {
-    width: 100%;
     align-items: center;
     flex-wrap: wrap;
   }
@@ -419,6 +453,14 @@
   opacity: 0;
   pointer-events: none;
   transform: translateX(8px);
+
+  @include mobile {
+    width: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    flex-basis: 0;
+  }
 }
 
 .customRangeInline {
@@ -448,6 +490,8 @@
 }
 
 .timeRangeSelectControl {
+  flex: 0 0 164px;
+  width: 164px;
   min-width: 164px;
 
   :global(button) {
@@ -482,6 +526,15 @@
   margin: 0;
   padding: 6px 12px;
   font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+
+  &:out-of-range {
+    color: var(--text-tertiary);
+    background: color-mix(in srgb, var(--bg-secondary) 88%, var(--border-color));
+    border-color: color-mix(in srgb, var(--border-color) 72%, var(--text-tertiary));
+  }
 }
 
 .customRangeField .customRangeInput {
@@ -513,7 +566,23 @@
   color: var(--error-color);
 }
 
-@include mobile {
+@media (max-width: #{$breakpoint-tablet}) {
+  .toolbarRow {
+    align-items: flex-start;
+  }
+
+  .toolbarActionsRight {
+    width: 100%;
+    align-items: flex-start;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .timeRangeGroup {
+    max-width: 100%;
+    border-radius: 24px;
+  }
+
   .customRangeInline {
     width: 100%;
     max-width: 0;
@@ -533,6 +602,16 @@
 
   .customRangeInput {
     width: 132px;
+  }
+}
+
+@include mobile {
+  .toolbarRow {
+    gap: 10px;
+  }
+
+  .container {
+    gap: 12px;
   }
 }
 
@@ -1232,68 +1311,10 @@
   white-space: nowrap;
 }
 
-.credentialChartContent {
+.credentialsSections {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.credentialChartGrid {
-  display: grid;
-  grid-template-columns: minmax(154px, 224px) minmax(0, 1fr);
-  gap: 14px;
-  align-items: stretch;
-
-  @include mobile {
-    grid-template-columns: minmax(105px, 30%) minmax(0, 1fr);
-    gap: 10px;
-    overflow-x: auto;
-  }
-}
-
-.credentialChartLabels {
-  height: 320px;
-  min-height: 260px;
-  display: grid;
-  align-items: center;
-  padding: 10px 0;
-
-  @include mobile {
-    height: 380px;
-  }
-}
-
-.credentialChartLabelItem {
-  min-width: 0;
-  padding-right: 8px;
-  color: var(--text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.25;
-  text-align: right;
-}
-
-.credentialChartLabelName {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.credentialChartArea {
-  position: relative;
-  height: 320px;
-  min-height: 260px;
-  min-width: 360px;
-
-  @include mobile {
-    height: 380px;
-    min-width: 320px;
-  }
-
-  :global(canvas) {
-    touch-action: pan-x pan-y !important;
-  }
+  gap: 18px;
 }
 
 // Pricing Section (80%比例)
@@ -1314,9 +1335,9 @@
 }
 
 .priceForm {
-  padding: 10px;
-  background-color: var(--bg-secondary);
-  border-radius: $radius-sm;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
+  border-radius: 22px;
   border: 1px solid var(--border-color);
   flex: 0 0 auto;
 }
@@ -1326,6 +1347,10 @@
   gap: 10px;
   align-items: flex-end;
   flex-wrap: wrap;
+
+  :global(.btn) {
+    min-height: 40px;
+  }
 
   @include mobile {
     flex-direction: column;
@@ -1343,7 +1368,8 @@
   label {
     font-size: 10px;
     color: var(--text-secondary);
-    font-weight: 500;
+    font-weight: 700;
+    letter-spacing: 0.02em;
   }
 
   // 确保 Input 组件的 form-group 包装器不影响布局
@@ -1358,6 +1384,14 @@
   :global(.input) {
     height: 40px;
     box-sizing: border-box;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+  }
+
+  > button,
+  :global(.btn) {
+    min-height: 40px;
   }
 }
 
@@ -1397,9 +1431,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px;
-  background-color: var(--bg-secondary);
-  border-radius: $radius-sm;
+  padding: 12px;
+  background: color-mix(in srgb, var(--bg-secondary) 76%, transparent);
+  border-radius: 20px;
   border: 1px solid var(--border-color);
   gap: 10px;
 
@@ -1438,8 +1472,9 @@
 
 .priceActions {
   display: flex;
-  gap: 3px;
+  gap: 6px;
   flex-shrink: 0;
+  flex-wrap: wrap;
 
   @include mobile {
     width: 100%;
@@ -1589,6 +1624,29 @@
   }
 }
 
+.requestEventsCard:global(.card) {
+  padding-bottom: 0;
+}
+
+.requestEventsTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.requestEventsCountBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
+  background: color-mix(in srgb, var(--primary-color) 8%, var(--bg-primary));
+  color: color-mix(in srgb, var(--text-primary) 80%, var(--primary-color));
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .requestEventsActions {
   display: inline-flex;
   align-items: center;
@@ -1602,11 +1660,9 @@
   justify-content: space-between;
   gap: $spacing-sm;
   flex-wrap: wrap;
-  margin-bottom: $spacing-sm;
-  padding: $spacing-sm;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-md;
-  background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+  margin: 0 calc(-1 * #{$spacing-lg}) $spacing-sm;
+  padding: 0 $spacing-lg $spacing-sm;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .requestEventsFiltersGroup {
@@ -1636,116 +1692,113 @@
 }
 
 .requestEventsSelect button,
-.requestEventsResultSelect button,
-.requestEventsPageSizeSelect button {
-  height: 36px;
+.requestEventsResultSelect button {
+  height: 40px;
 }
 
 .requestEventsResultSelect {
   min-width: 118px;
 }
 
-.requestEventsPageSizeSelect {
-  min-width: 96px;
-}
+.requestEventsPaginationFooter {
+  --usage-pagination-bar-height: 51px;
 
-.requestEventsPageSizeSelectCompact {
-  min-width: 86px;
-  width: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: $spacing-md;
+  height: var(--usage-pagination-bar-height);
+  box-sizing: border-box;
+  margin: $spacing-sm calc(-1 * #{$spacing-lg}) 0;
+  padding: 0 #{$spacing-lg};
+  border-top: 1px solid var(--border-color);
 }
 
 .requestEventsPaginationControls {
-  display: inline-flex;
-  align-items: flex-end;
-  justify-content: flex-end;
-  gap: $spacing-md;
-  flex-wrap: wrap;
-  margin-left: auto;
-}
-
-.requestEventsPaginationItem {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.requestEventsPagerControls {
-  display: inline-flex;
-  align-items: stretch;
-  flex-wrap: nowrap;
-  overflow: hidden;
-  height: 36px;
-  border: 1px solid var(--border-color);
-  border-radius: $radius-md;
-  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .requestEventsPagerButton {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: $radius-full;
+  background: var(--bg-secondary);
   color: var(--text-primary);
+  font: inherit;
+  font-weight: 800;
+  padding: 6px 10px;
   cursor: pointer;
-  height: 100%;
-  min-width: 76px;
-  padding: 0 14px;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1;
-  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--accent-color) 45%, var(--border-color));
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
 }
 
-.requestEventsPagerButton + .requestEventsPagerButton {
-  border-left: 1px solid var(--border-color);
+.requestEventsPaginationPage {
+  min-width: 44px;
+  text-align: center;
+  font-weight: 800;
 }
 
-.requestEventsPagerButton:hover:not(:disabled) {
-  background: var(--hover-bg);
-}
-
-.requestEventsPagerButton:disabled {
-  color: var(--text-tertiary);
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-
-.requestEventsTableMeta {
+.requestEventsPageSizeControl {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: $spacing-sm;
-  margin: 0 0 $spacing-xs;
-  font-size: 12px;
+  gap: 8px;
   color: var(--text-secondary);
-  flex-wrap: wrap;
+  font-size: 12px;
+  font-weight: 800;
+
+  select {
+    height: 32px;
+    border: 1px solid var(--border-color);
+    border-radius: $radius-full;
+    padding: 0 24px 0 10px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer;
+  }
 }
 
-.requestEventsCountGroup {
-  display: inline-flex;
-  align-items: center;
-  gap: $spacing-sm;
-  flex-wrap: wrap;
-}
 
-.requestEventsLimitHint {
-  color: var(--text-tertiary);
-}
 
 .requestEventsTableWrapper {
   overflow: auto;
-  max-height: 460px;
+  height: clamp(400px, 60vh, 600px);
   border: 1px solid var(--border-color);
   border-radius: $radius-md;
+
+  .table {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+  }
 }
 
 .requestEventsTimestamp {
   white-space: nowrap;
-  min-width: 160px;
+  width: 136px;
+  min-width: 136px;
+  font-variant-numeric: tabular-nums;
+}
+
+.requestEventsReasoningHeader {
+  white-space: nowrap;
 }
 
 .requestEventsSourceCell,

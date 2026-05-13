@@ -183,6 +183,9 @@ export interface UsageIdentity {
   identity: string
   type: string
   provider: string
+  plan_type?: string
+  active_start?: string
+  active_until?: string
   total_requests: number
   success_count: number
   failure_count: number
@@ -203,6 +206,75 @@ export interface UsageIdentity {
 
 export interface UsageIdentitiesResponse {
   identities: UsageIdentity[]
+}
+
+export interface UsageIdentitiesPageResponse {
+  identities: UsageIdentity[]
+  total_count: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export interface UsageQuotaWindow {
+  duration?: number
+  unit?: string
+  seconds?: number
+}
+
+export interface UsageQuotaRow {
+  key: string
+  label?: string
+  scope?: string
+  metric?: string
+  planType?: string
+  used?: number
+  limit?: number
+  remaining?: number
+  usedPercent?: number
+  remainingFraction?: number
+  allowed?: boolean
+  limitReached?: boolean
+  window?: UsageQuotaWindow
+  resetAt?: string
+  resetAfterSeconds?: number
+}
+
+export interface UsageQuotaCheckResponse {
+  id: string
+  quota: UsageQuotaRow[]
+}
+
+export interface UsageQuotaCacheResponse {
+  items: UsageQuotaCheckResponse[]
+}
+
+export interface UsageQuotaRefreshTaskResponse {
+  taskId: string
+  authIndex: string
+  status: 'queued' | 'running' | 'completed' | 'failed'
+  quota?: UsageQuotaCheckResponse
+  error?: string
+  cachedAt?: string
+  expiresAt?: string
+}
+
+export interface UsageQuotaRefreshTaskID {
+  authIndex: string
+  taskId: string
+}
+
+export interface UsageQuotaRefreshRejectedAuthIndex {
+  authIndex: string
+  error: 'not_found' | 'not_auth_file' | 'unsupported' | 'duplicate' | 'invalid'
+}
+
+export interface UsageQuotaRefreshResponse {
+  tasks: UsageQuotaRefreshTaskID[]
+  rejected: UsageQuotaRefreshRejectedAuthIndex[]
+  accepted: number
+  skipped: number
+  limit: number
 }
 
 export interface UsageAnalysisModel {

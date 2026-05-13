@@ -1,6 +1,5 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef, type KeyboardEvent, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import i18n, { persistLanguage } from '@/i18n';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -14,9 +13,10 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, triggerSync } from '@/lib/api';
-import type { StatusResponse, UsageAnalysisResponse, UsageEvent, UsageIdentity, UsageSourceFilterOption } from '@/lib/types';
+import { ApiError, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, triggerSync } from '@/lib/api';
+import type { StatusResponse, UsageAnalysisResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
 import { IconRefreshCw } from '@/components/ui/icons';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -29,8 +29,8 @@ import {
   ApiDetailsCard,
   ModelStatsCard,
   PriceSettingsCard,
-  CredentialStatsCard,
-  CredentialTopChartCard,
+  AuthFileCredentialsSection,
+  AiProviderCredentialsSection,
   RequestEventsDetailsCard,
   TokenBreakdownChart,
   CostTrendChart,
@@ -40,7 +40,8 @@ import {
   useUsageData,
   usePricingData,
   useSparklines,
-  useChartData
+  useChartData,
+  useCredentialsTabData
 } from '@/components/usage';
 import {
   getModelNamesFromUsage,
@@ -118,6 +119,23 @@ export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'pricing' && t
 export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
 
 export const getUpdateCheckToastDuration = (kind: 'success' | 'info' | 'error') => (kind === 'error' ? 6_000 : 4_000);
+
+export const shouldAutoRefreshUsageTab = ({
+  activeTab,
+  eventsPage,
+  authFilePage,
+  aiProviderPage,
+}: {
+  activeTab: UsageTab;
+  eventsPage: number;
+  authFilePage: number;
+  aiProviderPage: number;
+}) => {
+  if (activeTab === 'overview') return true;
+  if (activeTab === 'events') return eventsPage === 1;
+  if (activeTab === 'credentials') return authFilePage === 1 && aiProviderPage === 1;
+  return false;
+};
 
 type RequestEventFilterState = {
   model: string;
@@ -254,6 +272,54 @@ const toDateInputValue = (timestamp: number): string => {
   if (Number.isNaN(date.getTime())) return '';
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+const toDateInputValueInTimezone = (timestamp: number, timezone?: string): string => {
+  if (!timezone) return toDateInputValue(timestamp);
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(new Date(timestamp));
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    if (!year || !month || !day) return toDateInputValue(timestamp);
+    return `${year}-${month}-${day}`;
+  } catch {
+    return toDateInputValue(timestamp);
+  }
+};
+
+const previousMonthStartDateInputValue = (value: string): string => {
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(value);
+  if (!match) return value;
+  const [, year, month] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 2, 1));
+  const pad = (nextValue: number) => String(nextValue).padStart(2, '0');
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-01`;
+};
+
+export const getCustomDateRangeBounds = (anchorMs = Date.now(), timezone?: string) => {
+  const max = toDateInputValueInTimezone(anchorMs, timezone);
+  return {
+    min: previousMonthStartDateInputValue(max),
+    max,
+  };
+};
+
+export const isCustomDateWithinBounds = (value: string, bounds: { min: string; max: string }) => (
+  value === '' || (value >= bounds.min && value <= bounds.max)
+);
+
+export const openDateInputPicker = (input: HTMLInputElement) => {
+  try {
+    input.showPicker?.();
+  } catch {
+    // 某些浏览器会拒绝非用户手势触发的 showPicker。
+  }
 };
 
 const parseCustomDateBoundary = (value: string, endOfDay: boolean): number | undefined => {
@@ -439,7 +505,6 @@ const loadUsageTab = (): UsageTab => {
 
 export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const { t } = useTranslation();
-  const currentLanguage = i18n.language === 'zh' ? 'zh' : 'en';
   const isMobile = useMediaQuery('(max-width: 768px)');
   const theme = useThemeStore((state) => state.theme);
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
@@ -499,10 +564,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const [manualSyncLoading, setManualSyncLoading] = useState(false);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
-  const [credentialsLoading, setCredentialsLoading] = useState(false);
-  const [credentialsError, setCredentialsError] = useState('');
-  const [credentialsData, setCredentialsData] = useState<UsageIdentity[]>([]);
-  const credentialsRequestControllerRef = useRef<AbortController | null>(null);
+  const credentialsData = useCredentialsTabData({
+    enabled: activeTab === 'credentials',
+    onAuthRequired,
+  });
+  const refreshCredentials = credentialsData.refresh;
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<UsageAnalysisResponse>({ apis: [], models: [] });
@@ -636,6 +702,15 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     windowMinutes: filterWindow.windowMinutes,
   });
   const isCustomRange = timeRange === 'custom';
+  const customDateRangeBounds = useMemo(() => getCustomDateRangeBounds(Date.now(), status?.timezone), [status?.timezone]);
+  const handleCustomDateInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Tab') return;
+    event.preventDefault();
+    openDateInputPicker(event.currentTarget);
+  }, []);
+  const handleCustomDateInputActivate = useCallback((event: SyntheticEvent<HTMLInputElement>) => {
+    openDateInputPicker(event.currentTarget);
+  }, []);
 
   const handleChartLinesChange = useCallback((lines: string[]) => {
     setChartLines(normalizeChartLines(lines));
@@ -721,7 +796,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (!shouldShowUpdateCheckButton(status)) {
       setHasNewVersion(false);
     }
-  }, [status?.updateCheckEnabled]);
+  }, [status]);
 
   useEffect(() => () => {
     if (updateCheckNoticeTimerRef.current !== null) {
@@ -881,52 +956,17 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     resetEventsPage();
   }, [resetEventsPage]);
 
-  const loadCredentials = useCallback(async () => {
-    credentialsRequestControllerRef.current?.abort();
-    const controller = new AbortController();
-    credentialsRequestControllerRef.current = controller;
-
-    setCredentialsLoading(true);
-    setCredentialsError('');
-    setCredentialsData([]);
-    try {
-      const response = await fetchUsageIdentities(controller.signal);
-      if (credentialsRequestControllerRef.current !== controller) {
-        return;
-      }
-      setCredentialsData(response.identities);
-    } catch (error) {
-      if (controller.signal.aborted) {
-        return;
-      }
-      if (credentialsRequestControllerRef.current === controller) {
-        setCredentialsData([]);
-      }
-      if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
-        return;
-      }
-      setCredentialsError(error instanceof Error ? error.message : 'Failed to load usage identities');
-    } finally {
-      if (credentialsRequestControllerRef.current === controller) {
-        setCredentialsLoading(false);
-        credentialsRequestControllerRef.current = null;
-      }
-    }
-  }, [onAuthRequired]);
-
   const refreshActiveTab = useCallback(async () => {
     if (activeTab === 'monitoring') {
       await refreshMonitoring();
       return;
     }
     if (activeTab === 'events') {
-      await loadEventFilterOptions();
-      await loadEvents();
+      await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
     }
     if (activeTab === 'credentials') {
-      await loadCredentials();
+      await refreshCredentials();
       return;
     }
     if (activeTab === 'analysis') {
@@ -938,7 +978,26 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     await loadUsage();
-  }, [activeTab, loadAnalysis, loadCredentials, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshMonitoring]);
+  }, [activeTab, loadAnalysis, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials, refreshMonitoring]);
+
+  const refreshAutoRefreshTab = useCallback(async () => {
+    if (activeTab === 'events') {
+      await loadEvents();
+      return;
+    }
+    if (activeTab === 'credentials') {
+      await refreshCredentials();
+      return;
+    }
+    await loadUsage();
+  }, [activeTab, loadEvents, loadUsage, refreshCredentials]);
+
+  const autoRefreshEnabled = shouldAutoRefreshUsageTab({
+    activeTab,
+    eventsPage,
+    authFilePage: credentialsData.authFilePage,
+    aiProviderPage: credentialsData.aiProviderPage,
+  });
 
   const handleManualSync = useCallback(async () => {
     setManualSyncLoading(true);
@@ -1018,9 +1077,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [onAuthRequired, showUpdateCheckNotice, t]);
 
   useEffect(() => scheduleOverviewAutoRefresh({
-    enabled: isOverviewTab,
-    refreshOverview: loadUsage,
-  }), [isOverviewTab, loadUsage]);
+    enabled: autoRefreshEnabled,
+    refreshOverview: refreshAutoRefreshTab,
+  }), [autoRefreshEnabled, refreshAutoRefreshTab]);
 
   useHeaderRefresh(refreshActiveTab);
 
@@ -1042,20 +1101,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       eventsFilterOptionsRequestControllerRef.current = null;
     };
   }, [activeTab, loadEventFilterOptions, loadEvents]);
-
-  useEffect(() => {
-    if (activeTab !== 'credentials') {
-      credentialsRequestControllerRef.current?.abort();
-      credentialsRequestControllerRef.current = null;
-      setCredentialsLoading(false);
-      return;
-    }
-    void loadCredentials();
-    return () => {
-      credentialsRequestControllerRef.current?.abort();
-      credentialsRequestControllerRef.current = null;
-    };
-  }, [activeTab, loadCredentials]);
 
   useEffect(() => {
     if (activeTab !== 'analysis') {
@@ -1098,17 +1143,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [eventsModelFilter, eventsModelOptions, eventsResultFilter, eventsSourceFilter, eventsSourceOptions, resetEventsPage]);
 
-  const handleLanguageChange = useCallback(async (language: 'en' | 'zh') => {
-    if (currentLanguage === language) return;
-    await i18n.changeLanguage(language);
-    persistLanguage(language);
-  }, [currentLanguage]);
-
   const lastSyncAt = useMemo(() => {
     if (!status?.last_run_at) return null;
     const parsed = new Date(status.last_run_at);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }, [status?.last_run_at]);
+  // 只有需要时间范围的 tab 才渲染 Range 控件，避免 Credentials/Pricing 产生空白占位。
   const showRangeControls = shouldShowRangeControls(activeTab);
   const {
     requestsSparkline,
@@ -1214,26 +1254,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             <span className={styles.eyebrow}>CPA Usage Keeper</span>
           </div>
           <div className={styles.topBarActions}>
-            <div className={styles.languageSwitcher} role="group" aria-label={t('usage_stats.language_switch')}>
-              <button
-                type="button"
-                className={`${styles.languagePill} ${currentLanguage === 'en' ? styles.languagePillActive : ''}`.trim()}
-                onClick={() => void handleLanguageChange('en')}
-                aria-pressed={currentLanguage === 'en'}
-                title={t('usage_stats.language_switch')}
-              >
-                EN
-              </button>
-              <button
-                type="button"
-                className={`${styles.languagePill} ${currentLanguage === 'zh' ? styles.languagePillActive : ''}`.trim()}
-                onClick={() => void handleLanguageChange('zh')}
-                aria-pressed={currentLanguage === 'zh'}
-                title={t('usage_stats.language_switch')}
-              >
-                中
-              </button>
-            </div>
+            <LanguageSwitcher />
             <div className={styles.themeSwitcher} role="tablist" aria-label={t('usage_stats.theme_switch')}>
               {themeOptions.map((option) => {
                 const active = theme === option.value;
@@ -1348,61 +1369,73 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
 
               <div className={styles.toolbarActionsRight}>
-                <div
-                  className={`${styles.timeRangeGroup} ${!showRangeControls ? styles.timeRangeGroupCollapsed : ''}`.trim()}
-                  aria-hidden={!showRangeControls}
-                >
-                  <span className={styles.timeRangeLabel}>{t('usage_stats.range_filter')}</span>
-                  <Select
-                    value={timeRange}
-                    options={timeRangeOptions}
-                    onChange={(value) => setTimeRange(value as UsageTimeRange)}
-                    className={styles.timeRangeSelectControl}
-                    ariaLabel={t('usage_stats.range_filter')}
-                    fullWidth={false}
-                    disabled={!showRangeControls}
-                  />
-                  <div
-                    className={`${styles.customRangeInline} ${showRangeControls && isCustomRange ? styles.customRangeInlineOpen : ''}`.trim()}
-                    aria-hidden={!showRangeControls || !isCustomRange}
-                  >
-                    <div className={styles.customRangeFields}>
-                      <label className={styles.customRangeField}>
-                        <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
-                        <input
-                          type="date"
-                          className={`input ${styles.customRangeInput}`}
-                          value={customTimeRange.start}
-                          onChange={(event) =>
-                            setCustomTimeRange((current) => ({
-                              ...current,
-                              start: event.target.value
-                            }))
-                          }
-                          aria-label={t('usage_stats.custom_start')}
-                          disabled={!showRangeControls || !isCustomRange}
-                        />
-                      </label>
-                      <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
-                      <label className={styles.customRangeField}>
-                        <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
-                        <input
-                          type="date"
-                          className={`input ${styles.customRangeInput}`}
-                          value={customTimeRange.end}
-                          onChange={(event) =>
-                            setCustomTimeRange((current) => ({
-                              ...current,
-                              end: event.target.value
-                            }))
-                          }
-                          aria-label={t('usage_stats.custom_end')}
-                          disabled={!showRangeControls || !isCustomRange}
-                        />
-                      </label>
-                    </div>
+                {showRangeControls && (
+                  <div className={styles.timeRangeGroup}>
+                    <span className={styles.timeRangeLabel}>{t('usage_stats.range_filter')}</span>
+                    <Select
+                      value={timeRange}
+                      options={timeRangeOptions}
+                      onChange={(value) => setTimeRange(value as UsageTimeRange)}
+                      className={styles.timeRangeSelectControl}
+                      ariaLabel={t('usage_stats.range_filter')}
+                      fullWidth={false}
+                    />
+                    {/* 自定义日期只在 Custom 模式挂载，非自定义范围保持工具栏内容宽度。 */}
+                    {isCustomRange && (
+                      <div className={`${styles.customRangeInline} ${styles.customRangeInlineOpen}`.trim()}>
+                        <div className={styles.customRangeFields}>
+                          <label className={styles.customRangeField}>
+                            <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
+                            <input
+                              type="date"
+                              className={`input ${styles.customRangeInput}`}
+                              value={customTimeRange.start}
+                              min={customDateRangeBounds.min}
+                              max={customDateRangeBounds.max}
+                              onClick={handleCustomDateInputActivate}
+                              onFocus={handleCustomDateInputActivate}
+                              onKeyDown={handleCustomDateInputKeyDown}
+                              onPaste={(event) => event.preventDefault()}
+                              onChange={(event) => {
+                                const nextValue = event.target.value;
+                                if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
+                                setCustomTimeRange((current) => ({
+                                  ...current,
+                                  start: nextValue
+                                }));
+                              }}
+                              aria-label={t('usage_stats.custom_start')}
+                            />
+                          </label>
+                          <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
+                          <label className={styles.customRangeField}>
+                            <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
+                            <input
+                              type="date"
+                              className={`input ${styles.customRangeInput}`}
+                              value={customTimeRange.end}
+                              min={customDateRangeBounds.min}
+                              max={customDateRangeBounds.max}
+                              onClick={handleCustomDateInputActivate}
+                              onFocus={handleCustomDateInputActivate}
+                              onKeyDown={handleCustomDateInputKeyDown}
+                              onPaste={(event) => event.preventDefault()}
+                              onChange={(event) => {
+                                const nextValue = event.target.value;
+                                if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
+                                setCustomTimeRange((current) => ({
+                                  ...current,
+                                  end: nextValue
+                                }));
+                              }}
+                              aria-label={t('usage_stats.custom_end')}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
+                )}
                 {showRangeControls && isCustomRange && customRangeHint && (
                   <span className={styles.customRangeHint}>{customRangeHint}</span>
                 )}
@@ -1542,6 +1575,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   modelFilter={eventsModelFilter}
                   sourceFilter={eventsSourceFilter}
                   resultFilter={eventsResultFilter}
+                  modelPrices={modelPrices}
                   onPageChange={setEventsPage}
                   onPageSizeChange={handleEventsPageSizeChange}
                   onModelFilterChange={handleEventsModelFilterChange}
@@ -1553,15 +1587,33 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'credentials' && (
               <>
-                {credentialsError && <div className={styles.errorBox}>{credentialsError}</div>}
-                <CredentialStatsCard
-                  credentials={credentialsData}
-                  loading={credentialsLoading}
-                />
-                <CredentialTopChartCard
-                  credentials={credentialsData}
-                  loading={credentialsLoading}
-                />
+                {credentialsData.error && <div className={styles.errorBox}>{credentialsData.error}</div>}
+                <div className={styles.credentialsSections}>
+                  <AuthFileCredentialsSection
+                    rows={credentialsData.authFileRows}
+                    total={credentialsData.authFileTotal}
+                    page={credentialsData.authFilePage}
+                    totalPages={credentialsData.authFileTotalPages}
+                    pageSize={credentialsData.authFilePageSize}
+                    loading={credentialsData.loading}
+                    quotaRefreshing={credentialsData.quotaRefreshing}
+                    quotaRefreshError={credentialsData.quotaRefreshError}
+                    onPageChange={credentialsData.setAuthFilePage}
+                    onPageSizeChange={credentialsData.setAuthFilePageSize}
+                    onRefreshQuota={credentialsData.refreshQuotaForCurrentAuthFilePage}
+                    onRefreshQuotaForAuthIndex={credentialsData.refreshQuotaForAuthIndex}
+                  />
+                  <AiProviderCredentialsSection
+                    rows={credentialsData.aiProviderRows}
+                    total={credentialsData.aiProviderTotal}
+                    page={credentialsData.aiProviderPage}
+                    totalPages={credentialsData.aiProviderTotalPages}
+                    pageSize={credentialsData.aiProviderPageSize}
+                    loading={credentialsData.loading}
+                    onPageChange={credentialsData.setAiProviderPage}
+                    onPageSizeChange={credentialsData.setAiProviderPageSize}
+                  />
+                </div>
               </>
             )}
 
