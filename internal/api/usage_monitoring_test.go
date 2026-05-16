@@ -37,7 +37,7 @@ func (s *usageMonitoringStub) ListUsageEventFilterOptions(context.Context, servi
 	return nil, s.err
 }
 
-func (s *usageMonitoringStub) GetUsageAnalysis(context.Context, servicedto.UsageFilter) (*servicedto.UsageAnalysisSnapshot, error) {
+func (s *usageMonitoringStub) GetAnalysis(context.Context, servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	return nil, s.err
 }
 

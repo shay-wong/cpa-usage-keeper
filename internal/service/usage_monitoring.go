@@ -27,7 +27,7 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto
 	if err != nil {
 		return nil, err
 	}
-	analysis, err := s.GetUsageAnalysis(ctx, filter)
+	analysis, err := s.GetAnalysis(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto
 
 	return &UsageMonitoringSnapshot{
 		KPIs:              buildMonitoringKPI(overview, analysis),
-		ModelDistribution: buildMonitoringModelDistribution(analysis),
+		ModelDistribution: buildMonitoringModelDistribution(analysis, hourlyModelRows),
 		DailyTrend:        buildMonitoringTrend(overview.DailySeries, true),
 		HourlyModelTrend:  buildMonitoringHourlyModelTrend(hourlyModelRows),
 		HourlyTokenTrend:  buildMonitoringTrend(overview.HourlySeries, false),
@@ -83,7 +83,7 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto
 	}, nil
 }
 
-func buildMonitoringKPI(overview *servicedto.UsageOverviewSnapshot, analysis *servicedto.UsageAnalysisSnapshot) UsageMonitoringKPI {
+func buildMonitoringKPI(overview *servicedto.UsageOverviewSnapshot, analysis *servicedto.AnalysisSnapshot) UsageMonitoringKPI {
 	if overview == nil {
 		return UsageMonitoringKPI{}
 	}
@@ -100,7 +100,7 @@ func buildMonitoringKPI(overview *servicedto.UsageOverviewSnapshot, analysis *se
 		CostAvailable:   overview.Summary.CostAvailable,
 	}
 	if analysis != nil {
-		for _, model := range analysis.Models {
+		for _, model := range analysis.ModelComposition {
 			kpi.InputTokens += model.InputTokens
 			kpi.OutputTokens += model.OutputTokens
 		}
@@ -108,24 +108,43 @@ func buildMonitoringKPI(overview *servicedto.UsageOverviewSnapshot, analysis *se
 	return kpi
 }
 
-func buildMonitoringModelDistribution(analysis *servicedto.UsageAnalysisSnapshot) []UsageMonitoringModelDistributionItem {
-	if analysis == nil || len(analysis.Models) == 0 {
+func buildMonitoringModelDistribution(analysis *servicedto.AnalysisSnapshot, hourlyRows []repository.UsageMonitoringHourlyModelStatRecord) []UsageMonitoringModelDistributionItem {
+	itemsByModel := map[string]UsageMonitoringModelDistributionItem{}
+	for _, row := range hourlyRows {
+		model := normalizeMonitoringDimension(row.Model)
+		item := itemsByModel[model]
+		item.Model = model
+		item.TotalRequests += row.Requests
+		item.SuccessCount += row.SuccessCount
+		item.FailureCount += row.FailureCount
+		item.TotalTokens += row.Tokens
+		itemsByModel[model] = item
+	}
+	if analysis != nil {
+		for _, model := range analysis.ModelComposition {
+			name := normalizeMonitoringDimension(model.Key)
+			item := itemsByModel[name]
+			item.Model = name
+			if item.TotalRequests == 0 {
+				item.TotalRequests = model.Requests
+			}
+			if item.TotalTokens == 0 {
+				item.TotalTokens = model.TotalTokens
+			}
+			item.InputTokens = model.InputTokens
+			item.OutputTokens = model.OutputTokens
+			item.CachedTokens = model.CachedTokens
+			item.ReasoningTokens = model.ReasoningTokens
+			itemsByModel[name] = item
+		}
+	}
+	if len(itemsByModel) == 0 {
 		return []UsageMonitoringModelDistributionItem{}
 	}
-	items := make([]UsageMonitoringModelDistributionItem, 0, len(analysis.Models))
-	for _, model := range analysis.Models {
-		items = append(items, UsageMonitoringModelDistributionItem{
-			Model:           model.Model,
-			TotalRequests:   model.TotalRequests,
-			SuccessCount:    model.SuccessCount,
-			FailureCount:    model.FailureCount,
-			TotalTokens:     model.TotalTokens,
-			InputTokens:     model.InputTokens,
-			OutputTokens:    model.OutputTokens,
-			CachedTokens:    model.CachedTokens,
-			ReasoningTokens: model.ReasoningTokens,
-			SuccessRate:     percentage(model.SuccessCount, model.TotalRequests),
-		})
+	items := make([]UsageMonitoringModelDistributionItem, 0, len(itemsByModel))
+	for _, item := range itemsByModel {
+		item.SuccessRate = percentage(item.SuccessCount, item.TotalRequests)
+		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool {
 		if items[i].TotalRequests == items[j].TotalRequests {
@@ -471,20 +490,6 @@ func limitMonitoringChannelModelStats(items []UsageMonitoringChannelModelStat, l
 }
 
 func limitMonitoringFailureModelStats(items []UsageMonitoringFailureModelStat, limit int) []UsageMonitoringFailureModelStat {
-	if len(items) <= limit {
-		return items
-	}
-	return items[:limit]
-}
-
-func limitChannelStats(items []UsageMonitoringChannelStat, limit int) []UsageMonitoringChannelStat {
-	if len(items) <= limit {
-		return items
-	}
-	return items[:limit]
-}
-
-func limitFailureStats(items []UsageMonitoringFailureStat, limit int) []UsageMonitoringFailureStat {
 	if len(items) <= limit {
 		return items
 	}

@@ -81,7 +81,7 @@ func NewRouter(
 	registerUpdateRoutes(protected, nil)
 	registerUsageOverviewRoute(protected, usageProvider)
 	registerUsageMonitoringRoute(protected, usageProvider, usageIdentityProvider)
-	registerUsageAnalysisRoute(protected, usageProvider)
+	registerUsageAnalysisRoute(protected, usageProvider, cpaAPIKeyProvider)
 	registerUsageEventsRoute(protected, usageProvider, usageIdentityProvider)
 	registerUsageIdentityRoutes(protected, usageIdentityProvider)
 	registerCPAAPIKeyRoutes(protected, cpaAPIKeyProvider)
