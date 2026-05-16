@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const usagePageStyles = readFileSync(new URL('./UsagePage.module.scss', import.meta.url), 'utf8')
@@ -29,6 +29,14 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('className={styles.usageRefreshSlot}')
     expect(usagePageSource).not.toContain('styles.usageFilterBarCollapsed')
     expect(usagePageStyles).toMatch(/\.usageRefreshSlot\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+  })
+
+  it('does not expose the removed manual sync endpoint from Usage controls', () => {
+    expect(usagePageSource).not.toContain('SyncNowButton')
+    expect(usagePageSource).not.toContain('manualSyncLoading')
+    expect(apiClientSource).not.toContain("apiPath('/sync')")
+    expect(apiClientSource).not.toContain('triggerSync')
+    expect(existsSync(new URL('./usagePageDevActions.tsx', import.meta.url))).toBe(false)
   })
 
   it('keeps the API Key filter visible on the Analysis page so Analysis requests can be filtered', () => {

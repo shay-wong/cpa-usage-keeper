@@ -52,7 +52,6 @@ import {
 } from '@/utils/usage';
 import type { Theme } from '@/types';
 import styles from './UsagePage.module.scss';
-import { SyncNowButton, syncCpaData } from './usagePageDevActions';
 import { DevMonitoringCenterTab, useDevMonitoringCenterData } from './usagePageDevMonitoring';
 import { devUsageTabLabelKey, withDevUsageTabs } from './usagePageDevTabs';
 
@@ -553,7 +552,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [eventsResultFilter, setEventsResultFilter] = useState(ALL_REQUEST_EVENTS_FILTER);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
-  const [manualSyncLoading, setManualSyncLoading] = useState(false);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
   const credentialsData = useCredentialsTabData({
     enabled: activeTab === 'credentials',
@@ -1067,28 +1065,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     aiProviderPage: credentialsData.aiProviderPage,
   });
 
-  const handleManualSync = useCallback(async () => {
-    setManualSyncLoading(true);
-    try {
-      await syncCpaData({
-        refreshActiveTab,
-        refreshStatus: fetchStatus,
-        onStatus: (nextStatus) => {
-          setStatus(nextStatus);
-          setStatusError(nextStatus.last_error || '');
-        },
-      });
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        onAuthRequired?.();
-        return;
-      }
-      setStatusError(error instanceof Error ? error.message : t('notification.refresh_failed'));
-    } finally {
-      setManualSyncLoading(false);
-    }
-  }, [onAuthRequired, refreshActiveTab, t]);
-
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
     try {
@@ -1300,14 +1276,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 );
               })}
             </div>
-            <SyncNowButton
-              loading={manualSyncLoading}
-              disabled={manualSyncLoading || manualRefreshLoading}
-              label={t('usage_stats.sync_now')}
-              loadingLabel={t('common.loading')}
-              ariaLabel={t('usage_stats.sync_now')}
-              onClick={() => void handleManualSync().catch(() => {})}
-            />
             {shouldShowUpdateCheckButton(status) && (
               <div className={styles.updateCheckSwitcher} role="group" aria-label={t('usage_stats.check_updates')}>
                 <button
@@ -1492,7 +1460,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                         type="button"
                         className={`${styles.refreshPill} ${styles.refreshPillActive} ${manualRefreshLoading ? styles.refreshPillLoading : ''}`.trim()}
                         onClick={() => void handleManualRefresh().catch(() => {})}
-                        disabled={manualRefreshLoading || manualSyncLoading}
+                        disabled={manualRefreshLoading}
                         aria-busy={manualRefreshLoading}
                       >
                         {manualRefreshLoading ? (

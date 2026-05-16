@@ -311,14 +311,6 @@ export async function fetchUpdateCheck(signal?: AbortSignal): Promise<UpdateChec
   return response.json()
 }
 
-export async function triggerSync(signal?: AbortSignal): Promise<StatusResponse> {
-  const response = await apiFetch(apiPath('/sync'), { method: 'POST', signal })
-  if (!response.ok) {
-    await parseApiError(response, `Failed to start sync: ${response.status}`)
-  }
-  return response.json()
-}
-
 export async function fetchPricing(signal?: AbortSignal): Promise<PricingResponse> {
   const response = await apiFetch(apiPath('/pricing'), { signal })
   if (!response.ok) {
