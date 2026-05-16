@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const usagePageStyles = readFileSync(new URL('./UsagePage.module.scss', import.meta.url), 'utf8')
+const monitoringCenterStyles = readFileSync(new URL('../components/usage/monitoring/MonitoringCenterTab.module.scss', import.meta.url), 'utf8')
 const usagePageSource = readFileSync(new URL('./UsagePage.tsx', import.meta.url), 'utf8')
 const requestEventsSource = readFileSync(new URL('../components/usage/RequestEventsDetailsCard.tsx', import.meta.url), 'utf8')
 const priceSettingsSource = readFileSync(new URL('../components/usage/PriceSettingsCard.tsx', import.meta.url), 'utf8')
@@ -225,6 +226,12 @@ describe('UsagePage toolbar styles', () => {
     expect(analysisPanelStyles).not.toContain('recharts-legend')
     expect(analysisPanelSource).not.toContain('<BarChart')
     expect(analysisPanelSource).toContain('font: { size: 10 }')
+  })
+
+  it('keeps Monitoring failure model tags readable in light and dark themes', () => {
+    expect(monitoringCenterStyles).toMatch(/\.failureModelTag\s*\{[\s\S]*?color:\s*#b91c1c;/)
+    expect(monitoringCenterStyles).toMatch(/\.failureModelTag\s*\{[\s\S]*?background:\s*color-mix\(in srgb, #fee2e2 78%, var\(--bg-primary\)\);/)
+    expect(monitoringCenterStyles).toMatch(/:global\(\[data-theme='dark'\]\) \.failureModelTag\s*\{[\s\S]*?color:\s*#fca5a5;/)
   })
 
   it('widens only the API key dropdown menu without changing the trigger width', () => {

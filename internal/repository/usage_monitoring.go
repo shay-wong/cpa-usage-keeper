@@ -8,6 +8,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
 )
 
@@ -139,14 +140,14 @@ ranked AS (
 		targets.target_index AS target_index,
 		targets.source AS target_source,
 		targets.auth_index AS target_auth_index,
-		TRIM(usage_events.source) AS source,
-		TRIM(usage_events.model) AS model,
+		COALESCE(TRIM(usage_events.source), '') AS source,
+		COALESCE(TRIM(usage_events.model), '') AS model,
 		usage_events.timestamp AS timestamp,
 		usage_events.failed AS failed,
 		ROW_NUMBER() OVER (PARTITION BY targets.target_index ORDER BY usage_events.timestamp DESC, usage_events.id DESC) AS row_number
 	FROM usage_events
-	JOIN targets ON TRIM(usage_events.source) = targets.source
-		AND (TRIM(usage_events.auth_index) = targets.auth_index OR TRIM(usage_events.auth_index) = '')
+	JOIN targets ON COALESCE(TRIM(usage_events.source), '') = targets.source
+		AND (COALESCE(TRIM(usage_events.auth_index), '') = targets.auth_index OR COALESCE(TRIM(usage_events.auth_index), '') = '')
 	%s
 )
 SELECT target_source AS source, target_auth_index AS auth_index, model, timestamp, failed, false AS model_scoped
@@ -169,16 +170,16 @@ WITH targets(target_index, source, auth_index, model) AS (%s),
 ranked AS (
 	SELECT
 		targets.target_index AS target_index,
-		TRIM(usage_events.source) AS source,
+		COALESCE(TRIM(usage_events.source), '') AS source,
 		targets.auth_index AS auth_index,
-		TRIM(usage_events.model) AS model,
+		COALESCE(TRIM(usage_events.model), '') AS model,
 		usage_events.timestamp AS timestamp,
 		usage_events.failed AS failed,
 		ROW_NUMBER() OVER (PARTITION BY targets.target_index ORDER BY usage_events.timestamp DESC, usage_events.id DESC) AS row_number
 	FROM usage_events
-	JOIN targets ON TRIM(usage_events.source) = targets.source
-		AND (TRIM(usage_events.auth_index) = targets.auth_index OR TRIM(usage_events.auth_index) = '')
-		AND TRIM(usage_events.model) = targets.model
+	JOIN targets ON COALESCE(TRIM(usage_events.source), '') = targets.source
+		AND (COALESCE(TRIM(usage_events.auth_index), '') = targets.auth_index OR COALESCE(TRIM(usage_events.auth_index), '') = '')
+		AND COALESCE(TRIM(usage_events.model), '') = targets.model
 	%s
 )
 SELECT source, auth_index, model, timestamp, failed, true AS model_scoped
@@ -215,14 +216,14 @@ func usageMonitoringRecentRequestFilterSQL(filter dto.UsageQueryFilter) (string,
 	args := []any{}
 	if filter.StartTime != nil {
 		conditions = append(conditions, "usage_events.timestamp >= ?")
-		args = append(args, filter.StartTime.UTC())
+		args = append(args, timeutil.FormatStorageTime(*filter.StartTime))
 	}
 	if filter.EndTime != nil {
 		conditions = append(conditions, "usage_events.timestamp <= ?")
-		args = append(args, filter.EndTime.UTC())
+		args = append(args, timeutil.FormatStorageTime(*filter.EndTime))
 	}
 	if model := strings.TrimSpace(filter.Model); model != "" {
-		conditions = append(conditions, "TRIM(usage_events.model) = ?")
+		conditions = append(conditions, "COALESCE(TRIM(usage_events.model), '') = ?")
 		args = append(args, model)
 	}
 	switch strings.TrimSpace(filter.Result) {
@@ -304,13 +305,13 @@ func ListUsageMonitoringHourlyModelStatsWithFilter(ctx context.Context, db *gorm
 	query := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
 	query = query.Select(strings.Join([]string{
 		"strftime('%Y-%m-%dT%H:00:00Z', timestamp) AS hour",
-		"TRIM(model) AS model",
+		"COALESCE(TRIM(model), '') AS model",
 		"COUNT(*) AS requests",
 		"SUM(total_tokens) AS tokens",
 		"SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS success_count",
 		"SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS failure_count",
 	}, ", "))
-	query = query.Group("strftime('%Y-%m-%dT%H:00:00Z', timestamp), TRIM(model)")
+	query = query.Group("strftime('%Y-%m-%dT%H:00:00Z', timestamp), COALESCE(TRIM(model), '')")
 	query = query.Order("hour ASC, requests DESC, model ASC")
 
 	var rows []UsageMonitoringHourlyModelStatRecord
@@ -328,8 +329,8 @@ func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB,
 
 	channelQuery := baseQuery.Session(&gorm.Session{})
 	channelQuery = channelQuery.Select(strings.Join([]string{
-		"TRIM(source) AS source",
-		"TRIM(auth_index) AS auth_index",
+		"COALESCE(TRIM(source), '') AS source",
+		"COALESCE(TRIM(auth_index), '') AS auth_index",
 		"COUNT(*) AS total_requests",
 		"SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS success_requests",
 		"SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS failed_requests",
@@ -340,7 +341,7 @@ func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB,
 		"SUM(total_tokens) AS total_tokens",
 		"MAX(timestamp) AS last_request_time",
 	}, ", "))
-	channelQuery = channelQuery.Group("TRIM(source), TRIM(auth_index)")
+	channelQuery = channelQuery.Group("COALESCE(TRIM(source), ''), COALESCE(TRIM(auth_index), '')")
 	channelQuery = channelQuery.Order("total_requests DESC, source ASC, auth_index ASC")
 	channelQuery = channelQuery.Limit(10)
 
@@ -367,8 +368,8 @@ func ListUsageMonitoringFailureStatsWithFilter(ctx context.Context, db *gorm.DB,
 	baseQuery := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
 
 	failureQuery := baseQuery.Session(&gorm.Session{}).Where("failed = ?", true)
-	failureQuery = failureQuery.Select("TRIM(source) AS source, TRIM(auth_index) AS auth_index, COUNT(*) AS failed_count, MAX(timestamp) AS last_fail_time")
-	failureQuery = failureQuery.Group("TRIM(source), TRIM(auth_index)")
+	failureQuery = failureQuery.Select("COALESCE(TRIM(source), '') AS source, COALESCE(TRIM(auth_index), '') AS auth_index, COUNT(*) AS failed_count, MAX(timestamp) AS last_fail_time")
+	failureQuery = failureQuery.Group("COALESCE(TRIM(source), ''), COALESCE(TRIM(auth_index), '')")
 	failureQuery = failureQuery.Order("failed_count DESC, source ASC, auth_index ASC")
 	failureQuery = failureQuery.Limit(10)
 
@@ -399,18 +400,18 @@ WITH targets(target_index, source, auth_index) AS (%s),
 aggregated AS (
 	SELECT
 		targets.target_index AS target_index,
-		TRIM(usage_events.source) AS source,
-		TRIM(usage_events.auth_index) AS auth_index,
-		TRIM(usage_events.model) AS model,
+		COALESCE(TRIM(usage_events.source), '') AS source,
+		COALESCE(TRIM(usage_events.auth_index), '') AS auth_index,
+		COALESCE(TRIM(usage_events.model), '') AS model,
 		COUNT(*) AS requests,
 		SUM(CASE WHEN usage_events.failed THEN 0 ELSE 1 END) AS success,
 		SUM(CASE WHEN usage_events.failed THEN 1 ELSE 0 END) AS failed,
 		SUM(usage_events.total_tokens) AS total_tokens,
 		MAX(usage_events.timestamp) AS last_request_time
 	FROM usage_events
-	JOIN targets ON TRIM(usage_events.source) = targets.source AND TRIM(usage_events.auth_index) = targets.auth_index
+	JOIN targets ON COALESCE(TRIM(usage_events.source), '') = targets.source AND COALESCE(TRIM(usage_events.auth_index), '') = targets.auth_index
 	%s
-	GROUP BY targets.target_index, TRIM(usage_events.source), TRIM(usage_events.auth_index), TRIM(usage_events.model)
+	GROUP BY targets.target_index, COALESCE(TRIM(usage_events.source), ''), COALESCE(TRIM(usage_events.auth_index), ''), COALESCE(TRIM(usage_events.model), '')
 ),
 ranked AS (
 	SELECT *, ROW_NUMBER() OVER (PARTITION BY target_index ORDER BY requests DESC, model ASC) AS row_number
@@ -440,17 +441,17 @@ WITH targets(target_index, source, auth_index) AS (%s),
 aggregated AS (
 	SELECT
 		targets.target_index AS target_index,
-		TRIM(usage_events.source) AS source,
-		TRIM(usage_events.auth_index) AS auth_index,
-		TRIM(usage_events.model) AS model,
+		COALESCE(TRIM(usage_events.source), '') AS source,
+		COALESCE(TRIM(usage_events.auth_index), '') AS auth_index,
+		COALESCE(TRIM(usage_events.model), '') AS model,
 		SUM(CASE WHEN usage_events.failed THEN 0 ELSE 1 END) AS success,
 		SUM(CASE WHEN usage_events.failed THEN 1 ELSE 0 END) AS failure,
 		COUNT(*) AS total,
 		MAX(usage_events.timestamp) AS last_timestamp
 	FROM usage_events
-	JOIN targets ON TRIM(usage_events.source) = targets.source AND TRIM(usage_events.auth_index) = targets.auth_index
+	JOIN targets ON COALESCE(TRIM(usage_events.source), '') = targets.source AND COALESCE(TRIM(usage_events.auth_index), '') = targets.auth_index
 	%s
-	GROUP BY targets.target_index, TRIM(usage_events.source), TRIM(usage_events.auth_index), TRIM(usage_events.model)
+	GROUP BY targets.target_index, COALESCE(TRIM(usage_events.source), ''), COALESCE(TRIM(usage_events.auth_index), ''), COALESCE(TRIM(usage_events.model), '')
 	HAVING SUM(CASE WHEN usage_events.failed THEN 1 ELSE 0 END) > 0
 ),
 ranked AS (

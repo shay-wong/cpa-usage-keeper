@@ -779,6 +779,12 @@
 }
 
 .failureModelTag {
+  color: #b91c1c;
+  border-color: color-mix(in srgb, #ef4444 48%, var(--border-color));
+  background: color-mix(in srgb, #fee2e2 78%, var(--bg-primary));
+}
+
+:global([data-theme='dark']) .failureModelTag {
   color: #fca5a5;
   border-color: color-mix(in srgb, #ef4444 55%, var(--border-color));
   background: color-mix(in srgb, #7f1d1d 34%, var(--bg-primary));

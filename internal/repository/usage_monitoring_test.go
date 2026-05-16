@@ -99,6 +99,92 @@ func TestListUsageMonitoringStatsWithFilterParsesAggregateTimestamps(t *testing.
 	}
 }
 
+func TestListUsageMonitoringStatsWithFilterUsesStorageTimeForModelDetails(t *testing.T) {
+	previousLocal := time.Local
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		t.Fatalf("load location: %v", err)
+	}
+	t.Cleanup(func() { time.Local = previousLocal })
+	time.Local = location
+
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-storage-time.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	requestTime := time.Date(2026, 5, 16, 23, 30, 0, 0, location)
+	events := []entities.UsageEvent{
+		{EventKey: "event-storage-time-failed", Source: "source-a", AuthIndex: "1", Model: "gpt-5.5", Timestamp: requestTime, Failed: true, TotalTokens: 42},
+		{EventKey: "event-storage-time-success", Source: "source-a", AuthIndex: "1", Model: "gpt-5.5", Timestamp: requestTime.Add(-time.Minute), Failed: false, TotalTokens: 24},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	start := requestTime.Add(-10 * time.Minute).UTC()
+	end := requestTime.Add(10 * time.Minute).UTC()
+	filter := dto.UsageQueryFilter{StartTime: &start, EndTime: &end}
+
+	channels, channelModels, err := ListUsageMonitoringChannelStatsWithFilter(context.Background(), db, filter)
+	if err != nil {
+		t.Fatalf("ListUsageMonitoringChannelStatsWithFilter returned error: %v", err)
+	}
+	if len(channels) != 1 || channels[0].TotalRequests != 2 {
+		t.Fatalf("expected channel requests inside storage-time window, got %+v", channels)
+	}
+	if len(channelModels) != 1 || channelModels[0].Model != "gpt-5.5" || channelModels[0].Requests != 2 {
+		t.Fatalf("expected channel model details inside storage-time window, got %+v", channelModels)
+	}
+
+	failures, failureModels, err := ListUsageMonitoringFailureStatsWithFilter(context.Background(), db, filter)
+	if err != nil {
+		t.Fatalf("ListUsageMonitoringFailureStatsWithFilter returned error: %v", err)
+	}
+	if len(failures) != 1 || failures[0].FailedCount != 1 {
+		t.Fatalf("expected failure requests inside storage-time window, got %+v", failures)
+	}
+	if len(failureModels) != 1 || failureModels[0].Model != "gpt-5.5" || failureModels[0].Failure != 1 {
+		t.Fatalf("expected failure model details inside storage-time window, got %+v", failureModels)
+	}
+}
+func TestListUsageMonitoringFailureStatsWithFilterMatchesNullAuthIndexModels(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-null-auth.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	requestTime := time.Date(2026, 5, 16, 8, 30, 0, 0, time.UTC)
+	if err := db.Exec(
+		`INSERT INTO usage_events (event_key, source, auth_index, model, timestamp, failed, total_tokens, created_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)`,
+		"event-null-auth-failed",
+		"source-a",
+		"claude-sonnet",
+		requestTime,
+		true,
+		42,
+		requestTime,
+	).Error; err != nil {
+		t.Fatalf("insert null-auth usage event: %v", err)
+	}
+
+	failures, failureModels, err := ListUsageMonitoringFailureStatsWithFilter(context.Background(), db, dto.UsageQueryFilter{})
+	if err != nil {
+		t.Fatalf("ListUsageMonitoringFailureStatsWithFilter returned error: %v", err)
+	}
+	if len(failures) != 1 || failures[0].FailedCount != 1 {
+		t.Fatalf("expected one failure count for null auth index, got %+v", failures)
+	}
+	if len(failureModels) != 1 {
+		t.Fatalf("expected null-auth failure count to include its model row, got %+v", failureModels)
+	}
+	if failureModels[0].Model != "claude-sonnet" || failureModels[0].Failure != 1 {
+		t.Fatalf("expected claude-sonnet failure model, got %+v", failureModels[0])
+	}
+}
+
 func TestListUsageMonitoringRecentRequestsWithFilterMatchesChannelRecentRequestsBySource(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-channel-source.db")})
 	if err != nil {
