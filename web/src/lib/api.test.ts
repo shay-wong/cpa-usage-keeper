@@ -303,6 +303,27 @@ describe('fetchUsageEvents', () => {
     expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
   });
 
+  it('normalizes empty quota refresh task lists from the backend', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        tasks: null,
+        rejected: null,
+        accepted: 0,
+        skipped: 1,
+        limit: 1,
+      }),
+    } as Response);
+
+    const response = await refreshUsageQuotas(['auth-1']);
+
+    expect(response.tasks).toEqual([]);
+    expect(response.rejected).toEqual([]);
+    expect(response.accepted).toBe(0);
+    expect(response.skipped).toBe(1);
+  });
+
   it('loads quota refresh task status', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({

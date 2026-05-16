@@ -219,7 +219,12 @@ export async function refreshUsageQuotas(authIndexes: string[], signal?: AbortSi
   if (!response.ok) {
     await parseApiError(response, `Failed to refresh usage quotas: ${response.status}`)
   }
-  return response.json()
+  const payload = await response.json() as UsageQuotaRefreshResponse
+  return {
+    ...payload,
+    tasks: Array.isArray(payload.tasks) ? payload.tasks : [],
+    rejected: Array.isArray(payload.rejected) ? payload.rejected : [],
+  }
 }
 
 export async function fetchUsageQuotaRefreshTask(taskId: string, signal?: AbortSignal): Promise<UsageQuotaRefreshTaskResponse> {

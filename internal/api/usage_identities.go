@@ -145,7 +145,6 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 	if item.AuthType == entities.UsageIdentityAuthTypeAIProvider {
 		identity = redact.APIKeyDisplayName(item.Identity)
 	} else if item.AuthType == entities.UsageIdentityAuthTypeAuthFile {
-		identity = redact.APIKeyDisplayName(item.Identity)
 		name = safeAuthIdentityDisplayName(item.Name, item.Identity)
 		displayName = safeAuthIdentityDisplayName(displayName, item.Identity)
 	}

@@ -49,14 +49,14 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 	createdAt := time.Date(2026, 5, 3, 8, 0, 0, 0, time.UTC)
 	updatedAt := time.Date(2026, 5, 4, 10, 30, 0, 0, time.UTC)
 	deletedAt := time.Date(2026, 5, 4, 11, 0, 0, 0, time.UTC)
-	maskedAuthFileIdentity := redact.APIKeyDisplayName("2")
+	rawAuthFileIdentity := "2"
 
 	activeIdentity := entities.UsageIdentity{
 		ID:                         1,
 		Name:                       "Claude Desktop",
 		AuthType:                   entities.UsageIdentityAuthTypeAuthFile,
 		AuthTypeName:               "oauth",
-		Identity:                   "2",
+		Identity:                   rawAuthFileIdentity,
 		Type:                       "auth-file",
 		Provider:                   "anthropic",
 		TotalRequests:              10,
@@ -100,7 +100,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if !contains(body, `"identities":[`) || !contains(body, `"id":"1"`) || !contains(body, `"identity":"`+maskedAuthFileIdentity+`"`) {
+	if !contains(body, `"identities":[`) || !contains(body, `"id":"1"`) || !contains(body, `"identity":"`+rawAuthFileIdentity+`"`) {
 		t.Fatalf("expected auth file identity row in response, got %s", body)
 	}
 	if contains(body, "Deleted Provider") || contains(body, "sk-deleted-provider-secret") || contains(body, `"deleted_at"`) {
@@ -132,7 +132,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 	}
 }
 
-func TestUsageIdentitiesRouteMasksAuthFileEmailIdentity(t *testing.T) {
+func TestUsageIdentitiesRouteKeepsAuthFileIdentityForQuotaRefreshAndMasksDisplayName(t *testing.T) {
 	rawEmail := "user@example.com"
 	rawIdentity := "auth-secret"
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
@@ -153,11 +153,15 @@ func TestUsageIdentitiesRouteMasksAuthFileEmailIdentity(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if contains(body, rawEmail) || contains(body, rawIdentity) {
-		t.Fatalf("expected raw auth file email and identity to be hidden, got %s", body)
+	if contains(body, rawEmail) {
+		t.Fatalf("expected raw auth file email to be hidden, got %s", body)
 	}
-	if !contains(body, `"name":"`+redact.APIKeyDisplayName(rawEmail)+`"`) || !contains(body, `"identity":"`+redact.APIKeyDisplayName(rawIdentity)+`"`) {
-		t.Fatalf("expected masked auth file identity values in response body: %s", body)
+	if !contains(body, `"identity":"`+rawIdentity+`"`) {
+		t.Fatalf("expected raw auth file identity to remain available for quota refresh, got %s", body)
+	}
+	maskedEmail := redact.APIKeyDisplayName(rawEmail)
+	if !contains(body, `"name":"`+maskedEmail+`"`) || !contains(body, `"displayName":"`+maskedEmail+`"`) {
+		t.Fatalf("expected masked auth file display values in response body: %s", body)
 	}
 }
 
