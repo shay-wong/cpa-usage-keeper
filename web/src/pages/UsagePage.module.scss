@@ -2311,6 +2311,7 @@
   --health-grid-aspect-rows: 7;
   --health-grid-width: 100%;
   --health-grid-gap: 3px;
+  --health-grid-block-size: 8px;
 }
 
 .healthHeader {
@@ -2417,11 +2418,10 @@
   max-width: 100%;
   gap: var(--health-grid-gap);
   grid-template-columns: repeat(var(--health-grid-columns), minmax(0, 1fr));
-  grid-template-rows: repeat(var(--health-grid-rows), minmax(0, 1fr));
+  grid-template-rows: repeat(var(--health-grid-rows), var(--health-grid-block-size));
   grid-auto-flow: column;
   margin-left: auto;
   margin-right: auto;
-  aspect-ratio: var(--health-grid-aspect-columns) / var(--health-grid-aspect-rows);
 }
 
 .healthBlockWrapper {
@@ -2429,7 +2429,7 @@
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
   width: 100%;
-  aspect-ratio: 1;
+  height: var(--health-grid-block-size);
   min-width: 0;
 }
 

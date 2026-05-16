@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildUsageOverviewQueryKey } from '@/stores';
 import { normalizeUsageOverviewRange } from './useUsageData';
 
 describe('normalizeUsageOverviewRange', () => {
@@ -10,5 +11,11 @@ describe('normalizeUsageOverviewRange', () => {
   it('falls back to the default required range instead of all data', () => {
     expect(normalizeUsageOverviewRange('all')).toBe('8h');
     expect(normalizeUsageOverviewRange('invalid')).toBe('8h');
+  });
+});
+
+describe('buildUsageOverviewQueryKey', () => {
+  it('keeps API-Key scoped overview responses visible after the store refreshes', () => {
+    expect(buildUsageOverviewQueryKey('24h', undefined, undefined, '123')).toBe('24h:::123');
   });
 });

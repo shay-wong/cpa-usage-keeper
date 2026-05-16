@@ -27,7 +27,7 @@ let activeRequest: Promise<void> | null = null;
 let activeRequestKey: string | null = null;
 let activeRequestController: AbortController | null = null;
 
-const buildQueryKey = (range: UsageTimeRange, start?: string, end?: string, apiKeyId?: string): string =>
+export const buildUsageOverviewQueryKey = (range: UsageTimeRange, start?: string, end?: string, apiKeyId?: string): string =>
   `${range}:${start ?? ''}:${end ?? ''}:${apiKeyId ?? ''}`;
 
 export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
@@ -47,7 +47,7 @@ export const useUsageStatsStore = create<UsageStatsState>((set, get) => ({
     } = options;
     const { lastRefreshedAt, loading, usage, lastQueryKey } = get();
     const now = Date.now();
-    const queryKey = buildQueryKey(range, start, end, apiKeyId);
+    const queryKey = buildUsageOverviewQueryKey(range, start, end, apiKeyId);
 
     if (!force && usage && lastRefreshedAt && lastQueryKey === queryKey && now - lastRefreshedAt < staleTimeMs) {
       return;

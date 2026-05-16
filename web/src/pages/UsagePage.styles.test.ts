@@ -280,6 +280,17 @@ describe('UsagePage toolbar styles', () => {
     expect(chartsGridIndex).toBeGreaterThan(chartLineSelectorIndex)
   })
 
+  it('keeps Service Health grid height bounded when few columns are returned', () => {
+    const healthGridBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.healthGrid {'),
+      usagePageStyles.indexOf('.healthBlockWrapper')
+    )
+
+    expect(healthGridBlock).toContain('grid-template-rows: repeat(var(--health-grid-rows), var(--health-grid-block-size));')
+    expect(healthGridBlock).not.toContain('aspect-ratio:')
+    expect(usagePageStyles).toMatch(/\.healthBlockWrapper\s*\{[\s\S]*?height:\s*var\(--health-grid-block-size\);/)
+  })
+
   it('keeps chart line controls aligned with reusable pill controls', () => {
     expect(chartLineSelectorSource).toContain('className={styles.usagePillControl}')
     expect(chartLineSelectorSource).toContain('className={styles.usagePillAction}')

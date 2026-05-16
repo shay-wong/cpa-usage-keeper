@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from 'react';
 import { ApiError } from '@/lib/api';
 import type { UsageOverviewResponse, UsageSnapshot, UsageTimeRange } from '@/lib/types';
-import { USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
+import { buildUsageOverviewQueryKey, USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
 import { buildUsageRangeQuery, normalizeUsageRange } from '@/utils/usage/rangeQuery';
 
 export type UsagePayload = Partial<UsageSnapshot>;
@@ -28,9 +28,6 @@ export interface UseUsageDataOptions {
 }
 
 export const normalizeUsageOverviewRange = normalizeUsageRange;
-
-const buildUsageQueryKey = (range: UsageTimeRange, start?: string, end?: string): string =>
-  `${range}:${start ?? ''}:${end ?? ''}`;
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
   const { onAuthRequired, range = '8h', customStart, customEnd, enabled = true, apiKeyId } = options;
@@ -83,7 +80,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
     });
   }, [apiKeyId, customRangeReady, enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
-  const currentQueryKey = customRangeReady ? buildUsageQueryKey(resolvedRange, requestStart, requestEnd) : null;
+  const currentQueryKey = customRangeReady ? buildUsageOverviewQueryKey(resolvedRange, requestStart, requestEnd, apiKeyId) : null;
   const currentUsage = currentQueryKey !== null && lastQueryKey === currentQueryKey ? usageSnapshot : null;
 
   return {
