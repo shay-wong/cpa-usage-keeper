@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/config"
+	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/cpa/dto/response"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	"cpa-usage-keeper/internal/repository/dto"
@@ -166,6 +168,84 @@ func TestUsageServiceRejectsInvalidAPIKeyID(t *testing.T) {
 	_, err = provider.ListUsageEvents(context.Background(), servicedto.UsageFilter{APIKeyID: "not-an-id", Page: 1, PageSize: 100, Limit: 100})
 	if !errors.Is(err, ErrInvalidID) {
 		t.Fatalf("expected ErrInvalidID, got %v", err)
+	}
+}
+
+type requestLogFetcherStub struct {
+	content string
+	err     error
+	calls   int
+	lastID  string
+}
+
+func (s *requestLogFetcherStub) FetchRequestLogByID(_ context.Context, requestID string) (*response.RequestLogResult, error) {
+	s.calls++
+	s.lastID = requestID
+	if s.err != nil {
+		return &response.RequestLogResult{}, s.err
+	}
+	return &response.RequestLogResult{StatusCode: 200, Body: []byte(s.content), Content: s.content}, nil
+}
+
+func TestUsageServiceGetUsageEventRequestDetailFetchesAndCachesDetail(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-detail.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "event-detail", RequestID: "req-detail", Model: "claude-sonnet", Timestamp: time.Date(2026, 5, 16, 8, 0, 0, 0, time.UTC), TotalTokens: 1}}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	var event entities.UsageEvent
+	if err := db.Where("event_key = ?", "event-detail").First(&event).Error; err != nil {
+		t.Fatalf("load usage event: %v", err)
+	}
+	fetcher := &requestLogFetcherStub{content: "raw request log"}
+	provider := NewUsageServiceWithRequestLogFetcher(db, fetcher)
+
+	first, err := provider.GetUsageEventRequestDetail(context.Background(), strconv.FormatInt(event.ID, 10))
+	if err != nil {
+		t.Fatalf("GetUsageEventRequestDetail returned error: %v", err)
+	}
+	second, err := provider.GetUsageEventRequestDetail(context.Background(), strconv.FormatInt(event.ID, 10))
+	if err != nil {
+		t.Fatalf("second GetUsageEventRequestDetail returned error: %v", err)
+	}
+
+	if first.Cached || first.Content != "raw request log" || first.RequestID != "req-detail" {
+		t.Fatalf("unexpected first detail: %+v", first)
+	}
+	if !second.Cached || second.Content != "raw request log" || fetcher.calls != 1 || fetcher.lastID != "req-detail" {
+		t.Fatalf("expected second detail to use cache, second=%+v fetcher=%+v", second, fetcher)
+	}
+}
+
+func TestUsageServiceGetUsageEventRequestDetailMapsMissingAndUpstreamErrors(t *testing.T) {
+	db, err := repository.OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-service-detail-errors.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	if _, _, err := repository.InsertUsageEvents(db, []entities.UsageEvent{{EventKey: "event-without-request", Model: "claude-sonnet", Timestamp: time.Date(2026, 5, 16, 8, 0, 0, 0, time.UTC), TotalTokens: 1}, {EventKey: "event-upstream-missing", RequestID: "req-missing", Model: "claude-sonnet", Timestamp: time.Date(2026, 5, 16, 9, 0, 0, 0, time.UTC), TotalTokens: 1}}); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	var noRequest entities.UsageEvent
+	if err := db.Where("event_key = ?", "event-without-request").First(&noRequest).Error; err != nil {
+		t.Fatalf("load no request event: %v", err)
+	}
+	var upstreamMissing entities.UsageEvent
+	if err := db.Where("event_key = ?", "event-upstream-missing").First(&upstreamMissing).Error; err != nil {
+		t.Fatalf("load upstream missing event: %v", err)
+	}
+	provider := NewUsageServiceWithRequestLogFetcher(db, &requestLogFetcherStub{err: cpa.ErrRequestLogNotFound})
+
+	_, err = provider.GetUsageEventRequestDetail(context.Background(), strconv.FormatInt(noRequest.ID, 10))
+	if !errors.Is(err, ErrUsageEventRequestUnavailable) {
+		t.Fatalf("expected ErrUsageEventRequestUnavailable, got %v", err)
+	}
+	_, err = provider.GetUsageEventRequestDetail(context.Background(), strconv.FormatInt(upstreamMissing.ID, 10))
+	if !errors.Is(err, ErrUsageEventRequestUpstreamNotFound) {
+		t.Fatalf("expected ErrUsageEventRequestUpstreamNotFound, got %v", err)
 	}
 }
 

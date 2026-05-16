@@ -44,6 +44,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260514_add_usage_event_plain_dimension_indexes",
 		"20260514_create_usage_overview_stats",
 		"20260514_remove_usage_event_event_key_unique_index",
+		"20260516_create_usage_request_details",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected ordered migrations %v, got %v", want, got)
@@ -72,6 +73,9 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 	}
 	if !db.Migrator().HasColumn(&entities.UsageIdentity{}, "lookup_key") {
 		t.Fatal("expected usage_identities.lookup_key column to exist")
+	}
+	if !db.Migrator().HasTable(&entities.UsageRequestDetail{}) {
+		t.Fatal("expected usage_request_details table to exist")
 	}
 
 	var versions []string
@@ -104,6 +108,7 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260514_add_usage_event_plain_dimension_indexes",
 		"20260514_create_usage_overview_stats",
 		"20260514_remove_usage_event_event_key_unique_index",
+		"20260516_create_usage_request_details",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)

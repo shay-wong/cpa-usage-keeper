@@ -1,6 +1,7 @@
 package cpa
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -14,6 +15,56 @@ import (
 	"cpa-usage-keeper/internal/cpa/dto/apicall"
 	"cpa-usage-keeper/internal/cpa/dto/response"
 )
+
+func TestFetchRequestLogByIDSendsManagementBearerAndReadsRawText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.EscapedPath() != cpaManagementRequestLogByIDEndpoint+"/req%2Fspace%20value" {
+			t.Fatalf("unexpected path %q", r.URL.EscapedPath())
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer management-secret" {
+			t.Fatalf("expected management Authorization header, got %q", got)
+		}
+		_, _ = w.Write([]byte("=== REQUEST INFO ===\nraw log"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+	result, err := client.FetchRequestLogByID(context.Background(), " req/space value ")
+	if err != nil {
+		t.Fatalf("FetchRequestLogByID returned error: %v", err)
+	}
+	if result.StatusCode != http.StatusOK || result.Content != "=== REQUEST INFO ===\nraw log" || string(result.Body) != result.Content {
+		t.Fatalf("unexpected request log result: %+v", result)
+	}
+}
+
+func TestFetchRequestLogByIDClassifiesNotFoundAndOversizedResponses(t *testing.T) {
+	t.Run("not found", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		}))
+		defer server.Close()
+
+		client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+		_, err := client.FetchRequestLogByID(context.Background(), "missing")
+		if !errors.Is(err, ErrRequestLogNotFound) {
+			t.Fatalf("expected ErrRequestLogNotFound, got %v", err)
+		}
+	})
+
+	t.Run("too large", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write(bytes.Repeat([]byte("a"), maxRequestLogBytes+1))
+		}))
+		defer server.Close()
+
+		client := NewClient(server.URL, "management-secret", 2*time.Second, false)
+		_, err := client.FetchRequestLogByID(context.Background(), "huge")
+		if !errors.Is(err, ErrRequestLogTooLarge) {
+			t.Fatalf("expected ErrRequestLogTooLarge, got %v", err)
+		}
+	})
+}
 
 func TestFetchManagementAPIKeysSendsBearerTokenAndParsesKeys(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

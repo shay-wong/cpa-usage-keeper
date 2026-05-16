@@ -50,6 +50,10 @@ func (s *usageAnalysisStub) ListUsageEventFilterOptions(context.Context, service
 	return nil, nil
 }
 
+func (s *usageAnalysisStub) GetUsageEventRequestDetail(context.Context, string) (*servicedto.UsageEventRequestDetail, error) {
+	return nil, nil
+}
+
 func (s *usageAnalysisStub) GetAnalysis(_ context.Context, filter servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	s.lastFilter = filter
 	s.analysisCalls++

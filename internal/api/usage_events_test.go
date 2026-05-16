@@ -9,6 +9,7 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
+	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 )
 
@@ -20,6 +21,10 @@ type usageEventsStub struct {
 	lastFilter         servicedto.UsageFilter
 	filterCalls        int
 	filterOptionCalls  int
+	detail             *servicedto.UsageEventRequestDetail
+	detailErr          error
+	lastDetailID       string
+	detailCalls        int
 }
 
 func (s *usageEventsStub) GetUsageWithFilter(context.Context, servicedto.UsageFilter) (*dto.StatisticsSnapshot, error) {
@@ -48,6 +53,12 @@ func (s *usageEventsStub) ListUsageEventFilterOptions(_ context.Context, filter 
 	return &servicedto.UsageEventFilterOptions{}, s.err
 }
 
+func (s *usageEventsStub) GetUsageEventRequestDetail(_ context.Context, id string) (*servicedto.UsageEventRequestDetail, error) {
+	s.lastDetailID = id
+	s.detailCalls++
+	return s.detail, s.detailErr
+}
+
 func (s *usageEventsStub) GetAnalysis(context.Context, servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	return nil, s.err
 }
@@ -69,6 +80,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		Provider:            "OpenAI Mirror",
 		Source:              "sk-provider-key",
 		AuthIndex:           "2",
+		RequestID:           "req-detail-42",
 		Failed:              false,
 		LatencyMS:           321,
 		InputTokens:         10,
@@ -92,7 +104,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if !contains(body, `"events":[`) || !contains(body, `"model":"claude-sonnet"`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
-	if !contains(body, `"id":"42"`) || !contains(body, `"total_count":1`) || !contains(body, `"page":1`) || !contains(body, `"page_size":100`) || !contains(body, `"total_pages":1`) {
+	if !contains(body, `"id":"42"`) || !contains(body, `"request_id":"req-detail-42"`) || !contains(body, `"total_count":1`) || !contains(body, `"page":1`) || !contains(body, `"page_size":100`) || !contains(body, `"total_pages":1`) {
 		t.Fatalf("expected pagination metadata and event id in response body: %s", body)
 	}
 	if !contains(body, `"source":"OpenAI Mirror"`) {
@@ -124,6 +136,60 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if provider.lastFilter.StartTime == nil || provider.lastFilter.EndTime == nil {
 		t.Fatalf("expected resolved time bounds in filter, got %+v", provider.lastFilter)
+	}
+}
+
+func TestUsageEventDetailReturnsPayloadAndMapsErrors(t *testing.T) {
+	fetchedAt := time.Date(2026, 5, 16, 8, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		detail     *servicedto.UsageEventRequestDetail
+		detailErr  error
+		wantStatus int
+		wantBody   []string
+	}{
+		{
+			name:       "success",
+			detail:     &servicedto.UsageEventRequestDetail{UsageEventID: 42, RequestID: "req-42", Content: "=== REQUEST INFO ===\nraw", Cached: true, FetchedAt: fetchedAt},
+			wantStatus: http.StatusOK,
+			wantBody:   []string{`"usage_event_id":"42"`, `"request_id":"req-42"`, `"content":"=== REQUEST INFO ===\nraw"`, `"cached":true`, `"fetched_at":"2026-05-16T16:00:00+08:00"`},
+		},
+		{
+			name:       "invalid id",
+			detailErr:  service.ErrInvalidID,
+			wantStatus: http.StatusBadRequest,
+			wantBody:   []string{`"code":"invalid_event_id"`},
+		},
+		{
+			name:       "upstream log not found",
+			detailErr:  service.ErrUsageEventRequestUpstreamNotFound,
+			wantStatus: http.StatusNotFound,
+			wantBody:   []string{`"code":"upstream_log_not_found"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &usageEventsStub{detail: tt.detail, detailErr: tt.detailErr}
+			router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/events/42/detail", nil)
+			resp := httptest.NewRecorder()
+
+			router.ServeHTTP(resp, req)
+
+			body := resp.Body.String()
+			if resp.Code != tt.wantStatus {
+				t.Fatalf("expected status %d, got %d: %s", tt.wantStatus, resp.Code, body)
+			}
+			if provider.detailCalls != 1 || provider.lastDetailID != "42" {
+				t.Fatalf("expected detail lookup for event id 42, calls=%d id=%q", provider.detailCalls, provider.lastDetailID)
+			}
+			for _, part := range tt.wantBody {
+				if !contains(body, part) {
+					t.Fatalf("expected body to contain %s, got %s", part, body)
+				}
+			}
+		})
 	}
 }
 

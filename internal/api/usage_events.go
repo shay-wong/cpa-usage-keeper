@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,6 +23,19 @@ type usageEventsResponse struct {
 	TotalPages int                 `json:"total_pages"`
 }
 
+type usageEventRequestDetailPayload struct {
+	UsageEventID string `json:"usage_event_id"`
+	RequestID    string `json:"request_id"`
+	Content      string `json:"content"`
+	Cached       bool   `json:"cached"`
+	FetchedAt    string `json:"fetched_at"`
+}
+
+type usageEventDetailErrorPayload struct {
+	Error string `json:"error"`
+	Code  string `json:"code"`
+}
+
 type usageSourceFilterOption struct {
 	Value       string `json:"value"`
 	Label       string `json:"label"`
@@ -35,6 +49,7 @@ type usageEventFilterOptionsResponse struct {
 
 type usageEventPayload struct {
 	ID         string                 `json:"id,omitempty"`
+	RequestID  string                 `json:"request_id,omitempty"`
 	Timestamp  string                 `json:"timestamp"`
 	Model      string                 `json:"model"`
 	Source     string                 `json:"source"`
@@ -77,6 +92,25 @@ func registerUsageEventsRoute(
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"sources": sources})
+	})
+
+	router.GET("/usage/events/:id/detail", func(c *gin.Context) {
+		if usageProvider == nil {
+			writeUsageEventDetailError(c, http.StatusNotFound, "event_not_found")
+			return
+		}
+		detail, err := usageProvider.GetUsageEventRequestDetail(c.Request.Context(), c.Param("id"))
+		if err != nil {
+			writeUsageEventDetailServiceError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, usageEventRequestDetailPayload{
+			UsageEventID: strconv.FormatInt(detail.UsageEventID, 10),
+			RequestID:    detail.RequestID,
+			Content:      detail.Content,
+			Cached:       detail.Cached,
+			FetchedAt:    timeutil.FormatStorageTime(detail.FetchedAt),
+		})
 	})
 
 	router.GET("/usage/events", func(c *gin.Context) {
@@ -139,6 +173,29 @@ func applyUsageEventsSourceFilter(filter *servicedto.UsageFilter, identities []e
 	return nil
 }
 
+func writeUsageEventDetailServiceError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrInvalidID):
+		writeUsageEventDetailError(c, http.StatusBadRequest, "invalid_event_id")
+	case errors.Is(err, service.ErrUsageEventNotFound):
+		writeUsageEventDetailError(c, http.StatusNotFound, "event_not_found")
+	case errors.Is(err, service.ErrUsageEventRequestUnavailable):
+		writeUsageEventDetailError(c, http.StatusNotFound, "request_detail_unavailable")
+	case errors.Is(err, service.ErrUsageEventRequestUpstreamNotFound):
+		writeUsageEventDetailError(c, http.StatusNotFound, "upstream_log_not_found")
+	case errors.Is(err, service.ErrUsageEventRequestTooLarge):
+		writeUsageEventDetailError(c, http.StatusRequestEntityTooLarge, "request_detail_too_large")
+	case errors.Is(err, service.ErrUsageEventRequestUpstream):
+		writeUsageEventDetailError(c, http.StatusBadGateway, "upstream_request_failed")
+	default:
+		writeUsageEventDetailError(c, http.StatusInternalServerError, "internal_error")
+	}
+}
+
+func writeUsageEventDetailError(c *gin.Context, status int, code string) {
+	c.JSON(status, usageEventDetailErrorPayload{Error: code, Code: code})
+}
+
 // 列表结果先按 auth_index 解析展示名，再组装前端需要的事件 payload。
 func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageIdentityResolver) []usageEventPayload {
 	if len(rows) == 0 {
@@ -154,6 +211,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 		}
 		payload = append(payload, usageEventPayload{
 			ID:         id,
+			RequestID:  row.RequestID,
 			Timestamp:  timeutil.FormatStorageTime(row.Timestamp),
 			Model:      row.Model,
 			Source:     source,

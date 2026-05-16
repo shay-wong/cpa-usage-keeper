@@ -2,6 +2,7 @@ package repository
 
 import (
 	"cpa-usage-keeper/internal/repository/dto"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -18,9 +19,9 @@ func TestListUsageEventsWithFilterAppliesTimeBoundsAndPagination(t *testing.T) {
 	closeTestDatabase(t, db)
 
 	events := []entities.UsageEvent{
-		{EventKey: "event-1", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "1", TotalTokens: 10},
-		{EventKey: "event-2", APIGroupKey: "provider-a", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "2", TotalTokens: 20},
-		{EventKey: "event-3", APIGroupKey: "provider-b", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", TotalTokens: 30},
+		{EventKey: "event-1", APIGroupKey: "provider-a", RequestID: "req-1", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 9, 0, 0, 0, time.UTC), Source: "source-a", AuthIndex: "1", TotalTokens: 10},
+		{EventKey: "event-2", APIGroupKey: "provider-a", RequestID: "req-2", Model: "claude-sonnet", Timestamp: time.Date(2026, 4, 16, 10, 0, 0, 0, time.UTC), Source: "source-b", AuthIndex: "2", TotalTokens: 20},
+		{EventKey: "event-3", APIGroupKey: "provider-b", RequestID: "req-3", Model: "claude-opus", Timestamp: time.Date(2026, 4, 16, 11, 0, 0, 0, time.UTC), Source: "source-c", AuthIndex: "3", TotalTokens: 30},
 	}
 	if _, _, err := InsertUsageEvents(db, events); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
@@ -38,8 +39,8 @@ func TestListUsageEventsWithFilterAppliesTimeBoundsAndPagination(t *testing.T) {
 	if len(page.Events) != 1 {
 		t.Fatalf("expected one row after page size, got %d", len(page.Events))
 	}
-	if page.Events[0].Source != "source-c" {
-		t.Fatalf("expected newest in-range row first, got %+v", page.Events[0])
+	if page.Events[0].Source != "source-c" || page.Events[0].RequestID != "req-3" {
+		t.Fatalf("expected newest in-range row with request_id first, got %+v", page.Events[0])
 	}
 }
 
@@ -188,5 +189,60 @@ func TestListUsageEventFilterOptionsWithFilterReturnsStableModels(t *testing.T) 
 	}
 	if len(options.Models) != 2 || options.Models[0] != "claude-sonnet" || options.Models[1] != "gpt-5" {
 		t.Fatalf("expected stable model options, got %+v", options.Models)
+	}
+}
+
+func TestUsageRequestDetailCacheSavesReadsAndReusesExistingRequestID(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-request-details.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	now := time.Date(2026, 5, 16, 8, 0, 0, 0, time.UTC)
+
+	first, err := SaveUsageRequestDetail(db, entities.UsageRequestDetail{RequestID: " req-cache ", Content: "first log", Source: "cliproxyapi", FetchedAt: now})
+	if err != nil {
+		t.Fatalf("SaveUsageRequestDetail returned error: %v", err)
+	}
+	second, err := SaveUsageRequestDetail(db, entities.UsageRequestDetail{RequestID: "req-cache", Content: "second log", Source: "cliproxyapi", FetchedAt: now.Add(time.Minute)})
+	if err != nil {
+		t.Fatalf("SaveUsageRequestDetail duplicate returned error: %v", err)
+	}
+	if first.ID != second.ID || second.Content != "first log" || second.RequestID != "req-cache" {
+		t.Fatalf("expected duplicate save to return existing cache row, first=%+v second=%+v", first, second)
+	}
+
+	cached, err := GetUsageRequestDetailByRequestID(db, "req-cache")
+	if err != nil {
+		t.Fatalf("GetUsageRequestDetailByRequestID returned error: %v", err)
+	}
+	if cached.ID != first.ID || cached.Content != "first log" {
+		t.Fatalf("unexpected cached detail: %+v", cached)
+	}
+}
+
+func TestEnforceUsageRequestDetailLimitDeletesOldestRows(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-request-details-limit.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	base := time.Date(2026, 5, 16, 8, 0, 0, 0, time.UTC)
+	for index := 0; index < 5; index++ {
+		_, err := SaveUsageRequestDetail(db, entities.UsageRequestDetail{RequestID: fmt.Sprintf("req-%d", index), Content: "log", Source: "cliproxyapi", FetchedAt: base.Add(time.Duration(index) * time.Minute)})
+		if err != nil {
+			t.Fatalf("SaveUsageRequestDetail returned error: %v", err)
+		}
+	}
+	if err := EnforceUsageRequestDetailLimit(db, 3); err != nil {
+		t.Fatalf("EnforceUsageRequestDetailLimit returned error: %v", err)
+	}
+
+	var remaining []entities.UsageRequestDetail
+	if err := db.Order("fetched_at ASC, id ASC").Find(&remaining).Error; err != nil {
+		t.Fatalf("list remaining request details: %v", err)
+	}
+	if len(remaining) != 3 || remaining[0].RequestID != "req-2" || remaining[2].RequestID != "req-4" {
+		t.Fatalf("expected newest three rows to remain, got %+v", remaining)
 	}
 }

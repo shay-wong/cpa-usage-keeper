@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
-import type { UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import { ApiError, fetchUsageEventRequestDetail } from '@/lib/api';
+import type { UsageEvent, UsageEventRequestDetailResponse, UsageSourceFilterOption } from '@/lib/types';
 import {
   calculateCacheRate,
   calculateCost,
@@ -14,7 +15,6 @@ import {
   normalizeAuthIndex,
   type ModelPrice,
 } from '@/utils/usage';
-import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
 const ALL_FILTER = '__all__';
@@ -34,6 +34,8 @@ const appendSelectedOption = (
 
 type RequestEventRow = {
   id: string;
+  usageEventID: string;
+  requestID: string;
   timestamp: string;
   timestampMs: number;
   timestampLabel: string;
@@ -93,11 +95,14 @@ const formatCacheRateForSource = (cachedTokens: number, inputTokens: number, sou
   return rate === null ? '-' : `${rate.toFixed(2)}%`;
 };
 
-const encodeCsv = (value: string | number): string => {
-  const text = String(value ?? '');
-  const trimmedLeft = text.replace(/^\s+/, '');
-  const safeText = trimmedLeft && /^[=+\-@]/.test(trimmedLeft) ? `'${text}` : text;
-  return `"${safeText.replace(/"/g, '""')}"`;
+const getRequestDetailErrorKey = (error: unknown): string => {
+  if (error instanceof ApiError && error.status === 413) {
+    return 'usage_stats.request_events_detail_too_large';
+  }
+  if (error instanceof ApiError && error.status === 404) {
+    return 'usage_stats.request_events_detail_missing';
+  }
+  return 'usage_stats.request_events_detail_load_failed';
 };
 
 function RequestEventsTitle({ title, subtitle, eyebrow, totalLabel }: { title: string; subtitle: string; eyebrow: string; totalLabel: string }) {
@@ -138,11 +143,18 @@ export function RequestEventsDetailsCard({
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
   });
+  const [selectedRow, setSelectedRow] = useState<RequestEventRow | null>(null);
+  const [requestDetail, setRequestDetail] = useState<UsageEventRequestDetailResponse | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailErrorKey, setDetailErrorKey] = useState<string | null>(null);
+  const requestDetailControllerRef = useRef<AbortController | null>(null);
 
   const rows = useMemo<RequestEventRow[]>(() => {
     return events.map((event, index) => {
       const timestamp = event.timestamp;
       const timestampMs = Date.parse(timestamp);
+      const usageEventID = event.id ? String(event.id) : '';
+      const requestID = String(event.request_id ?? '').trim();
       const sourceRaw = String(event.source_raw ?? '').trim() || String(event.source ?? '').trim();
       const authIndexRaw = event.auth_index as unknown;
       const authIndex =
@@ -178,7 +190,9 @@ export function RequestEventsDetailsCard({
       }, modelPrices);
 
       return {
-        id: event.id ? String(event.id) : `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
+        id: usageEventID || `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
+        usageEventID,
+        requestID,
         timestamp,
         timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
         timestampLabel: formatRequestEventTimestamp(timestamp),
@@ -258,90 +272,111 @@ export function RequestEventsDetailsCard({
   const safePage = safeTotalPages > 0 ? Math.min(Math.max(page, 1), safeTotalPages) : 0;
   const pageLabel = safeTotalPages > 0 ? `${safePage} / ${safeTotalPages}` : t('usage_stats.request_events_page_empty');
 
+  useEffect(() => {
+    return () => requestDetailControllerRef.current?.abort();
+  }, []);
+
+  const canOpenRequestDetail = (row: RequestEventRow): boolean => Boolean(row.usageEventID && row.requestID);
+
+  const handleOpenRequestDetail = (row: RequestEventRow) => {
+    if (!canOpenRequestDetail(row)) return;
+
+    requestDetailControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestDetailControllerRef.current = controller;
+    setSelectedRow(row);
+    setRequestDetail(null);
+    setDetailErrorKey(null);
+    setDetailLoading(true);
+
+    fetchUsageEventRequestDetail(row.usageEventID, controller.signal)
+      .then((detail) => {
+        setRequestDetail(detail);
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setDetailErrorKey(getRequestDetailErrorKey(error));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setDetailLoading(false);
+        }
+      });
+  };
+
+  const handleRequestRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>, row: RequestEventRow) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!canOpenRequestDetail(row)) return;
+
+    event.preventDefault();
+    handleOpenRequestDetail(row);
+  };
+
+  const handleBackToRequestEvents = () => {
+    requestDetailControllerRef.current?.abort();
+    requestDetailControllerRef.current = null;
+    setSelectedRow(null);
+    setRequestDetail(null);
+    setDetailErrorKey(null);
+    setDetailLoading(false);
+  };
+
   const handleClearFilters = () => {
     onModelFilterChange(ALL_FILTER);
     onSourceFilterChange(ALL_FILTER);
     onResultFilterChange(ALL_FILTER);
   };
 
-  const handleExportCsv = () => {
-    if (!rows.length) return;
+  const renderRequestDetail = () => {
+    if (!selectedRow) return null;
 
-    const csvHeader = [
-      'timestamp',
-      'model',
-      'source',
-      'source_raw',
-      'auth_index',
-      'result',
-      ...(hasLatencyData ? ['latency_ms'] : []),
-      'input_tokens',
-      'output_tokens',
-      'reasoning_tokens',
-      'cached_tokens',
-      'total_tokens',
-      'cost_usd',
-    ];
+    const displayedRequestID = requestDetail?.request_id || selectedRow.requestID;
 
-    const csvRows = rows.map((row) =>
-      [
-        row.timestamp,
-        row.model,
-        row.source,
-        row.sourceRaw,
-        row.authIndex,
-        row.failed ? 'failed' : 'success',
-        ...(hasLatencyData ? [row.latencyMs ?? ''] : []),
-        row.inputTokens,
-        row.outputTokens,
-        row.reasoningTokens,
-        row.cachedTokens,
-        row.totalTokens,
-        row.hasPrice ? row.cost.toFixed(6) : '',
-      ]
-        .map((value) => encodeCsv(value))
-        .join(',')
+    return (
+      <div className={styles.requestEventsDetailPanel}>
+        <div className={styles.requestEventsDetailHeader}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.usagePillAction}
+            onClick={handleBackToRequestEvents}
+          >
+            {t('usage_stats.request_events_back_to_list')}
+          </Button>
+          <div>
+            <h4 className={styles.requestEventsDetailTitle}>{t('usage_stats.request_events_detail_title')}</h4>
+            <p className={styles.sectionSubtitle}>{selectedRow.timestampLabel}</p>
+          </div>
+        </div>
+
+        <div className={styles.requestEventsDetailMetaGrid}>
+          <div className={styles.requestEventsDetailMetaItem}>
+            <span>{t('usage_stats.request_events_detail_request_id')}</span>
+            <code>{displayedRequestID}</code>
+          </div>
+          <div className={styles.requestEventsDetailMetaItem}>
+            <span>{t('usage_stats.request_events_detail_fetched_at')}</span>
+            <strong>{requestDetail?.fetched_at || '-'}</strong>
+          </div>
+          <div className={styles.requestEventsDetailMetaItem}>
+            <span>{t('usage_stats.request_events_detail_cached')}</span>
+            <strong>
+              {requestDetail ? (requestDetail.cached ? t('usage_stats.request_events_detail_cached_yes') : t('usage_stats.request_events_detail_cached_no')) : '-'}
+            </strong>
+          </div>
+        </div>
+
+        {detailLoading ? (
+          <div className={styles.hint}>{t('common.loading')}</div>
+        ) : detailErrorKey ? (
+          <div className={styles.requestEventsDetailError}>{t(detailErrorKey)}</div>
+        ) : (
+          <pre className={styles.requestEventsDetailRawLog}>{requestDetail?.content ?? ''}</pre>
+        )}
+      </div>
     );
-
-    const content = [csvHeader.join(','), ...csvRows].join('\n');
-    const fileTime = new Date().toISOString().replace(/[:.]/g, '-');
-    downloadBlob({
-      filename: `usage-events-${fileTime}.csv`,
-      blob: new Blob([content], { type: 'text/csv;charset=utf-8' }),
-    });
   };
-
-  const handleExportJson = () => {
-    if (!rows.length) return;
-
-    const payload = rows.map((row) => ({
-      timestamp: row.timestamp,
-      model: row.model,
-      source: row.source,
-      source_raw: row.sourceRaw,
-      auth_index: row.authIndex,
-      failed: row.failed,
-      ...(hasLatencyData && row.latencyMs !== null ? { latency_ms: row.latencyMs } : {}),
-      tokens: {
-        input_tokens: row.inputTokens,
-        output_tokens: row.outputTokens,
-        reasoning_tokens: row.reasoningTokens,
-        cached_tokens: row.cachedTokens,
-        total_tokens: row.totalTokens,
-      },
-      ...(row.hasPrice ? { cost_usd: Number(row.cost.toFixed(6)) } : {}),
-    }));
-
-    const content = JSON.stringify(payload, null, 2);
-    const fileTime = new Date().toISOString().replace(/[:.]/g, '-');
-    downloadBlob({
-      filename: `usage-events-${fileTime}.json`,
-      blob: new Blob([content], { type: 'application/json;charset=utf-8' }),
-    });
-  };
-
-  void handleExportCsv;
-  void handleExportJson;
 
   return (
     <Card
@@ -412,7 +447,9 @@ export function RequestEventsDetailsCard({
         </div>
       </div>
 
-      {loading && rows.length === 0 ? (
+      {selectedRow ? (
+        renderRequestDetail()
+      ) : loading && rows.length === 0 ? (
         <div className={styles.hint}>{t('common.loading')}</div>
       ) : rows.length === 0 ? (
         <EmptyState
@@ -440,8 +477,18 @@ export function RequestEventsDetailsCard({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id}>
+                {rows.map((row) => {
+                  const canOpenDetail = canOpenRequestDetail(row);
+                  return (
+                    <tr
+                      key={row.id}
+                      className={canOpenDetail ? styles.requestEventsClickableRow : undefined}
+                      role={canOpenDetail ? 'button' : undefined}
+                      tabIndex={canOpenDetail ? 0 : undefined}
+                      aria-label={canOpenDetail ? t('usage_stats.request_events_view_detail', { requestId: row.requestID }) : undefined}
+                      onClick={canOpenDetail ? () => handleOpenRequestDetail(row) : undefined}
+                      onKeyDown={canOpenDetail ? (event) => handleRequestRowKeyDown(event, row) : undefined}
+                    >
                     <td title={row.timestamp} className={styles.requestEventsTimestamp}>
                       {row.timestampLabel}
                     </td>
@@ -484,8 +531,9 @@ export function RequestEventsDetailsCard({
                     <td title={row.hasPrice ? undefined : t('usage_stats.cost_need_price')}>
                       {row.hasPrice ? formatUsd(row.cost) : '-'}
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

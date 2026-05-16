@@ -140,6 +140,7 @@ export interface UsageEventTokens {
 
 export interface UsageEvent {
   id?: string
+  request_id?: string
   timestamp: string
   model: string
   source: string
@@ -150,6 +151,14 @@ export interface UsageEvent {
   failed: boolean
   latency_ms: number
   tokens: UsageEventTokens
+}
+
+export interface UsageEventRequestDetailResponse {
+  usage_event_id: string
+  request_id: string
+  content: string
+  cached: boolean
+  fetched_at: string
 }
 
 export interface UsageSourceFilterOption {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, refreshUsageQuotas, updateCpaApiKeyAlias } from './api';
+import { fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestDetail, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, refreshUsageQuotas, updateCpaApiKeyAlias } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -51,6 +51,47 @@ describe('fetchUsageEvents', () => {
     expect(parsed.pathname).toBe('/api/v1/usage/events/filters/sources');
     expect(parsed.search).toBe('');
     expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+  });
+
+
+  it('loads request detail by usage event id', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        usage_event_id: '101',
+        request_id: 'req-101',
+        content: '<raw>text</raw>',
+        cached: true,
+        fetched_at: '2026-05-16T16:00:00+08:00',
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageEventRequestDetail('101', signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.request_id).toBe('req-101');
+    expect(response.content).toBe('<raw>text</raw>');
+    expect(parsed.pathname).toBe('/api/v1/usage/events/101/detail');
+    expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+  it('surfaces request detail API errors', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 413,
+      json: async () => ({ error: 'request_detail_too_large' }),
+    } as Response);
+
+    await expect(fetchUsageEventRequestDetail('101')).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 413,
+      message: 'request_detail_too_large',
+    });
   });
 
   it('passes pagination and server-side filters as query params', async () => {

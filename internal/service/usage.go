@@ -2,9 +2,15 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
+	"cpa-usage-keeper/internal/cpa"
+	"cpa-usage-keeper/internal/cpa/dto/response"
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
@@ -12,11 +18,30 @@ import (
 )
 
 type usageService struct {
-	db *gorm.DB
+	db                *gorm.DB
+	requestLogFetcher RequestLogFetcher
 }
+
+type RequestLogFetcher interface {
+	FetchRequestLogByID(context.Context, string) (*response.RequestLogResult, error)
+}
+
+const usageRequestDetailCacheLimit = 10000
+
+var (
+	ErrUsageEventNotFound                = errors.New("usage event not found")
+	ErrUsageEventRequestUnavailable      = errors.New("usage event request detail unavailable")
+	ErrUsageEventRequestUpstreamNotFound = errors.New("usage event request detail upstream not found")
+	ErrUsageEventRequestTooLarge         = errors.New("usage event request detail too large")
+	ErrUsageEventRequestUpstream         = errors.New("usage event request detail upstream failed")
+)
 
 func NewUsageService(db *gorm.DB) UsageProvider {
 	return &usageService{db: db}
+}
+
+func NewUsageServiceWithRequestLogFetcher(db *gorm.DB, fetcher RequestLogFetcher) UsageProvider {
+	return &usageService{db: db, requestLogFetcher: fetcher}
 }
 
 func (s *usageService) resolveAPIGroupKey(apiKeyID string) (string, error) {
@@ -222,6 +247,7 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 			APIGroupKey:         row.APIGroupKey,
 			Model:               row.Model,
 			AuthType:            row.AuthType,
+			RequestID:           row.RequestID,
 			Provider:            row.Provider,
 			Source:              row.Source,
 			AuthIndex:           row.AuthIndex,
@@ -239,7 +265,54 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 	return &servicedto.UsageEventsPage{Events: result, Models: page.Models, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
 }
 
-// Usage 页面里的 Request Event Log tab 的 model 筛选项只按当前时间窗口加载候选值。
+// GetUsageEventRequestDetail 按本地 usage event id 查询 request_id，再从缓存或 CLIProxyAPI 获取详情。
+func (s *usageService) GetUsageEventRequestDetail(ctx context.Context, eventID string) (*servicedto.UsageEventRequestDetail, error) {
+	parsedID, err := strconv.ParseInt(strings.TrimSpace(eventID), 10, 64)
+	if err != nil || parsedID <= 0 {
+		return nil, ErrInvalidID
+	}
+	event, err := repository.GetUsageEventByID(s.db, parsedID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUsageEventNotFound
+		}
+		return nil, err
+	}
+	requestID := strings.TrimSpace(event.RequestID)
+	if requestID == "" {
+		return nil, ErrUsageEventRequestUnavailable
+	}
+	if detail, err := repository.GetUsageRequestDetailByRequestID(s.db, requestID); err == nil {
+		return &servicedto.UsageEventRequestDetail{UsageEventID: event.ID, RequestID: requestID, Content: detail.Content, Cached: true, FetchedAt: detail.FetchedAt}, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	if s.requestLogFetcher == nil {
+		return nil, ErrUsageEventRequestUpstream
+	}
+
+	result, err := s.requestLogFetcher.FetchRequestLogByID(ctx, requestID)
+	if err != nil {
+		switch {
+		case errors.Is(err, cpa.ErrRequestLogNotFound):
+			return nil, ErrUsageEventRequestUpstreamNotFound
+		case errors.Is(err, cpa.ErrRequestLogTooLarge):
+			return nil, ErrUsageEventRequestTooLarge
+		default:
+			return nil, fmt.Errorf("%w: %v", ErrUsageEventRequestUpstream, err)
+		}
+	}
+	fetchedAt := time.Now()
+	detail, err := repository.SaveUsageRequestDetail(s.db, entities.UsageRequestDetail{RequestID: requestID, Content: result.Content, Source: "cliproxyapi", FetchedAt: fetchedAt})
+	if err != nil {
+		return nil, err
+	}
+	if err := repository.EnforceUsageRequestDetailLimit(s.db, usageRequestDetailCacheLimit); err != nil {
+		return nil, err
+	}
+	return &servicedto.UsageEventRequestDetail{UsageEventID: event.ID, RequestID: requestID, Content: detail.Content, Cached: false, FetchedAt: detail.FetchedAt}, nil
+}
+
 func (s *usageService) ListUsageEventFilterOptions(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {
 	options, err := repository.ListUsageEventFilterOptionsWithFilter(s.db, repodto.UsageQueryFilter{
 		StartTime: filter.StartTime,

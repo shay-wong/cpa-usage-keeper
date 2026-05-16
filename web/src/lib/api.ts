@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventRequestDetailResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -152,6 +152,15 @@ export async function fetchUsageEvents(range: string, start?: string, end?: stri
   const response = await apiFetch(`${apiPath('/usage/events')}${query ? `?${query}` : ''}`, { signal })
   if (!response.ok) {
     await parseApiError(response, `Failed to load usage events: ${response.status}`)
+  }
+  return response.json()
+}
+
+
+export async function fetchUsageEventRequestDetail(eventId: string, signal?: AbortSignal): Promise<UsageEventRequestDetailResponse> {
+  const response = await apiFetch(apiPath(`/usage/events/${encodeURIComponent(eventId)}/detail`), { signal })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load usage event request detail: ${response.status}`)
   }
   return response.json()
 }

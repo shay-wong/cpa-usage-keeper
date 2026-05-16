@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,14 @@ type Client struct {
 	managementKey string
 	httpClient    *http.Client
 }
+
+// maxRequestLogBytes 限制单条 request log 详情缓存体积，避免本地 SQLite 被超大日志撑爆。
+const maxRequestLogBytes = 10 * 1024 * 1024
+
+var (
+	ErrRequestLogNotFound = errors.New("request log not found")
+	ErrRequestLogTooLarge = errors.New("request log too large")
+)
 
 func (c *Client) doJSONRequest(ctx context.Context, path string, target any, kind string, configure func(*http.Request)) (int, []byte, error) {
 	return c.doJSONRequestWithBody(ctx, http.MethodGet, path, nil, target, kind, configure)
@@ -174,6 +183,54 @@ func (c *Client) CallManagementAPI(ctx context.Context, request apicall.Request)
 	if err != nil {
 		return result, err
 	}
+	return result, nil
+}
+
+func (c *Client) FetchRequestLogByID(ctx context.Context, requestID string) (*response.RequestLogResult, error) {
+	result := &response.RequestLogResult{}
+	if c == nil {
+		return result, fmt.Errorf("cpa client is nil")
+	}
+	if c.baseURL == "" {
+		return result, fmt.Errorf("cpa base url is required")
+	}
+	if c.managementKey == "" {
+		return result, fmt.Errorf("cpa management key is required")
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return result, fmt.Errorf("request id is required")
+	}
+
+	requestPath := cpaManagementRequestLogByIDEndpoint + "/" + url.PathEscape(requestID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+requestPath, nil)
+	if err != nil {
+		return result, fmt.Errorf("build management request log request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.managementKey)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return result, fmt.Errorf("request management request log: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRequestLogBytes+1))
+	result.StatusCode = resp.StatusCode
+	result.Body = body
+	if err != nil {
+		return result, fmt.Errorf("read management request log response: %w", err)
+	}
+	if len(body) > maxRequestLogBytes {
+		return result, ErrRequestLogTooLarge
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return result, ErrRequestLogNotFound
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return result, fmt.Errorf("management request log request returned status %d", resp.StatusCode)
+	}
+	result.Content = string(body)
 	return result, nil
 }
 

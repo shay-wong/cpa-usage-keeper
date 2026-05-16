@@ -44,6 +44,13 @@ type ProviderKeyConfigResult struct {
 	Payload    []providerconfig.ProviderKeyConfig
 }
 
+// RequestLogResult 是 request log 下载接口返回的 HTTP 包装，Content 保留原始文本内容。
+type RequestLogResult struct {
+	StatusCode int
+	Body       []byte
+	Content    string
+}
+
 // OpenAICompatibilityResult 是 openai-compatibility 管理接口返回的 HTTP 包装，payload 是兼容归一化后的 provider 配置。
 type OpenAICompatibilityResult struct {
 	StatusCode int

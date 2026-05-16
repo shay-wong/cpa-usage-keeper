@@ -40,6 +40,10 @@ func (s *usageFilterStub) ListUsageEventFilterOptions(context.Context, servicedt
 	return nil, s.err
 }
 
+func (s *usageFilterStub) GetUsageEventRequestDetail(context.Context, string) (*servicedto.UsageEventRequestDetail, error) {
+	return nil, s.err
+}
+
 func (s *usageFilterStub) GetAnalysis(context.Context, servicedto.UsageFilter) (*servicedto.AnalysisSnapshot, error) {
 	return nil, s.err
 }

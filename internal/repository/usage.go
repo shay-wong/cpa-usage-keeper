@@ -10,10 +10,11 @@ import (
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, model, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -21,6 +22,7 @@ type usageEventProjection struct {
 	APIGroupKey         string
 	Provider            string
 	AuthType            string
+	RequestID           string
 	Model               string
 	Timestamp           time.Time
 	Source              string
@@ -113,6 +115,87 @@ func ListUsageEventFilterOptionsWithFilter(db *gorm.DB, filter dto.UsageQueryFil
 	return &dto.UsageEventFilterOptionsRecord{Models: models}, nil
 }
 
+func GetUsageEventByID(db *gorm.DB, id int64) (dto.UsageEventRecord, error) {
+	if db == nil {
+		return dto.UsageEventRecord{}, fmt.Errorf("database is nil")
+	}
+	var event usageEventProjection
+	if err := db.Model(&entities.UsageEvent{}).Select(usageEventProjectionColumns).Where("id = ?", id).First(&event).Error; err != nil {
+		return dto.UsageEventRecord{}, err
+	}
+	return usageEventProjectionToRecord(event), nil
+}
+
+func GetUsageRequestDetailByRequestID(db *gorm.DB, requestID string) (entities.UsageRequestDetail, error) {
+	if db == nil {
+		return entities.UsageRequestDetail{}, fmt.Errorf("database is nil")
+	}
+	var detail entities.UsageRequestDetail
+	if err := db.Where("request_id = ?", strings.TrimSpace(requestID)).First(&detail).Error; err != nil {
+		return entities.UsageRequestDetail{}, err
+	}
+	return detail, nil
+}
+
+func SaveUsageRequestDetail(db *gorm.DB, detail entities.UsageRequestDetail) (entities.UsageRequestDetail, error) {
+	if db == nil {
+		return entities.UsageRequestDetail{}, fmt.Errorf("database is nil")
+	}
+	detail.RequestID = strings.TrimSpace(detail.RequestID)
+	if detail.RequestID == "" {
+		return entities.UsageRequestDetail{}, fmt.Errorf("request_id is required")
+	}
+	detail.Source = strings.TrimSpace(detail.Source)
+	now := timeutil.NormalizeStorageTime(time.Now())
+	if detail.FetchedAt.IsZero() {
+		detail.FetchedAt = now
+	}
+	if detail.CreatedAt.IsZero() {
+		detail.CreatedAt = detail.FetchedAt
+	}
+	if detail.UpdatedAt.IsZero() {
+		detail.UpdatedAt = detail.FetchedAt
+	}
+	if err := db.Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "request_id"}}, DoNothing: true}).Create(&detail).Error; err != nil {
+		return entities.UsageRequestDetail{}, fmt.Errorf("save usage request detail: %w", err)
+	}
+	saved, err := GetUsageRequestDetailByRequestID(db, detail.RequestID)
+	if err != nil {
+		return entities.UsageRequestDetail{}, fmt.Errorf("reload saved usage request detail: %w", err)
+	}
+	return saved, nil
+}
+
+func EnforceUsageRequestDetailLimit(db *gorm.DB, maxRows int) error {
+	if db == nil {
+		return fmt.Errorf("database is nil")
+	}
+	if maxRows <= 0 {
+		return nil
+	}
+	return db.Transaction(func(tx *gorm.DB) error {
+		var total int64
+		if err := tx.Model(&entities.UsageRequestDetail{}).Count(&total).Error; err != nil {
+			return fmt.Errorf("count usage request details: %w", err)
+		}
+		overflow := total - int64(maxRows)
+		if overflow <= 0 {
+			return nil
+		}
+		var ids []int64
+		if err := tx.Model(&entities.UsageRequestDetail{}).Order("fetched_at ASC, id ASC").Limit(int(overflow)).Pluck("id", &ids).Error; err != nil {
+			return fmt.Errorf("select old usage request details: %w", err)
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		if err := tx.Where("id IN ?", ids).Delete(&entities.UsageRequestDetail{}).Error; err != nil {
+			return fmt.Errorf("delete old usage request details: %w", err)
+		}
+		return nil
+	})
+}
+
 func listUsageEventModelFilterOptions(db *gorm.DB, filter dto.UsageQueryFilter) ([]string, error) {
 	// 第一步：model 候选值只来自 usage_events，并且只套用时间窗口。
 	query := applyUsageEventFilterOptionsQuery(queryUsageEvents(db), filter)
@@ -139,6 +222,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		APIGroupKey:         strings.TrimSpace(event.APIGroupKey),
 		Model:               strings.TrimSpace(event.Model),
 		AuthType:            strings.TrimSpace(event.AuthType),
+		RequestID:           strings.TrimSpace(event.RequestID),
 		Provider:            strings.TrimSpace(event.Provider),
 		Source:              strings.TrimSpace(event.Source),
 		AuthIndex:           strings.TrimSpace(event.AuthIndex),
@@ -162,6 +246,7 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		APIGroupKey:         event.APIGroupKey,
 		Provider:            event.Provider,
 		AuthType:            event.AuthType,
+		RequestID:           event.RequestID,
 		Model:               event.Model,
 		Timestamp:           event.Timestamp,
 		Source:              event.Source,

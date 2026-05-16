@@ -196,6 +196,27 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).not.toContain('Export JSON');
   });
 
+
+  it('marks rows with request ids as clickable detail entries', () => {
+    const html = renderCard({
+      events: [{ ...events[0], request_id: 'req-101' }],
+    });
+
+    expect(html).toContain('role="button"');
+    expect(html).toContain('tabindex="0"');
+    expect(html).toContain('View request detail for req-101');
+    expect(html).toContain('_requestEventsClickableRow_');
+  });
+
+  it('does not mark rows without request ids as clickable', () => {
+    const html = renderCard();
+
+    expect(html).not.toContain('role="button"');
+    expect(html).not.toContain('tabindex="0"');
+    expect(html).not.toContain('View request detail');
+    expect(html).not.toContain('_requestEventsClickableRow_');
+  });
+
   it('shows per-event cost when model pricing exists', () => {
     const html = renderCard({
       modelPrices: {

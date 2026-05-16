@@ -49,6 +49,7 @@ type UsageEventRecord struct {
 	Provider            string
 	Source              string
 	AuthIndex           string
+	RequestID           string
 	Failed              bool
 	LatencyMS           int64
 	InputTokens         int64
@@ -58,6 +59,15 @@ type UsageEventRecord struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
+}
+
+// UsageEventRequestDetail 是单条 usage event 对应 request log 详情的服务层结果。
+type UsageEventRequestDetail struct {
+	UsageEventID int64
+	RequestID    string
+	Content      string
+	Cached       bool
+	FetchedAt    time.Time
 }
 
 // UsageOverviewSummary 是 overview summary 的服务层结果。

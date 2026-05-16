@@ -27,6 +27,7 @@ type UsageEventRecord struct {
 	Provider            string
 	Source              string
 	AuthIndex           string
+	RequestID           string
 	Failed              bool
 	LatencyMS           int64
 	InputTokens         int64

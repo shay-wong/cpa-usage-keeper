@@ -10,6 +10,7 @@ const (
 	cpaManagementAmpcodeEndpoint             = "/v0/management/ampcode"
 	cpaManagementOpenAICompatibilityEndpoint = "/v0/management/openai-compatibility"
 	cpaManagementUsageQueueEndpoint          = "/v0/management/usage-queue"
+	cpaManagementRequestLogByIDEndpoint      = "/v0/management/request-log-by-id"
 	cpaManagementAPICallEndpoint             = "/v0/management/api-call"
 	cpaModelsEndpoint                        = "/v1/models"
 
