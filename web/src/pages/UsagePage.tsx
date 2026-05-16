@@ -13,7 +13,7 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, triggerSync, updateCpaApiKeyAlias } from '@/lib/api';
+import { ApiError, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageAnalysis, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, updateCpaApiKeyAlias } from '@/lib/api';
 import type { CpaApiKeyOption, CpaApiKeySettingsItem, StatusResponse, UsageAnalysisResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -36,8 +36,6 @@ import {
   TokenBreakdownChart,
   CostTrendChart,
   ServiceHealthCard,
-  MonitoringCenterTab,
-  useMonitoringCenterData,
   useUsageData,
   usePricingData,
   useSparklines,
@@ -53,6 +51,9 @@ import {
 } from '@/utils/usage';
 import type { Theme } from '@/types';
 import styles from './UsagePage.module.scss';
+import { SyncNowButton, syncCpaData } from './usagePageDevActions';
+import { DevMonitoringCenterTab, useDevMonitoringCenterData } from './usagePageDevMonitoring';
+import { devUsageTabLabelKey, withDevUsageTabs } from './usagePageDevTabs';
 
 ChartJS.register(
   CategoryScale,
@@ -98,12 +99,13 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const USAGE_TAB_OPTIONS = ['overview', 'monitoring', 'analysis', 'events', 'credentials', 'settings'] as const;
+const BASE_USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'settings'] as const;
+const USAGE_TAB_OPTIONS = withDevUsageTabs(BASE_USAGE_TAB_OPTIONS);
 export type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
-const USAGE_TAB_LABEL_KEYS: Record<UsageTab, string> = {
+type BaseUsageTab = (typeof BASE_USAGE_TAB_OPTIONS)[number];
+const USAGE_TAB_LABEL_KEYS: Record<BaseUsageTab, string> = {
   overview: 'usage_stats.tab_overview',
-  monitoring: 'usage_stats.tab_monitoring',
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   credentials: 'usage_stats.tab_credentials',
@@ -163,34 +165,8 @@ type OverviewAutoRefreshOptions = {
   intervalMs?: number;
 };
 
-type SyncCpaDataOptions = {
-  triggerBackendSync: () => Promise<StatusResponse>;
-  refreshActiveTab: () => Promise<void>;
-  refreshStatus: () => Promise<StatusResponse>;
-  onStatus: (status: StatusResponse) => void;
-};
-
 export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptions) => {
   await refreshActiveTab();
-};
-
-export const syncCpaData = async ({ triggerBackendSync, refreshActiveTab, refreshStatus, onStatus }: SyncCpaDataOptions) => {
-  try {
-    await triggerBackendSync();
-    await refreshActiveTab();
-    const nextStatus = await refreshStatus();
-    onStatus(nextStatus);
-  } catch (error) {
-    if (!(error instanceof ApiError && error.status === 401)) {
-      try {
-        const nextStatus = await refreshStatus();
-        onStatus(nextStatus);
-      } catch {
-        // 忽略状态刷新失败，继续抛出原始同步错误。
-      }
-    }
-    throw error;
-  }
 };
 
 export const getOverviewDisplayLoading = ({ loading, hasUsage }: { loading: boolean; hasUsage: boolean }) => loading && !hasUsage;
@@ -457,7 +433,7 @@ const isUsageTab = (value: unknown): value is UsageTab =>
 export const getUsageTabOptions = (translate: Translate): Array<{ value: UsageTab; label: string }> =>
   USAGE_TAB_OPTIONS.map((value) => ({
     value,
-    label: translate(USAGE_TAB_LABEL_KEYS[value]),
+    label: translate(devUsageTabLabelKey(value, USAGE_TAB_LABEL_KEYS)),
   }));
 
 export const getTimeRangeOptions = (translate: Translate) =>
@@ -942,10 +918,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     loading: monitoringLoading,
     error: monitoringError,
     refresh: refreshMonitoring,
-  } = useMonitoringCenterData({
+  } = useDevMonitoringCenterData({
     range: timeRange,
-    start: monitoringQueryState.start,
-    end: monitoringQueryState.end,
+    queryState: monitoringQueryState,
     filterError: monitoringFilterError,
     enabled: activeTab === 'monitoring',
     onAuthRequired,
@@ -1115,7 +1090,6 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setManualSyncLoading(true);
     try {
       await syncCpaData({
-        triggerBackendSync: triggerSync,
         refreshActiveTab,
         refreshStatus: fetchStatus,
         onStatus: (nextStatus) => {
@@ -1398,17 +1372,14 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 );
               })}
             </div>
-            <div className={styles.syncSwitcher} role="group" aria-label={t('usage_stats.sync_now')}>
-              <button
-                type="button"
-                className={styles.syncPill}
-                onClick={() => void handleManualSync().catch(() => {})}
-                disabled={manualSyncLoading || manualRefreshLoading}
-                title={t('usage_stats.sync_now')}
-              >
-                {manualSyncLoading ? t('common.loading') : t('usage_stats.sync_now')}
-              </button>
-            </div>
+            <SyncNowButton
+              loading={manualSyncLoading}
+              disabled={manualSyncLoading || manualRefreshLoading}
+              label={t('usage_stats.sync_now')}
+              loadingLabel={t('common.loading')}
+              ariaLabel={t('usage_stats.sync_now')}
+              onClick={() => void handleManualSync().catch(() => {})}
+            />
             {shouldShowUpdateCheckButton(status) && (
               <div className={styles.updateCheckSwitcher} role="group" aria-label={t('usage_stats.check_updates')}>
                 <button
@@ -1690,10 +1661,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             )}
 
             {activeTab === 'monitoring' && (
-              <MonitoringCenterTab
+              <DevMonitoringCenterTab
                 data={monitoringData}
                 loading={monitoringLoading}
-                error={monitoringError === 'AUTH_REQUIRED' ? t('auth.session_expired') : monitoringError}
+                error={monitoringError}
                 lastUpdatedAt={lastSyncAt}
               />
             )}
