@@ -106,7 +106,7 @@ type UsageMonitoringFailureStat struct {
 }
 
 type UsageMonitoringRequestLog struct {
-	ID              uint
+	ID              int64
 	Timestamp       time.Time
 	Model           string
 	Source          string

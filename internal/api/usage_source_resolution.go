@@ -71,7 +71,7 @@ func usageSourceResolutionFromIdentity(item entities.UsageIdentity, fallbackIden
 		identityType,
 		redact.APIKeyDisplayName(fallbackIdentity),
 	)
-	sourceKey := "provider:" + uintToString(item.ID)
+	sourceKey := "provider:" + int64ToString(item.ID)
 	if item.ID == 0 {
 		sourceKey = "provider:" + redact.APIKeyDisplayName(fallbackIdentity)
 	}
@@ -194,9 +194,9 @@ func safeAuthIdentityDisplayName(name string, fallbackIdentity string) string {
 	return trimmed
 }
 
-// uintToString 统一把数据库 ID 转成 source_key 使用的字符串片段。
-func uintToString(value uint) string {
-	return strconv.FormatUint(uint64(value), 10)
+// int64ToString 统一把数据库 ID 转成 source_key 使用的字符串片段。
+func int64ToString(value int64) string {
+	return strconv.FormatInt(value, 10)
 }
 
 // firstNonEmptyString 按优先级返回第一个非空展示字段。

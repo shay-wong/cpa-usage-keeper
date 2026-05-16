@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,7 +34,7 @@ type usageEventFilterOptionsResponse struct {
 }
 
 type usageEventPayload struct {
-	ID         uint                   `json:"id,omitempty"`
+	ID         string                 `json:"id,omitempty"`
 	Timestamp  string                 `json:"timestamp"`
 	Model      string                 `json:"model"`
 	Source     string                 `json:"source"`
@@ -46,11 +47,13 @@ type usageEventPayload struct {
 }
 
 type usageEventTokenPayload struct {
-	InputTokens     int64 `json:"input_tokens"`
-	OutputTokens    int64 `json:"output_tokens"`
-	ReasoningTokens int64 `json:"reasoning_tokens"`
-	CachedTokens    int64 `json:"cached_tokens"`
-	TotalTokens     int64 `json:"total_tokens"`
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	ReasoningTokens     int64 `json:"reasoning_tokens"`
+	CachedTokens        int64 `json:"cached_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_tokens"`
+	TotalTokens         int64 `json:"total_tokens"`
 }
 
 func registerUsageEventsRoute(
@@ -145,8 +148,12 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 	for _, row := range rows {
 		identity, matched := resolver.resolveByAuthIndex(row.AuthIndex)
 		source, isDelete := usageEventPublicSource(row, identity, matched)
+		id := ""
+		if row.ID != 0 {
+			id = strconv.FormatInt(row.ID, 10)
+		}
 		payload = append(payload, usageEventPayload{
-			ID:         row.ID,
+			ID:         id,
 			Timestamp:  timeutil.FormatStorageTime(row.Timestamp),
 			Model:      row.Model,
 			Source:     source,
@@ -155,11 +162,13 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			Failed:     row.Failed,
 			LatencyMS:  row.LatencyMS,
 			Tokens: usageEventTokenPayload{
-				InputTokens:     row.InputTokens,
-				OutputTokens:    row.OutputTokens,
-				ReasoningTokens: row.ReasoningTokens,
-				CachedTokens:    row.CachedTokens,
-				TotalTokens:     row.TotalTokens,
+				InputTokens:         row.InputTokens,
+				OutputTokens:        row.OutputTokens,
+				ReasoningTokens:     row.ReasoningTokens,
+				CachedTokens:        row.CachedTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				TotalTokens:         row.TotalTokens,
 			},
 		})
 	}
@@ -262,5 +271,5 @@ func usageEventSourceFilterValue(identity entities.UsageIdentity) string {
 	if identity.ID == 0 || strings.TrimSpace(identity.Identity) == "" {
 		return ""
 	}
-	return "identity:" + uintToString(identity.ID)
+	return "identity:" + int64ToString(identity.ID)
 }

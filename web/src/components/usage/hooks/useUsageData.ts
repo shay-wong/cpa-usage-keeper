@@ -23,12 +23,13 @@ export interface UseUsageDataOptions {
   customStart?: string;
   customEnd?: string;
   enabled?: boolean;
+  apiKeyId?: string;
 }
 
 export const normalizeUsageOverviewRange = (value: string): UsageTimeRange => (
-  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === 'today' || value === '7d' || value === '30d' || value === 'all' || value === 'custom'
+  value === '4h' || value === '8h' || value === '12h' || value === '24h' || value === 'today' || value === 'yesterday' || value === '7d' || value === '30d' || value === 'custom'
     ? value
-    : 'all'
+    : '8h'
 );
 
 const toCustomDateParam = (value: string | undefined): string | undefined => {
@@ -40,7 +41,7 @@ const buildUsageQueryKey = (range: UsageTimeRange, start?: string, end?: string)
   `${range}:${start ?? ''}:${end ?? ''}`;
 
 export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataReturn {
-  const { onAuthRequired, range = 'all', customStart, customEnd, enabled = true } = options;
+  const { onAuthRequired, range = '8h', customStart, customEnd, enabled = true, apiKeyId } = options;
   const usageSnapshot = useUsageStatsStore((state) => state.usage);
   const loading = useUsageStatsStore((state) => state.loading);
   const storeError = useUsageStatsStore((state) => state.error);
@@ -62,6 +63,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
         range: resolvedRange,
         start: requestStart,
         end: requestEnd,
+        apiKeyId,
       });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
@@ -69,7 +71,7 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       }
       throw error;
     }
-  }, [customRangeReady, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [apiKeyId, customRangeReady, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   useEffect(() => {
     if (!enabled || !customRangeReady) {
@@ -80,12 +82,13 @@ export function useUsageData(options: UseUsageDataOptions = {}): UseUsageDataRet
       range: resolvedRange,
       start: requestStart,
       end: requestEnd,
+      apiKeyId,
     }).catch((error) => {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
       }
     });
-  }, [customRangeReady, enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
+  }, [apiKeyId, customRangeReady, enabled, loadUsageStats, onAuthRequired, requestEnd, requestStart, resolvedRange]);
 
   const currentQueryKey = customRangeReady ? buildUsageQueryKey(resolvedRange, requestStart, requestEnd) : null;
   const currentUsage = currentQueryKey !== null && lastQueryKey === currentQueryKey ? usageSnapshot : null;

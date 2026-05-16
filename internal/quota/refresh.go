@@ -198,7 +198,7 @@ func (s *Service) validateRefreshAuthIndex(ctx context.Context, authIndex string
 	}
 
 	var active entities.UsageIdentity
-	if err := s.db.WithContext(ctx).Where("identity = ? AND is_deleted = ?", authIndex, false).First(&active).Error; err == nil {
+	if err := s.db.WithContext(ctx).Select("id, auth_type").Where("identity = ? AND is_deleted = ?", authIndex, false).First(&active).Error; err == nil {
 		return "not_auth_file", nil
 	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		return "not_found", nil
@@ -216,6 +216,7 @@ func (s *Service) ensureRefreshTask(authIndex string, source RefreshSource) (*Re
 		if task, ok := s.refreshTasks[taskID]; ok && task.isActive() {
 			return task, false
 		}
+		delete(s.refreshTasks, taskID)
 	}
 	task := &RefreshTaskRecord{
 		TaskID:    fmt.Sprintf("quota-refresh-%d", atomic.AddUint64(&s.refreshTaskSeq, 1)),
@@ -286,7 +287,6 @@ func (s *Service) markRefreshTaskCompleted(taskID string, response CheckResponse
 	task.Status = RefreshTaskStatusCompleted
 	task.FinishedAt = now
 	task.CachedAt = now
-	task.ExpiresAt = now.Add(s.refreshTaskTTL)
 	task.Quota = &response
 }
 

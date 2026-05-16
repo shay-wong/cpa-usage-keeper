@@ -145,7 +145,7 @@ type usageMonitoringFailureModelStatPayload struct {
 }
 
 type usageMonitoringRequestLogPayload struct {
-	ID         uint                   `json:"id,omitempty"`
+	ID         int64                  `json:"id,omitempty"`
 	Timestamp  string                 `json:"timestamp"`
 	Model      string                 `json:"model"`
 	Source     string                 `json:"source"`

@@ -285,7 +285,7 @@ func TestUsageMonitoringNilProviderReturnsEmptyPayload(t *testing.T) {
 
 func TestUsageMonitoringRejectsInvalidLogLimit(t *testing.T) {
 	router := NewRouter(nil, nil, &usageMonitoringStub{}, nil, AuthConfig{}, nil, "")
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?log_limit=bad", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h&log_limit=bad", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)

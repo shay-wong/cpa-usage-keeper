@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildChartData, buildUsageFromDetails, calculateCost, filterUsageByWindow, filterUsageSnapshot, resolveUsageFilterWindow, sanitizeChartLines } from '@/utils/usage';
+import { buildChartData, buildUsageFromDetails, calculateCacheRate, calculateCost, filterUsageByWindow, filterUsageSnapshot, resolveUsageFilterWindow, sanitizeChartLines } from '@/utils/usage';
 import type { UsageSnapshot } from '@/lib/types';
 
 afterEach(() => {
@@ -189,6 +189,24 @@ describe('resolveUsageFilterWindow', () => {
     });
   });
 
+  it('resolves yesterday as the previous local day boundary', () => {
+    const nowMs = Date.parse('2026-04-23T12:34:56.000Z');
+    const expectedStart = new Date(nowMs);
+    expectedStart.setHours(0, 0, 0, 0);
+    expectedStart.setDate(expectedStart.getDate() - 1);
+    const expectedEnd = new Date(expectedStart);
+    expectedEnd.setDate(expectedEnd.getDate() + 1);
+    expectedEnd.setMilliseconds(expectedEnd.getMilliseconds() - 1);
+
+    const window = resolveUsageFilterWindow(usage, 'yesterday', { nowMs });
+
+    expect(window).toEqual({
+      startMs: expectedStart.getTime(),
+      endMs: expectedEnd.getTime(),
+      windowMinutes: 24 * 60,
+    });
+  });
+
   it('resolves 30d as a rolling thirty-day window', () => {
     const nowMs = Date.parse('2026-04-23T12:34:56.000Z');
 
@@ -256,5 +274,19 @@ describe('calculateCost', () => {
     );
     // 用 anthropic 公式：promptTokens=1，不会被减成 0
     expect(cost).toBeGreaterThan(0);
+  });
+});
+
+describe('calculateCacheRate', () => {
+  it('uses input tokens as the denominator for OpenAI-style providers', () => {
+    expect(calculateCacheRate({ inputTokens: 1000, cachedTokens: 250, sourceType: 'openai' })).toBe(25);
+  });
+
+  it('adds cached tokens to the denominator for Anthropic-style providers', () => {
+    expect(calculateCacheRate({ inputTokens: 400, cachedTokens: 600, sourceType: 'claude' })).toBe(60);
+  });
+
+  it('returns null when there is no cacheable input', () => {
+    expect(calculateCacheRate({ inputTokens: 0, cachedTokens: 0, sourceType: 'openai' })).toBeNull();
   });
 });

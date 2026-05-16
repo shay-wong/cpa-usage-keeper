@@ -133,11 +133,13 @@ export interface UsageEventTokens {
   output_tokens: number
   reasoning_tokens: number
   cached_tokens: number
+  cache_read_tokens: number
+  cache_creation_tokens: number
   total_tokens: number
 }
 
 export interface UsageEvent {
-  id?: number
+  id?: string
   timestamp: string
   model: string
   source: string
@@ -175,7 +177,7 @@ export interface UsageEventSourceFilterOptionsResponse {
 export type UsageIdentityAuthType = 1 | 2
 
 export interface UsageIdentity {
-  id: number
+  id: string
   name: string
   displayName?: string
   auth_type: UsageIdentityAuthType
@@ -194,7 +196,7 @@ export interface UsageIdentity {
   reasoning_tokens: number
   cached_tokens: number
   total_tokens: number
-  last_aggregated_usage_event_id: number
+  last_aggregated_usage_event_id: string
   first_used_at?: string
   last_used_at?: string
   stats_updated_at?: string
@@ -310,6 +312,27 @@ export interface UsageAnalysisResponse {
   models: UsageAnalysisModel[]
 }
 
+export interface CpaApiKeySettingsItem {
+  id: string
+  keyAlias: string
+  displayKey: string
+  label: string
+  lastSyncedAt: string | null
+}
+
+export interface CpaApiKeyOption {
+  id: string
+  label: string
+}
+
+export interface CpaApiKeysResponse {
+  items: CpaApiKeySettingsItem[]
+}
+
+export interface CpaApiKeyOptionsResponse {
+  options: CpaApiKeyOption[]
+}
+
 export interface PricingEntry {
   model: string
   prompt_price_per_1m: number
@@ -325,7 +348,7 @@ export interface PricingResponse {
   pricing: PricingEntry[]
 }
 
-export type UsageTimeRange = 'all' | '4h' | '8h' | '12h' | '24h' | 'today' | '7d' | '30d' | 'custom'
+export type UsageTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d' | 'custom'
 
 export interface UsageFilterWindow {
   startMs?: number

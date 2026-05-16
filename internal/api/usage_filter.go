@@ -61,7 +61,7 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 
 	rangeValue := strings.TrimSpace(req.URL.Query().Get("range"))
 	if rangeValue == "" {
-		rangeValue = "all"
+		return servicedto.UsageFilter{}, fmt.Errorf("usage range is required")
 	}
 
 	filter := servicedto.UsageFilter{Range: rangeValue, Limit: servicedto.DefaultUsageEventsLimit, Page: 1, PageSize: servicedto.DefaultUsageEventsLimit}
@@ -92,16 +92,18 @@ func parseUsageFilterQuery(req *http.Request, anchor time.Time) (servicedto.Usag
 	filter.Model = strings.TrimSpace(query.Get("model"))
 	filter.Source = strings.TrimSpace(query.Get("source"))
 	filter.AuthIndex = strings.TrimSpace(query.Get("auth_index"))
+	filter.APIKeyID = strings.TrimSpace(query.Get("api_key_id"))
 	filter.Result = strings.TrimSpace(query.Get("result"))
 	if filter.Result != "" && filter.Result != "success" && filter.Result != "failed" {
 		return servicedto.UsageFilter{}, fmt.Errorf("invalid result %q", filter.Result)
 	}
 	switch rangeValue {
-	case "all":
-		return filter, nil
-	case "today":
+	case "today", "yesterday":
 		localAnchor := timeutil.NormalizeStorageTime(anchor)
 		localStart := time.Date(localAnchor.Year(), localAnchor.Month(), localAnchor.Day(), 0, 0, 0, 0, time.Local)
+		if rangeValue == "yesterday" {
+			localStart = localStart.AddDate(0, 0, -1)
+		}
 		startTime := timeutil.NormalizeStorageTime(localStart)
 		endTime := timeutil.NormalizeStorageTime(localStart.AddDate(0, 0, 1).Add(-time.Nanosecond))
 		filter.StartTime = &startTime
