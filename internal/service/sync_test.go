@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -186,6 +188,83 @@ func (s *trackingMetadataFetcher) providerCalls() int {
 	return s.geminiCalls + s.claudeCalls + s.codexCalls + s.vertexCalls + s.openAICalls
 }
 
+type trackingRequestLogFetcher struct {
+	mu          sync.Mutex
+	contentByID map[string]string
+	errByID     map[string]error
+	release     <-chan struct{}
+	calls       []string
+	inFlight    int
+	maxInFlight int
+}
+
+func (s *trackingRequestLogFetcher) FetchRequestLogByID(ctx context.Context, requestID string) (*response.RequestLogResult, error) {
+	s.mu.Lock()
+	s.calls = append(s.calls, requestID)
+	s.inFlight++
+	if s.inFlight > s.maxInFlight {
+		s.maxInFlight = s.inFlight
+	}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.inFlight--
+		s.mu.Unlock()
+	}()
+
+	if s.release != nil {
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if err := s.errByID[requestID]; err != nil {
+		return nil, err
+	}
+	content := s.contentByID[requestID]
+	if content == "" {
+		content = "detail for " + requestID
+	}
+	return &response.RequestLogResult{StatusCode: 200, Body: []byte(content), Content: content}, nil
+}
+
+func (s *trackingRequestLogFetcher) totalCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.calls)
+}
+
+func (s *trackingRequestLogFetcher) callsFor(requestID string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	count := 0
+	for _, call := range s.calls {
+		if call == requestID {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *trackingRequestLogFetcher) maxObservedConcurrency() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxInFlight
+}
+
+func waitForRequestLogCalls(t *testing.T, fetcher *trackingRequestLogFetcher, expected int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if fetcher.totalCalls() >= expected {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("expected at least %d request detail fetch calls, got %d", expected, fetcher.totalCalls())
+}
+
 func TestPullRedisUsageInboxOnlyStoresPendingRows(t *testing.T) {
 	db := openSyncTestDatabase(t)
 	service := NewSyncServiceWithOptions(db, SyncServiceOptions{
@@ -264,6 +343,143 @@ func TestProcessRedisUsageInboxPersistsEventsWithoutSnapshot(t *testing.T) {
 	}
 	if checkpoint.LastAggregatedUsageEventID != event.ID {
 		t.Fatalf("expected overview checkpoint to aggregate through event %d, got %+v", event.ID, checkpoint)
+	}
+}
+
+func TestProcessRedisUsageInboxPrefetchesRequestDetailsAfterSuccessfulProcessing(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"timestamp":"2026-04-27T08:00:00Z","provider":"claude","model":"sonnet","request_id":"req-prefetch-a","tokens":{"input_tokens":1,"output_tokens":2}}`, PoppedAt: time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"timestamp":"2026-04-27T08:01:00Z","provider":"claude","model":"sonnet","request_id":"req-prefetch-b","tokens":{"input_tokens":1,"output_tokens":2}}`, PoppedAt: time.Date(2026, 4, 27, 8, 1, 0, 0, time.UTC)},
+	}); err != nil {
+		t.Fatalf("seed inbox rows: %v", err)
+	}
+	fetcher := &trackingRequestLogFetcher{contentByID: map[string]string{"req-prefetch-a": "detail a", "req-prefetch-b": "detail b"}}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{BaseURL: "https://cpa.example.com", RequestLogFetcher: fetcher})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.Status != "completed" || result.InsertedEvents != 2 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	service.WaitForRequestDetailPrefetch()
+
+	for requestID, content := range map[string]string{"req-prefetch-a": "detail a", "req-prefetch-b": "detail b"} {
+		detail, err := repository.GetUsageRequestDetailByRequestID(db, requestID)
+		if err != nil {
+			t.Fatalf("expected cached detail for %s: %v", requestID, err)
+		}
+		if detail.Content != content || detail.Source != usageRequestDetailSourceCLIProxyAPI {
+			t.Fatalf("unexpected cached detail for %s: %+v", requestID, detail)
+		}
+	}
+}
+
+func TestProcessRedisUsageInboxPrefetchSkipsCachedAndDuplicateRequestIDs(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.SaveUsageRequestDetail(db, entities.UsageRequestDetail{RequestID: "req-cached", Content: "cached", Source: usageRequestDetailSourceCLIProxyAPI, FetchedAt: time.Date(2026, 4, 27, 7, 0, 0, 0, time.UTC)}); err != nil {
+		t.Fatalf("seed cached detail: %v", err)
+	}
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"timestamp":"2026-04-27T08:00:00Z","provider":"claude","model":"sonnet","request_id":"req-cached","tokens":{"input_tokens":1,"output_tokens":2}}`, PoppedAt: time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"timestamp":"2026-04-27T08:01:00Z","provider":"claude","model":"sonnet","request_id":"req-dup","tokens":{"input_tokens":1,"output_tokens":2}}`, PoppedAt: time.Date(2026, 4, 27, 8, 1, 0, 0, time.UTC)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"timestamp":"2026-04-27T08:02:00Z","provider":"claude","model":"sonnet","request_id":" req-dup ","tokens":{"input_tokens":1,"output_tokens":2}}`, PoppedAt: time.Date(2026, 4, 27, 8, 2, 0, 0, time.UTC)},
+	}); err != nil {
+		t.Fatalf("seed inbox rows: %v", err)
+	}
+	fetcher := &trackingRequestLogFetcher{}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{BaseURL: "https://cpa.example.com", RequestLogFetcher: fetcher})
+
+	if _, err := service.ProcessRedisUsageInbox(context.Background()); err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	service.WaitForRequestDetailPrefetch()
+
+	if fetcher.callsFor("req-cached") != 0 || fetcher.callsFor("req-dup") != 1 || fetcher.totalCalls() != 1 {
+		t.Fatalf("expected only uncached duplicate request to fetch once, calls=%+v", fetcher.calls)
+	}
+}
+
+func TestProcessRedisUsageInboxPrefetchErrorsDoNotFailSync(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{
+		QueueKey:   cpa.ManagementUsageQueueKey,
+		RawMessage: `{"timestamp":"2026-04-27T08:00:00Z","provider":"claude","model":"sonnet","request_id":"req-prefetch-fail","tokens":{"input_tokens":1,"output_tokens":2}}`,
+		PoppedAt:   time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC),
+	}}); err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	fetcher := &trackingRequestLogFetcher{errByID: map[string]error{"req-prefetch-fail": errors.New("upstream unavailable")}}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{BaseURL: "https://cpa.example.com", RequestLogFetcher: fetcher})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox should ignore prefetch errors, got %v", err)
+	}
+	if result == nil || result.Status != "completed" || result.InsertedEvents != 1 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	service.WaitForRequestDetailPrefetch()
+
+	if _, err := repository.GetUsageRequestDetailByRequestID(db, "req-prefetch-fail"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected failed prefetch not to write cache row, got %v", err)
+	}
+}
+
+func TestProcessRedisUsageInboxPrefetchRespectsConcurrencyLimit(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	inputs := make([]dto.RedisInboxInsert, 0, usageRequestDetailPrefetchConcurrency+3)
+	for index := 0; index < usageRequestDetailPrefetchConcurrency+3; index++ {
+		inputs = append(inputs, dto.RedisInboxInsert{
+			QueueKey:   cpa.ManagementUsageQueueKey,
+			RawMessage: fmt.Sprintf(`{"timestamp":"2026-04-27T08:%02d:00Z","provider":"claude","model":"sonnet","request_id":"req-concurrency-%d","tokens":{"input_tokens":1,"output_tokens":2}}`, index, index),
+			PoppedAt:   time.Date(2026, 4, 27, 8, index, 0, 0, time.UTC),
+		})
+	}
+	if _, err := repository.InsertRedisUsageInboxMessages(db, inputs); err != nil {
+		t.Fatalf("seed inbox rows: %v", err)
+	}
+	release := make(chan struct{})
+	fetcher := &trackingRequestLogFetcher{release: release}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{BaseURL: "https://cpa.example.com", RequestLogFetcher: fetcher})
+
+	if _, err := service.ProcessRedisUsageInbox(context.Background()); err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	waitForRequestLogCalls(t, fetcher, usageRequestDetailPrefetchConcurrency)
+	if maxObserved := fetcher.maxObservedConcurrency(); maxObserved > usageRequestDetailPrefetchConcurrency {
+		t.Fatalf("expected max concurrency <= %d, got %d", usageRequestDetailPrefetchConcurrency, maxObserved)
+	}
+	close(release)
+	service.WaitForRequestDetailPrefetch()
+	if fetcher.totalCalls() != len(inputs) {
+		t.Fatalf("expected all request ids to be prefetched after release, got %d", fetcher.totalCalls())
+	}
+}
+
+func TestProcessRedisUsageInboxNilRequestLogFetcherDisablesPrefetch(t *testing.T) {
+	db := openSyncTestDatabase(t)
+	if _, err := repository.InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{
+		QueueKey:   cpa.ManagementUsageQueueKey,
+		RawMessage: `{"timestamp":"2026-04-27T08:00:00Z","provider":"claude","model":"sonnet","request_id":"req-no-fetcher","tokens":{"input_tokens":1,"output_tokens":2}}`,
+		PoppedAt:   time.Date(2026, 4, 27, 8, 0, 0, 0, time.UTC),
+	}}); err != nil {
+		t.Fatalf("seed inbox row: %v", err)
+	}
+	service := NewSyncServiceWithOptions(db, SyncServiceOptions{BaseURL: "https://cpa.example.com"})
+
+	result, err := service.ProcessRedisUsageInbox(context.Background())
+	if err != nil {
+		t.Fatalf("ProcessRedisUsageInbox returned error: %v", err)
+	}
+	if result == nil || result.Status != "completed" || result.InsertedEvents != 1 {
+		t.Fatalf("unexpected process result: %+v", result)
+	}
+	service.WaitForRequestDetailPrefetch()
+	if _, err := repository.GetUsageRequestDetailByRequestID(db, "req-no-fetcher"); !errors.Is(err, gorm.ErrRecordNotFound) {
+		t.Fatalf("expected nil fetcher not to write cache row, got %v", err)
 	}
 }
 

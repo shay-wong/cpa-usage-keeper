@@ -137,6 +137,38 @@ func GetUsageRequestDetailByRequestID(db *gorm.DB, requestID string) (entities.U
 	return detail, nil
 }
 
+func ListCachedUsageRequestDetailRequestIDs(db *gorm.DB, requestIDs []string) (map[string]bool, error) {
+	cached := make(map[string]bool)
+	if db == nil {
+		return cached, fmt.Errorf("database is nil")
+	}
+	unique := make([]string, 0, len(requestIDs))
+	seen := make(map[string]struct{}, len(requestIDs))
+	for _, requestID := range requestIDs {
+		trimmed := strings.TrimSpace(requestID)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		unique = append(unique, trimmed)
+	}
+	if len(unique) == 0 {
+		return cached, nil
+	}
+
+	var existing []string
+	if err := db.Model(&entities.UsageRequestDetail{}).Where("request_id IN ?", unique).Pluck("request_id", &existing).Error; err != nil {
+		return cached, fmt.Errorf("list cached usage request detail request ids: %w", err)
+	}
+	for _, requestID := range existing {
+		cached[strings.TrimSpace(requestID)] = true
+	}
+	return cached, nil
+}
+
 func SaveUsageRequestDetail(db *gorm.DB, detail entities.UsageRequestDetail) (entities.UsageRequestDetail, error) {
 	if db == nil {
 		return entities.UsageRequestDetail{}, fmt.Errorf("database is nil")

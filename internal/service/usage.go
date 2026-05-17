@@ -265,6 +265,9 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 	return &servicedto.UsageEventsPage{Events: result, Models: page.Models, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
 }
 
+// usageRequestDetailSourceCLIProxyAPI 标记详情缓存来源，统一 lazy fetch 与同步期预取的写入值。
+const usageRequestDetailSourceCLIProxyAPI = "cliproxyapi"
+
 // GetUsageEventRequestDetail 按本地 usage event id 查询 request_id，再从缓存或 CLIProxyAPI 获取详情。
 func (s *usageService) GetUsageEventRequestDetail(ctx context.Context, eventID string) (*servicedto.UsageEventRequestDetail, error) {
 	parsedID, err := strconv.ParseInt(strings.TrimSpace(eventID), 10, 64)
@@ -282,35 +285,46 @@ func (s *usageService) GetUsageEventRequestDetail(ctx context.Context, eventID s
 	if requestID == "" {
 		return nil, ErrUsageEventRequestUnavailable
 	}
-	if detail, err := repository.GetUsageRequestDetailByRequestID(s.db, requestID); err == nil {
-		return &servicedto.UsageEventRequestDetail{UsageEventID: event.ID, RequestID: requestID, Content: detail.Content, Cached: true, FetchedAt: detail.FetchedAt}, nil
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+	detail, cached, err := s.fetchAndCacheUsageRequestDetail(ctx, requestID)
+	if err != nil {
 		return nil, err
 	}
+	return &servicedto.UsageEventRequestDetail{UsageEventID: event.ID, RequestID: requestID, Content: detail.Content, Cached: cached, FetchedAt: detail.FetchedAt}, nil
+}
+
+func (s *usageService) fetchAndCacheUsageRequestDetail(ctx context.Context, requestID string) (entities.UsageRequestDetail, bool, error) {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return entities.UsageRequestDetail{}, false, ErrUsageEventRequestUnavailable
+	}
+	if detail, err := repository.GetUsageRequestDetailByRequestID(s.db, requestID); err == nil {
+		return detail, true, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return entities.UsageRequestDetail{}, false, err
+	}
 	if s.requestLogFetcher == nil {
-		return nil, ErrUsageEventRequestUpstream
+		return entities.UsageRequestDetail{}, false, ErrUsageEventRequestUpstream
 	}
 
 	result, err := s.requestLogFetcher.FetchRequestLogByID(ctx, requestID)
 	if err != nil {
 		switch {
 		case errors.Is(err, cpa.ErrRequestLogNotFound):
-			return nil, ErrUsageEventRequestUpstreamNotFound
+			return entities.UsageRequestDetail{}, false, ErrUsageEventRequestUpstreamNotFound
 		case errors.Is(err, cpa.ErrRequestLogTooLarge):
-			return nil, ErrUsageEventRequestTooLarge
+			return entities.UsageRequestDetail{}, false, ErrUsageEventRequestTooLarge
 		default:
-			return nil, fmt.Errorf("%w: %v", ErrUsageEventRequestUpstream, err)
+			return entities.UsageRequestDetail{}, false, fmt.Errorf("%w: %v", ErrUsageEventRequestUpstream, err)
 		}
 	}
-	fetchedAt := time.Now()
-	detail, err := repository.SaveUsageRequestDetail(s.db, entities.UsageRequestDetail{RequestID: requestID, Content: result.Content, Source: "cliproxyapi", FetchedAt: fetchedAt})
+	detail, err := repository.SaveUsageRequestDetail(s.db, entities.UsageRequestDetail{RequestID: requestID, Content: result.Content, Source: usageRequestDetailSourceCLIProxyAPI, FetchedAt: time.Now()})
 	if err != nil {
-		return nil, err
+		return entities.UsageRequestDetail{}, false, err
 	}
 	if err := repository.EnforceUsageRequestDetailLimit(s.db, usageRequestDetailCacheLimit); err != nil {
-		return nil, err
+		return entities.UsageRequestDetail{}, false, err
 	}
-	return &servicedto.UsageEventRequestDetail{UsageEventID: event.ID, RequestID: requestID, Content: detail.Content, Cached: false, FetchedAt: detail.FetchedAt}, nil
+	return detail, false, nil
 }
 
 func (s *usageService) ListUsageEventFilterOptions(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageEventFilterOptions, error) {

@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/config"
@@ -40,26 +42,40 @@ type CPAClientFetcher interface {
 const redisInboxProcessLimit = 1000
 
 const (
+	// usageRequestDetailPrefetchMaxPerBatch 限制单轮同步触发的详情预取数量，避免放大上游管理接口压力。
+	usageRequestDetailPrefetchMaxPerBatch = 50
+	// usageRequestDetailPrefetchConcurrency 限制详情预取 HTTP 并发数，降低 SQLite 写入和上游请求抖动。
+	usageRequestDetailPrefetchConcurrency = 2
+	// usageRequestDetailPrefetchTimeout 限制单条详情预取耗时，避免后台任务长期占用资源。
+	usageRequestDetailPrefetchTimeout = 10 * time.Second
+)
+
+const (
 	syncMetadataOptional = false
 	syncMetadataRequired = true
 )
 
 // SyncService 负责把 CPA metadata 和 Redis usage 队列同步到本地 SQLite。
 type SyncService struct {
-	db              *gorm.DB
-	client          CPAClientFetcher
-	redisQueue      RedisQueue
-	redisQueueKey   string
-	metadataFetcher MetadataFetcher
-	baseURL         string
-	now             func() time.Time
+	db                           *gorm.DB
+	client                       CPAClientFetcher
+	redisQueue                   RedisQueue
+	redisQueueKey                string
+	metadataFetcher              MetadataFetcher
+	requestLogFetcher            RequestLogFetcher
+	requestDetailPrefetchWG      sync.WaitGroup
+	requestDetailPrefetchWriteMu sync.Mutex
+	baseURL                      string
+	now                          func() time.Time
 }
 
-// NewSyncService 按生产配置组装 CPA metadata client 和 Redis queue client。
+// NewSyncService 按生产配置组装 CPA metadata client、request log fetcher 和 Redis queue client。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
+	client := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
-		BaseURL: cfg.CPABaseURL,
-		Client:  cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify),
+		BaseURL:           cfg.CPABaseURL,
+		Client:            client,
+		RequestLogFetcher: client,
 		RedisQueue: cpa.NewRedisQueueClientWithOptions(cpa.RedisQueueOptions{
 			BaseURL:       cfg.CPABaseURL,
 			RedisAddr:     cfg.RedisQueueAddr,
@@ -76,12 +92,13 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 
 // SyncServiceOptions 提供测试和局部调用需要替换的依赖。
 type SyncServiceOptions struct {
-	BaseURL         string
-	Client          CPAClientFetcher
-	MetadataFetcher MetadataFetcher
-	RedisQueue      RedisQueue
-	RedisQueueKey   string
-	Now             func() time.Time
+	BaseURL           string
+	Client            CPAClientFetcher
+	MetadataFetcher   MetadataFetcher
+	RequestLogFetcher RequestLogFetcher
+	RedisQueue        RedisQueue
+	RedisQueueKey     string
+	Now               func() time.Time
 }
 
 // NewSyncServiceWithOptions 是统一构造入口，负责填充默认时钟、metadata fetcher 和 Redis 队列名。
@@ -94,14 +111,21 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 	if metadataFetcher == nil {
 		metadataFetcher = opts.Client
 	}
+	requestLogFetcher := opts.RequestLogFetcher
+	if requestLogFetcher == nil && opts.Client != nil {
+		if fetcher, ok := opts.Client.(RequestLogFetcher); ok {
+			requestLogFetcher = fetcher
+		}
+	}
 	return &SyncService{
-		db:              db,
-		client:          opts.Client,
-		redisQueue:      opts.RedisQueue,
-		redisQueueKey:   redisQueueKey(opts.RedisQueueKey),
-		metadataFetcher: metadataFetcher,
-		baseURL:         strings.TrimSpace(opts.BaseURL),
-		now:             now,
+		db:                db,
+		client:            opts.Client,
+		redisQueue:        opts.RedisQueue,
+		redisQueueKey:     redisQueueKey(opts.RedisQueueKey),
+		metadataFetcher:   metadataFetcher,
+		requestLogFetcher: requestLogFetcher,
+		baseURL:           strings.TrimSpace(opts.BaseURL),
+		now:               now,
 	}
 }
 
@@ -224,6 +248,13 @@ func (s *SyncService) CleanupRedisUsageInbox(ctx context.Context) error {
 	return err
 }
 
+func (s *SyncService) WaitForRequestDetailPrefetch() {
+	if s == nil {
+		return
+	}
+	s.requestDetailPrefetchWG.Wait()
+}
+
 // CleanupStorage 是每日 03:00 维护任务调用的统一入口：先清 Redis inbox，最后 VACUUM 收缩 SQLite。
 func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
@@ -297,6 +328,7 @@ func (s *SyncService) processRedisInboxRows(ctx context.Context, inboxRows []ent
 		if err := s.aggregateUsageEventStats(ctx, timeutil.NormalizeStorageTime(s.now())); err != nil {
 			return &servicedto.RedisBatchSyncResult{Status: "failed"}, err
 		}
+		s.scheduleUsageRequestDetailPrefetch(events)
 	}
 	logrus.WithFields(logrus.Fields{
 		"processed_rows":  len(validRows),
@@ -347,6 +379,127 @@ func (s *SyncService) persistRedisUsageEvents(db *gorm.DB, events []entities.Usa
 		"deduped_events":  deduped,
 	}).Debug("usage events insert finished")
 	return &servicedto.SyncResult{Status: "completed", InsertedEvents: inserted, DedupedEvents: deduped}, nil
+}
+
+func (s *SyncService) scheduleUsageRequestDetailPrefetch(events []entities.UsageEvent) {
+	if s == nil || s.db == nil || s.requestLogFetcher == nil {
+		return
+	}
+	requestIDs := usageRequestDetailPrefetchIDs(events)
+	if len(requestIDs) == 0 {
+		return
+	}
+	cached, err := repository.ListCachedUsageRequestDetailRequestIDs(s.db, requestIDs)
+	if err != nil {
+		logrus.WithError(err).Warn("failed to list cached usage request details before prefetch")
+		cached = map[string]bool{}
+	}
+	eligible := make([]string, 0, len(requestIDs))
+	cachedSkipped := 0
+	for _, requestID := range requestIDs {
+		if cached[requestID] {
+			cachedSkipped++
+			continue
+		}
+		eligible = append(eligible, requestID)
+	}
+	if len(eligible) == 0 {
+		return
+	}
+	s.requestDetailPrefetchWG.Add(1)
+	go s.prefetchUsageRequestDetailBatch(eligible, cachedSkipped)
+}
+
+func usageRequestDetailPrefetchIDs(events []entities.UsageEvent) []string {
+	requestIDs := make([]string, 0, min(len(events), usageRequestDetailPrefetchMaxPerBatch))
+	seen := make(map[string]struct{}, len(events))
+	for _, event := range events {
+		requestID := strings.TrimSpace(event.RequestID)
+		if requestID == "" {
+			continue
+		}
+		if _, ok := seen[requestID]; ok {
+			continue
+		}
+		seen[requestID] = struct{}{}
+		requestIDs = append(requestIDs, requestID)
+		if len(requestIDs) >= usageRequestDetailPrefetchMaxPerBatch {
+			break
+		}
+	}
+	return requestIDs
+}
+
+func (s *SyncService) prefetchUsageRequestDetailBatch(requestIDs []string, cachedSkipped int) {
+	defer s.requestDetailPrefetchWG.Done()
+	semaphore := make(chan struct{}, usageRequestDetailPrefetchConcurrency)
+	var wg sync.WaitGroup
+	var summaryMu sync.Mutex
+	summary := map[string]int{
+		"scheduled":      len(requestIDs),
+		"cached_skipped": cachedSkipped,
+	}
+	for _, requestID := range requestIDs {
+		wg.Add(1)
+		go func(requestID string) {
+			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+			category := s.prefetchUsageRequestDetail(requestID)
+			summaryMu.Lock()
+			summary[category]++
+			summaryMu.Unlock()
+		}(requestID)
+	}
+	wg.Wait()
+	s.requestDetailPrefetchWriteMu.Lock()
+	enforceErr := repository.EnforceUsageRequestDetailLimit(s.db, usageRequestDetailCacheLimit)
+	s.requestDetailPrefetchWriteMu.Unlock()
+	if enforceErr != nil {
+		logrus.WithError(enforceErr).Warn("failed to enforce usage request detail cache limit after prefetch")
+		summary["enforce_failed"]++
+	}
+	logrus.WithFields(logrus.Fields{
+		"scheduled":      summary["scheduled"],
+		"fetched":        summary["fetched"],
+		"cached_skipped": summary["cached_skipped"],
+		"not_found":      summary["not_found"],
+		"too_large":      summary["too_large"],
+		"timeout":        summary["timeout"],
+		"failed":         summary["upstream_error"] + summary["save_failed"] + summary["enforce_failed"],
+	}).Debug("usage request detail prefetch finished")
+}
+
+func (s *SyncService) prefetchUsageRequestDetail(requestID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), usageRequestDetailPrefetchTimeout)
+	defer cancel()
+	result, err := s.requestLogFetcher.FetchRequestLogByID(ctx, requestID)
+	if err != nil {
+		category := requestDetailPrefetchErrorCategory(err)
+		logrus.WithError(err).WithFields(logrus.Fields{"request_id": requestID, "category": category}).Warn("usage request detail prefetch failed")
+		return category
+	}
+	s.requestDetailPrefetchWriteMu.Lock()
+	_, err = repository.SaveUsageRequestDetail(s.db, entities.UsageRequestDetail{RequestID: requestID, Content: result.Content, Source: usageRequestDetailSourceCLIProxyAPI, FetchedAt: s.now()})
+	s.requestDetailPrefetchWriteMu.Unlock()
+	if err != nil {
+		logrus.WithError(err).WithField("request_id", requestID).Warn("failed to save prefetched usage request detail")
+		return "save_failed"
+	}
+	return "fetched"
+}
+
+func requestDetailPrefetchErrorCategory(err error) string {
+	switch {
+	case errors.Is(err, cpa.ErrRequestLogNotFound):
+		return "not_found"
+	case errors.Is(err, cpa.ErrRequestLogTooLarge):
+		return "too_large"
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return "timeout"
+	default:
+		return "upstream_error"
+	}
 }
 
 // validate 只校验当前入口真正需要的依赖；Redis pull/process 不强制要求 metadata client。

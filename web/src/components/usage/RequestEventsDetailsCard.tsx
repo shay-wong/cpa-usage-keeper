@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
 import { ApiError, fetchUsageEventRequestDetail } from '@/lib/api';
 import type { UsageEvent, UsageEventRequestDetailResponse, UsageSourceFilterOption } from '@/lib/types';
+import { buildRequestDetailViewModel, type RequestDetailHeaderPair, type RequestDetailViewModel } from './requestDetailViewModel';
 import {
   calculateCacheRate,
   calculateCost,
@@ -104,6 +105,96 @@ const getRequestDetailErrorKey = (error: unknown): string => {
   }
   return 'usage_stats.request_events_detail_load_failed';
 };
+
+interface RequestDetailBodyBlockProps {
+  title: string;
+  value?: string;
+}
+
+function RequestDetailBodyBlock({ title, value }: RequestDetailBodyBlockProps) {
+  if (!value) return null;
+  return (
+    <div className={styles.requestEventsDetailBodyBlock}>
+      <span>{title}</span>
+      <pre>{value}</pre>
+    </div>
+  );
+}
+
+interface RequestDetailHeadersProps {
+  title: string;
+  headers: RequestDetailHeaderPair[];
+}
+
+function RequestDetailHeaders({ title, headers }: RequestDetailHeadersProps) {
+  if (headers.length === 0) return null;
+  return (
+    <div className={styles.requestEventsDetailHeadersBlock}>
+      <span>{title}</span>
+      <dl>
+        {headers.map((header, index) => (
+          <React.Fragment key={`${header.key}:${header.value}:${index}`}>
+            <dt>{header.key}</dt>
+            <dd>{header.value}</dd>
+          </React.Fragment>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+interface RequestDetailStructuredViewProps {
+  detail: UsageEventRequestDetailResponse;
+  model: RequestDetailViewModel;
+  t: (key: string) => string;
+}
+
+function RequestDetailStructuredView({ detail, model, t }: RequestDetailStructuredViewProps) {
+  const summaryItems = [
+    { label: t('usage_stats.request_events_detail_method'), value: model.method },
+    { label: t('usage_stats.request_events_detail_path'), value: model.path },
+    { label: t('usage_stats.request_events_detail_status'), value: model.status },
+    { label: t('usage_stats.request_events_detail_duration'), value: model.duration },
+    { label: t('usage_stats.model_name'), value: model.model },
+  ].filter((item) => item.value);
+  const showStructuredSections = model.kind === 'json' || model.kind === 'http';
+
+  return (
+    <div className={styles.requestEventsDetailContent}>
+      {model.kind === 'oversized' && (
+        <div className={styles.requestEventsDetailNotice}>{t('usage_stats.request_events_detail_parse_skipped')}</div>
+      )}
+      {summaryItems.length > 0 && (
+        <div className={styles.requestEventsDetailSummaryStrip}>
+          {summaryItems.map((item) => (
+            <div key={item.label} className={styles.requestEventsDetailSummaryChip}>
+              <span>{item.label}</span>
+              <strong>{item.value}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+      {showStructuredSections && (
+        <div className={styles.requestEventsDetailSectionGrid}>
+          <section className={styles.requestEventsDetailSection}>
+            <h5>{t('usage_stats.request_events_detail_request_section')}</h5>
+            <RequestDetailHeaders title={t('usage_stats.request_events_detail_headers')} headers={model.requestHeaders} />
+            <RequestDetailBodyBlock title={t('usage_stats.request_events_detail_body')} value={model.requestBody} />
+          </section>
+          <section className={styles.requestEventsDetailSection}>
+            <h5>{t('usage_stats.request_events_detail_response_section')}</h5>
+            <RequestDetailHeaders title={t('usage_stats.request_events_detail_headers')} headers={model.responseHeaders} />
+            <RequestDetailBodyBlock title={t('usage_stats.request_events_detail_body')} value={model.responseBody} />
+          </section>
+        </div>
+      )}
+      <section className={styles.requestEventsDetailSection}>
+        <h5>{t('usage_stats.request_events_detail_raw_log')}</h5>
+        <pre className={styles.requestEventsDetailRawLog}>{detail.content}</pre>
+      </section>
+    </div>
+  );
+}
 
 function RequestEventsTitle({ title, subtitle, eyebrow, totalLabel }: { title: string; subtitle: string; eyebrow: string; totalLabel: string }) {
   return (
@@ -272,6 +363,11 @@ export function RequestEventsDetailsCard({
   const safePage = safeTotalPages > 0 ? Math.min(Math.max(page, 1), safeTotalPages) : 0;
   const pageLabel = safeTotalPages > 0 ? `${safePage} / ${safeTotalPages}` : t('usage_stats.request_events_page_empty');
 
+  const requestDetailViewModel = useMemo(
+    () => requestDetail ? buildRequestDetailViewModel(requestDetail.content) : null,
+    [requestDetail]
+  );
+
   useEffect(() => {
     return () => requestDetailControllerRef.current?.abort();
   }, []);
@@ -372,7 +468,13 @@ export function RequestEventsDetailsCard({
         ) : detailErrorKey ? (
           <div className={styles.requestEventsDetailError}>{t(detailErrorKey)}</div>
         ) : (
-          <pre className={styles.requestEventsDetailRawLog}>{requestDetail?.content ?? ''}</pre>
+          requestDetail && requestDetailViewModel ? (
+            <RequestDetailStructuredView
+              detail={requestDetail}
+              model={requestDetailViewModel}
+              t={(key) => t(key)}
+            />
+          ) : null
         )}
       </div>
     );

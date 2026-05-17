@@ -221,6 +221,36 @@ func TestUsageRequestDetailCacheSavesReadsAndReusesExistingRequestID(t *testing.
 	}
 }
 
+func TestListCachedUsageRequestDetailRequestIDsReturnsCachedSubset(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-request-details-cached-subset.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	now := time.Date(2026, 5, 17, 8, 0, 0, 0, time.UTC)
+	for _, requestID := range []string{"req-a", "req-b"} {
+		if _, err := SaveUsageRequestDetail(db, entities.UsageRequestDetail{RequestID: requestID, Content: "log", Source: "cliproxyapi", FetchedAt: now}); err != nil {
+			t.Fatalf("SaveUsageRequestDetail returned error: %v", err)
+		}
+	}
+
+	cached, err := ListCachedUsageRequestDetailRequestIDs(db, []string{" req-a ", "req-a", "req-c", "", " req-b "})
+	if err != nil {
+		t.Fatalf("ListCachedUsageRequestDetailRequestIDs returned error: %v", err)
+	}
+	if len(cached) != 2 || !cached["req-a"] || !cached["req-b"] || cached["req-c"] {
+		t.Fatalf("expected only cached request ids, got %+v", cached)
+	}
+
+	empty, err := ListCachedUsageRequestDetailRequestIDs(db, nil)
+	if err != nil {
+		t.Fatalf("empty ListCachedUsageRequestDetailRequestIDs returned error: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected empty map for empty input, got %+v", empty)
+	}
+}
+
 func TestEnforceUsageRequestDetailLimitDeletesOldestRows(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-request-details-limit.db")})
 	if err != nil {
