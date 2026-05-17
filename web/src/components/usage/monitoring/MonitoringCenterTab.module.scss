@@ -910,6 +910,81 @@
   min-width: 1080px;
 }
 
+.requestLogClickableRow {
+  cursor: pointer;
+}
+
+.requestLogClickableRow:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: -2px;
+}
+
+.requestLogClickableRow:hover .cellTitle {
+  color: var(--primary-color);
+}
+
+.requestLogDetailPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 64%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
+}
+
+.requestLogDetailHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.requestLogDetailBackButton {
+  flex: 0 0 auto;
+}
+
+.requestLogDetailTitle {
+  margin: 0 0 4px;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.requestLogDetailMetaGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.requestLogDetailMetaItem {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 58%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+}
+
+.requestLogDetailMetaItem span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.requestLogDetailMetaItem code,
+.requestLogDetailMetaItem strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
 .requestLogTable th,
 .requestLogTable td {
   padding: 14px 12px;
@@ -925,10 +1000,15 @@
 .filterSelect {
   min-width: 132px;
   max-width: 160px;
-  padding: 8px 12px;
+  padding: 8px 38px 8px 12px;
   border: 1px solid color-mix(in srgb, var(--border-color) 66%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+  appearance: none;
+  -webkit-appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%) calc(100% - 18px) 50% / 6px 6px no-repeat,
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%) calc(100% - 14px) 50% / 6px 6px no-repeat,
+    color-mix(in srgb, var(--bg-primary) 72%, transparent);
   color: var(--text-primary);
   font-size: 12px;
 }

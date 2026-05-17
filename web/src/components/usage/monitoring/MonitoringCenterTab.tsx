@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
   ArcElement,
   BarController,
@@ -20,10 +20,15 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { fetchUsageEventRequestDetail } from '@/lib/api';
 import type {
   UsageMonitoringModelDistributionItem,
+  UsageMonitoringRequestLog,
   UsageMonitoringResponse,
 } from '@/lib/usageMonitoringTypes';
+import type { UsageEventRequestDetailResponse } from '@/lib/types';
+import { buildRequestDetailViewModel } from '../requestDetailViewModel';
+import { getRequestDetailErrorKey, RequestDetailStructuredView } from '../RequestEventsDetailsCard';
 import { useThemeStore } from '@/stores';
 import { formatCompactNumber, formatDurationMs, formatPerMinuteValue, formatUsd } from '@/utils/usage';
 import styles from './MonitoringCenterTab.module.scss';
@@ -70,6 +75,8 @@ const REQUEST_STATUS_BUCKET_COUNT = 16;
 const REQUEST_STATUS_SINGLE_BUCKET_MS = 60_000;
 
 type RequestLogStatusFilter = '' | 'success' | 'failed';
+
+type SelectedRequestLog = UsageMonitoringRequestLog & { usageEventID: string };
 
 interface MonitoringSourceLike {
   source: string;
@@ -130,6 +137,10 @@ function buildRequestLogModelOptions(items: Array<{ model: string }>): FilterOpt
   return [...new Set(items.map((item) => item.model))]
     .sort()
     .map((model) => ({ value: model, label: model }));
+}
+
+function getRequestLogEventID(log: UsageMonitoringRequestLog): string {
+  return log.id ? String(log.id) : '';
 }
 
 function getChartThemeColors(isDark: boolean) {
@@ -402,6 +413,11 @@ export function MonitoringCenterTab({
   const [requestLogStatusFilter, setRequestLogStatusFilter] = useState<RequestLogStatusFilter>('');
   const [requestLogPage, setRequestLogPage] = useState(1);
   const [requestLogPageSize, setRequestLogPageSize] = useState<(typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]>(10);
+  const [selectedRequestLog, setSelectedRequestLog] = useState<SelectedRequestLog | null>(null);
+  const [requestDetail, setRequestDetail] = useState<UsageEventRequestDetailResponse | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailErrorKey, setDetailErrorKey] = useState<string | null>(null);
+  const requestDetailControllerRef = useRef<AbortController | null>(null);
   const [distributionMetric, setDistributionMetric] = useState<DistributionMetric>('requests');
   const [hourlyModelWindowMode, setHourlyModelWindowMode] = useState<HourlyWindowMode>('24h');
   const [hourlyModelDay, setHourlyModelDay] = useState(() => getTodayDateInputValue());
@@ -497,9 +513,61 @@ export function MonitoringCenterTab({
     (currentRequestLogPage - 1) * requestLogPageSize,
     currentRequestLogPage * requestLogPageSize,
   );
+  const requestDetailViewModel = useMemo(
+    () => requestDetail ? buildRequestDetailViewModel(requestDetail.content) : null,
+    [requestDetail]
+  );
 
+  useEffect(() => {
+    return () => requestDetailControllerRef.current?.abort();
+  }, []);
 
   const resetRequestLogPage = () => setRequestLogPage(1);
+
+  const canOpenRequestLogDetail = (log: UsageMonitoringRequestLog): boolean => Boolean(getRequestLogEventID(log));
+
+  const handleOpenRequestLogDetail = (log: UsageMonitoringRequestLog) => {
+    const usageEventID = getRequestLogEventID(log);
+    if (!usageEventID) return;
+
+    requestDetailControllerRef.current?.abort();
+    const controller = new AbortController();
+    requestDetailControllerRef.current = controller;
+    setSelectedRequestLog({ ...log, usageEventID });
+    setRequestDetail(null);
+    setDetailErrorKey(null);
+    setDetailLoading(true);
+
+    fetchUsageEventRequestDetail(usageEventID, controller.signal)
+      .then((detail) => setRequestDetail(detail))
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setDetailErrorKey(getRequestDetailErrorKey(error));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setDetailLoading(false);
+        }
+      });
+  };
+
+  const handleRequestLogRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, log: UsageMonitoringRequestLog) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!canOpenRequestLogDetail(log)) return;
+
+    event.preventDefault();
+    handleOpenRequestLogDetail(log);
+  };
+
+  const handleBackToRequestLogs = () => {
+    requestDetailControllerRef.current?.abort();
+    requestDetailControllerRef.current = null;
+    setSelectedRequestLog(null);
+    setRequestDetail(null);
+    setDetailErrorKey(null);
+    setDetailLoading(false);
+  };
 
   const hourlyModelTrend = useMemo(() => {
     const items = data?.hourly_model_trend ?? [];
@@ -517,6 +585,60 @@ export function MonitoringCenterTab({
 
   const applySearch = () => {
     setAppliedQuery(queryInput);
+  };
+
+  const renderRequestLogDetail = () => {
+    if (!selectedRequestLog) return null;
+
+    const displayedRequestID = requestDetail?.request_id || selectedRequestLog.usageEventID;
+
+    return (
+      <div className={styles.requestLogDetailPanel}>
+        <div className={styles.requestLogDetailHeader}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.requestLogDetailBackButton}
+            onClick={handleBackToRequestLogs}
+          >
+            {t('usage_stats.request_events_back_to_list')}
+          </Button>
+          <div>
+            <h4 className={styles.requestLogDetailTitle}>{t('usage_stats.request_events_detail_title')}</h4>
+            <p className={styles.chartSubtitle}>{formatDateTime(selectedRequestLog.timestamp, locale, timeZone)}</p>
+          </div>
+        </div>
+
+        <div className={styles.requestLogDetailMetaGrid}>
+          <div className={styles.requestLogDetailMetaItem}>
+            <span>{t('usage_stats.request_events_detail_request_id')}</span>
+            <code>{displayedRequestID}</code>
+          </div>
+          <div className={styles.requestLogDetailMetaItem}>
+            <span>{t('usage_stats.request_events_detail_fetched_at')}</span>
+            <strong>{requestDetail?.fetched_at || '-'}</strong>
+          </div>
+          <div className={styles.requestLogDetailMetaItem}>
+            <span>{t('usage_stats.request_events_detail_cached')}</span>
+            <strong>{requestDetail ? (requestDetail.cached ? t('usage_stats.request_events_detail_cached_yes') : t('usage_stats.request_events_detail_cached_no')) : '-'}</strong>
+          </div>
+        </div>
+
+        {detailLoading ? (
+          <div className={styles.muted}>{t('common.loading')}</div>
+        ) : detailErrorKey ? (
+          <div className={styles.errorBox}>{t(detailErrorKey)}</div>
+        ) : (
+          requestDetail && requestDetailViewModel ? (
+            <RequestDetailStructuredView
+              detail={requestDetail}
+              model={requestDetailViewModel}
+              t={(key) => t(key)}
+            />
+          ) : null
+        )}
+      </div>
+    );
   };
 
   const dailyTrend = data?.daily_trend ?? [];
@@ -1412,7 +1534,9 @@ export function MonitoringCenterTab({
               </select>
             </div>
 
-            {requestLogs.length > 0 ? (
+            {selectedRequestLog ? (
+              renderRequestLogDetail()
+            ) : requestLogs.length > 0 ? (
               <>
                 <div className={styles.tableWrapper}>
                   <table className={`${styles.table} ${styles.requestLogTable}`.trim()}>
@@ -1431,8 +1555,18 @@ export function MonitoringCenterTab({
                     <tbody>
                       {pagedRequestLogs.map((log) => {
                         const logLabel = resolveSourceLabel(log);
+                        const canOpenDetail = canOpenRequestLogDetail(log);
+                        const requestLogID = getRequestLogEventID(log);
                         return (
-                        <tr key={log.id ?? `${log.timestamp}-${log.model}-${log.source}`}>
+                        <tr
+                          key={log.id ?? `${log.timestamp}-${log.model}-${log.source}`}
+                          className={canOpenDetail ? styles.requestLogClickableRow : undefined}
+                          role={canOpenDetail ? 'button' : undefined}
+                          tabIndex={canOpenDetail ? 0 : undefined}
+                          aria-label={canOpenDetail ? t('usage_stats.request_events_view_detail', { requestId: requestLogID }) : undefined}
+                          onClick={canOpenDetail ? () => handleOpenRequestLogDetail(log) : undefined}
+                          onKeyDown={canOpenDetail ? (event) => handleRequestLogRowKeyDown(event, log) : undefined}
+                        >
                           <td title={logLabel.title}>
                             <div className={styles.cellTitle}>{logLabel.label}</div>
                             {logLabel.meta && <div className={styles.cellMeta}>{logLabel.meta}</div>}

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 const usagePageStyles = readFileSync(new URL('./UsagePage.module.scss', import.meta.url), 'utf8')
 const monitoringCenterStyles = readFileSync(new URL('../components/usage/monitoring/MonitoringCenterTab.module.scss', import.meta.url), 'utf8')
+const monitoringCenterSource = readFileSync(new URL('../components/usage/monitoring/MonitoringCenterTab.tsx', import.meta.url), 'utf8')
 const usagePageSource = readFileSync(new URL('./UsagePage.tsx', import.meta.url), 'utf8')
 const requestEventsSource = readFileSync(new URL('../components/usage/RequestEventsDetailsCard.tsx', import.meta.url), 'utf8')
 const priceSettingsSource = readFileSync(new URL('../components/usage/PriceSettingsCard.tsx', import.meta.url), 'utf8')
@@ -240,6 +241,22 @@ describe('UsagePage toolbar styles', () => {
     expect(monitoringCenterStyles).toMatch(/\.failureModelTag\s*\{[\s\S]*?color:\s*#b91c1c;/)
     expect(monitoringCenterStyles).toMatch(/\.failureModelTag\s*\{[\s\S]*?background:\s*color-mix\(in srgb, #fee2e2 78%, var\(--bg-primary\)\);/)
     expect(monitoringCenterStyles).toMatch(/:global\(\[data-theme='dark'\]\) \.failureModelTag\s*\{[\s\S]*?color:\s*#fca5a5;/)
+  })
+
+  it('keeps Monitoring select arrows separated from labels', () => {
+    expect(monitoringCenterStyles).toMatch(/\.filterSelect\s*\{[\s\S]*?padding:\s*8px 38px 8px 12px;/)
+    expect(monitoringCenterStyles).toMatch(/\.filterSelect\s*\{[\s\S]*?appearance:\s*none;/)
+    expect(monitoringCenterStyles).toMatch(/\.filterSelect\s*\{[\s\S]*?-webkit-appearance:\s*none;/)
+    expect(monitoringCenterStyles).toContain('calc(100% - 18px) 50% / 6px 6px no-repeat')
+    expect(monitoringCenterStyles).toContain('calc(100% - 14px) 50% / 6px 6px no-repeat')
+  })
+
+  it('lets Monitoring recent request logs open request details', () => {
+    expect(monitoringCenterSource).toContain('fetchUsageEventRequestDetail(usageEventID, controller.signal)')
+    expect(monitoringCenterSource).toContain('RequestDetailStructuredView')
+    expect(monitoringCenterSource).toContain('className={canOpenDetail ? styles.requestLogClickableRow : undefined}')
+    expect(monitoringCenterSource).toContain("aria-label={canOpenDetail ? t('usage_stats.request_events_view_detail', { requestId: requestLogID }) : undefined}")
+    expect(monitoringCenterSource).toContain('onKeyDown={canOpenDetail ? (event) => handleRequestLogRowKeyDown(event, log) : undefined}')
   })
 
   it('widens only the API key dropdown menu without changing the trigger width', () => {

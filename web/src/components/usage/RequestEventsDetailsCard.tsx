@@ -96,7 +96,7 @@ const formatCacheRateForSource = (cachedTokens: number, inputTokens: number, sou
   return rate === null ? '-' : `${rate.toFixed(2)}%`;
 };
 
-const getRequestDetailErrorKey = (error: unknown): string => {
+export const getRequestDetailErrorKey = (error: unknown): string => {
   if (error instanceof ApiError && error.status === 413) {
     return 'usage_stats.request_events_detail_too_large';
   }
@@ -143,13 +143,13 @@ function RequestDetailHeaders({ title, headers }: RequestDetailHeadersProps) {
   );
 }
 
-interface RequestDetailStructuredViewProps {
+export interface RequestDetailStructuredViewProps {
   detail: UsageEventRequestDetailResponse;
   model: RequestDetailViewModel;
   t: (key: string) => string;
 }
 
-function RequestDetailStructuredView({ detail, model, t }: RequestDetailStructuredViewProps) {
+export function RequestDetailStructuredView({ detail, model, t }: RequestDetailStructuredViewProps) {
   const summaryItems = [
     { label: t('usage_stats.request_events_detail_method'), value: model.method },
     { label: t('usage_stats.request_events_detail_path'), value: model.path },
