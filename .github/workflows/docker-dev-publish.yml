@@ -7,10 +7,9 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
-  docker-dev:
+  docker-dev-build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -19,40 +18,111 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Convert image name to lowercase
-        id: repo
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY@L}" >> "$GITHUB_OUTPUT"
-
       - name: Generate Docker metadata
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: |
-            ${{ steps.repo.outputs.image }}
-            shaywong/cpa-usage-keeper
+          images: cpa-usage-keeper
           tags: |
             type=raw,value=dev
             type=sha,prefix=sha-
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push Docker image
+      - name: Build Docker image archive
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          outputs: type=oci,dest=${{ runner.temp }}/cpa-usage-keeper-dev.oci.tar
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Upload Docker image archive
+        uses: actions/upload-artifact@v6
+        with:
+          name: cpa-usage-keeper-dev-oci
+          path: ${{ runner.temp }}/cpa-usage-keeper-dev.oci.tar
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  docker-dev-ghcr:
+    runs-on: ubuntu-latest
+    needs: docker-dev-build
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Download Docker image archive
+        uses: actions/download-artifact@v6
+        with:
+          name: cpa-usage-keeper-dev-oci
+          path: /tmp
+
+      - name: Install Skopeo
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+
+      - name: Convert image name to lowercase
+        id: repo
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY@L}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GHCR Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.repo.outputs.image }}
+          tags: |
+            type=raw,value=dev
+            type=sha,prefix=sha-
+
+      - name: Log in to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GHCR_TOKEN" | skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Push GHCR image
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            skopeo copy --all "oci-archive:/tmp/cpa-usage-keeper-dev.oci.tar" "docker://${tag}"
+          done <<< "$TAGS"
+
+  docker-dev-dockerhub:
+    runs-on: ubuntu-latest
+    needs: docker-dev-build
+    steps:
+      - name: Download Docker image archive
+        uses: actions/download-artifact@v6
+        with:
+          name: cpa-usage-keeper-dev-oci
+          path: /tmp
+
+      - name: Install Skopeo
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+
+      - name: Generate Docker Hub metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: docker.io/shaywong/cpa-usage-keeper
+          tags: |
+            type=raw,value=dev
+            type=sha,prefix=sha-
+
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: echo "$DOCKERHUB_TOKEN" | skopeo login docker.io --username "$DOCKERHUB_USERNAME" --password-stdin
+
+      - name: Push Docker Hub image
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            skopeo copy --all "oci-archive:/tmp/cpa-usage-keeper-dev.oci.tar" "docker://${tag}"
+          done <<< "$TAGS"
