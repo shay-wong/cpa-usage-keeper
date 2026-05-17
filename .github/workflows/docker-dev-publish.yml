@@ -12,6 +12,7 @@ jobs:
   docker-dev-ghcr:
     runs-on: ubuntu-latest
     permissions:
+      actions: write
       contents: read
       packages: write
     outputs:
@@ -54,6 +55,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   docker-dev-dockerhub:
     runs-on: ubuntu-latest
