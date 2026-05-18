@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/redact"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
@@ -153,7 +154,7 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 	// AI provider 的 identity 是 API Key，只在返回给前端时脱敏，数据库原值不改。
 	identity := item.Identity
 	name := item.Name
-	displayName := usageIdentityDisplayName(item)
+	displayName := helper.UsageIdentityDisplayName(item)
 	if item.AuthType == entities.UsageIdentityAuthTypeAIProvider {
 		identity = redact.APIKeyDisplayName(item.Identity)
 	} else if item.AuthType == entities.UsageIdentityAuthTypeAuthFile {

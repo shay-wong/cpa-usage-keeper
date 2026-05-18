@@ -186,6 +186,7 @@
 }
 
 .updateCheckSwitcher,
+.signOutSwitcher,
 .refreshSwitcher {
   display: inline-flex;
   align-items: stretch;
@@ -198,6 +199,7 @@
 }
 
 .updateCheckPill,
+.signOutPill,
 .refreshPill {
   border: 0;
   background: transparent;
@@ -227,6 +229,7 @@
 
 .updateCheckPillLoading,
 .updateCheckPillActive,
+.signOutPillActive,
 .refreshPillActive,
 .refreshPillLoading {
   background: var(--bg-primary);
@@ -235,6 +238,7 @@
 }
 
 .updateCheckPillInner,
+.signOutPillInner,
 .refreshPillInner {
   display: inline-flex;
   align-items: center;

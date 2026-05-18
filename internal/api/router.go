@@ -77,20 +77,25 @@ func NewRouter(
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
 		databaseSettingsProvider = optionalProviders[0].DatabaseSettings
 	}
+	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
 
-	protected := apiV1.Group("")
-	protected.Use(authHandler.middleware())
-	registerStatusRoutes(protected, statusProvider)
-	registerUpdateRoutes(protected, nil)
-	registerUsageOverviewRoute(protected, usageProvider)
-	registerUsageMonitoringRoute(protected, usageProvider, usageIdentityProvider)
-	registerUsageAnalysisRoute(protected, usageProvider, cpaAPIKeyProvider)
-	registerUsageEventsRoute(protected, usageProvider, usageIdentityProvider)
-	registerUsageIdentityRoutes(protected, usageIdentityProvider)
-	registerCPAAPIKeyRoutes(protected, cpaAPIKeyProvider)
-	registerPricingRoutes(protected, pricingProvider)
-	registerSettingsRoutes(protected, databaseSettingsProvider)
-	registerQuotaRoutes(protected, quotaProvider)
+	adminProtected := apiV1.Group("")
+	adminProtected.Use(authHandler.adminMiddleware())
+	registerStatusRoutes(adminProtected, statusProvider)
+	registerUpdateRoutes(adminProtected, nil)
+	registerUsageOverviewRoute(adminProtected, usageProvider)
+	registerUsageMonitoringRoute(adminProtected, usageProvider, usageIdentityProvider)
+	registerUsageAnalysisRoute(adminProtected, usageProvider, cpaAPIKeyProvider)
+	registerUsageEventsRoute(adminProtected, usageProvider, usageIdentityProvider)
+	registerUsageIdentityRoutes(adminProtected, usageIdentityProvider)
+	registerCPAAPIKeyRoutes(adminProtected, cpaAPIKeyProvider)
+	registerPricingRoutes(adminProtected, pricingProvider)
+	registerSettingsRoutes(adminProtected, databaseSettingsProvider)
+	registerQuotaRoutes(adminProtected, quotaProvider)
+
+	keyViewerProtected := apiV1.Group("")
+	keyViewerProtected.Use(authHandler.apiKeyViewerMiddleware())
+	registerKeyOverviewRoute(keyViewerProtected, usageProvider, cpaAPIKeyProvider, authHandler)
 
 	if staticFS != nil {
 		if indexFile, err := staticFS.Open("index.html"); err == nil {

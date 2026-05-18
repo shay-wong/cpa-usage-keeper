@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
@@ -493,10 +494,7 @@ func loadAnalysisIdentityLookup(db *gorm.DB, authIndexes []string) (analysisIden
 			return nil, fmt.Errorf("load analysis usage identities: %w", err)
 		}
 		for _, identity := range identities {
-			label := strings.TrimSpace(identity.Name)
-			if label == "" {
-				label = identity.Identity
-			}
+			label := helper.UsageIdentityDisplayName(identity)
 			lookup[identity.AuthType][identity.Identity] = analysisIdentityInfo{identity: identity.Identity, label: label, authType: identity.AuthType}
 		}
 	}

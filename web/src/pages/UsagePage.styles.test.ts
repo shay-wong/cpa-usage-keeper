@@ -69,6 +69,13 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageDevTabsSource).toContain("const DEV_USAGE_TAB_ORDER = ['overview', DEV_USAGE_TAB_VALUE, 'analysis', 'events', 'credentials', 'settings'] as const")
   })
 
+  it('keeps Sign out as the rightmost header action after Check Updates', () => {
+    expect(usagePageSource).toContain('logout')
+    expect(usagePageSource.indexOf("t('usage_stats.check_updates')")).toBeLessThan(usagePageSource.indexOf("t('common.logout')"))
+    expect(usagePageStyles).toContain('.signOutSwitcher')
+    expect(usagePageStyles).toContain('.signOutPill')
+  })
+
   it('keeps mobile tab labels on one line without changing desktop tab sizing', () => {
     const desktopTabPillBlock = usagePageStyles.slice(
       usagePageStyles.indexOf('.tabPill {'),

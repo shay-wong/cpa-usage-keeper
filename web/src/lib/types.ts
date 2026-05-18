@@ -3,8 +3,17 @@ export interface DatabaseCleanupSettingsResponse {
   max_database_size_mb: number
 }
 
+export type AuthRole = 'admin' | 'api_key_viewer'
+
+export interface AuthSessionAPIKeySummary {
+  display_key: string
+  alias?: string
+}
+
 export interface AuthSessionResponse {
   authenticated: boolean
+  role?: AuthRole
+  api_key?: AuthSessionAPIKeySummary
 }
 
 export interface StatusResponse {
@@ -378,7 +387,9 @@ export interface PricingResponse {
   pricing: PricingEntry[]
 }
 
-export type UsageTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d' | 'custom'
+export type KeyOverviewTimeRange = '4h' | '8h' | '12h' | '24h' | 'today' | 'yesterday' | '7d' | '30d'
+
+export type UsageTimeRange = KeyOverviewTimeRange | 'custom'
 
 export interface UsageFilterWindow {
   startMs?: number

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"cpa-usage-keeper/internal/timeutil"
@@ -310,7 +311,7 @@ func usageSourceFilterOptionFromIdentity(identity entities.UsageIdentity) (usage
 			return usageSourceFilterOption{}, false
 		}
 		label := strings.TrimSpace(identity.Name)
-		displayName := usageIdentityDisplayName(identity)
+		displayName := helper.UsageIdentityDisplayName(identity)
 		if identity.AuthType == entities.UsageIdentityAuthTypeAuthFile {
 			label = safeAuthIdentityDisplayName(label, identity.Identity)
 			displayName = safeAuthIdentityDisplayName(displayName, identity.Identity)

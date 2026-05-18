@@ -162,7 +162,7 @@ func activeUsageIdentitiesQuery(db *gorm.DB, authType *entities.UsageIdentityAut
 func applyUsageIdentityPageSort(query *gorm.DB, sort string) *gorm.DB {
 	switch sort {
 	case UsageIdentityPageSortPriority:
-		return query.Order("priority IS NULL ASC").Order("priority ASC").Order("id ASC")
+		return query.Order("priority IS NULL ASC").Order("priority DESC").Order("id ASC")
 	case UsageIdentityPageSortTotalTokens:
 		return query.Order("total_tokens DESC").Order("id ASC")
 	default:

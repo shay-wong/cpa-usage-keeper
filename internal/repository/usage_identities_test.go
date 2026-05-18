@@ -795,8 +795,8 @@ func TestUsageIdentityListActivePageFiltersEnabledAuthFilesAndOrdersByPriority(t
 	if total != 3 {
 		t.Fatalf("expected total 3, got %d", total)
 	}
-	if got := []string{items[0].Identity, items[1].Identity, items[2].Identity}; !reflect.DeepEqual(got, []string{"priority-1", "priority-5", "default"}) {
-		t.Fatalf("expected enabled auth files sorted by priority asc with missing priority last, got %v", got)
+	if got := []string{items[0].Identity, items[1].Identity, items[2].Identity}; !reflect.DeepEqual(got, []string{"priority-5", "priority-1", "default"}) {
+		t.Fatalf("expected enabled auth files sorted by priority desc with missing priority last, got %v", got)
 	}
 }
 

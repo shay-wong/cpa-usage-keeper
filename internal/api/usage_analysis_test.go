@@ -30,6 +30,14 @@ func (s usageAnalysisAPIKeyStub) ListCPAAPIKeys(context.Context) ([]entities.CPA
 	return s.rows, s.err
 }
 
+func (s usageAnalysisAPIKeyStub) FindActiveCPAAPIKeyByValue(context.Context, string) (entities.CPAAPIKey, error) {
+	return entities.CPAAPIKey{}, service.ErrInvalidID
+}
+
+func (s usageAnalysisAPIKeyStub) FindActiveCPAAPIKeyByID(context.Context, int64) (entities.CPAAPIKey, error) {
+	return entities.CPAAPIKey{}, service.ErrInvalidID
+}
+
 func (s usageAnalysisAPIKeyStub) UpdateCPAAPIKeyAlias(context.Context, int64, string) (entities.CPAAPIKey, error) {
 	return entities.CPAAPIKey{}, service.ErrInvalidID
 }
@@ -184,6 +192,21 @@ func TestUsageAnalysisUsesCPAAPIKeyOptionLabels(t *testing.T) {
 	}
 	if provider.lastFilter.APIKeyID != "1" {
 		t.Fatalf("expected API key id to pass into usage filter, got %+v", provider.lastFilter)
+	}
+}
+
+func TestBuildAnalysisHeatmapPayloadSortsKeysByRequests(t *testing.T) {
+	payload := buildAnalysisHeatmapPayload([]servicedto.AnalysisHeatmapCell{
+		{APIKey: "sk-low", Model: "model-low", Requests: 1, TotalTokens: 100},
+		{APIKey: "sk-high", Model: "model-high", Requests: 5, TotalTokens: 50},
+		{APIKey: "sk-high", Model: "model-low", Requests: 2, TotalTokens: 20},
+	}, nil)
+
+	if got := payload.APIKeys; len(got) != 2 || got[0] != redact.APIKeyDisplayName("sk-high") || got[1] != redact.APIKeyDisplayName("sk-low") {
+		t.Fatalf("expected api keys sorted by total requests desc, got %+v", got)
+	}
+	if got := payload.Models; len(got) != 2 || got[0] != "model-high" || got[1] != "model-low" {
+		t.Fatalf("expected models sorted by total requests desc, got %+v", got)
 	}
 }
 
