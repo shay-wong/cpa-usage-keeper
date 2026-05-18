@@ -623,7 +623,10 @@
 }
 
 .tableWrapper {
-  overflow-x: auto;
+  height: clamp(400px, 60vh, 600px);
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--border-color) 66%, transparent);
+  border-radius: 16px;
 }
 
 .statsTableWrapper {
@@ -906,21 +909,25 @@
   font-weight: 700;
 }
 
+.requestLogTableWrapper {
+  border: 1px solid var(--border-color);
+}
+
 .requestLogTable {
-  min-width: 1080px;
+  min-width: 0;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
-.requestLogClickableRow {
-  cursor: pointer;
+.requestLogTable th,
+.requestLogTable td {
+  padding: 10px 12px;
 }
 
-.requestLogClickableRow:focus-visible {
-  outline: 2px solid var(--primary-color);
-  outline-offset: -2px;
-}
-
-.requestLogClickableRow:hover .cellTitle {
-  color: var(--primary-color);
+.requestLogTable thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .requestLogDetailPanel {
@@ -997,36 +1004,28 @@
   margin-bottom: 14px;
 }
 
-.filterSelect {
-  min-width: 132px;
-  max-width: 160px;
-  padding: 8px 38px 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 66%, transparent);
-  border-radius: 12px;
-  appearance: none;
-  -webkit-appearance: none;
-  background:
-    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%) calc(100% - 18px) 50% / 6px 6px no-repeat,
-    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%) calc(100% - 14px) 50% / 6px 6px no-repeat,
-    color-mix(in srgb, var(--bg-primary) 72%, transparent);
-  color: var(--text-primary);
-  font-size: 12px;
+.monitoringSelect {
+  min-width: 170px;
+  min-height: 40px;
+  border-radius: 999px;
+  border-color: var(--border-color);
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
+
+  > button {
+    min-height: 40px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset;
+  }
 }
 
-.filterSelectCompact {
-  min-width: 112px;
-  max-width: 132px;
+.monitoringSelectCompact {
+  min-width: 132px;
 }
 
 .pageSizeSelect {
-  min-width: 106px;
-  max-width: 122px;
-}
-
-.filterSelect:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 16%, transparent);
+  min-width: 132px;
 }
 
 .pagination {
@@ -1160,11 +1159,6 @@
   .hourlyControls {
     justify-content: flex-start;
     width: 100%;
-  }
-
-  .logItem {
-    grid-template-columns: 1fr;
-    align-items: flex-start;
   }
 
   .table {

@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   ArcElement,
   BarController,
@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { Select, type SelectOption } from '@/components/ui/Select';
 import { fetchUsageEventRequestDetail } from '@/lib/api';
 import type {
   UsageMonitoringModelDistributionItem,
@@ -28,9 +29,16 @@ import type {
 } from '@/lib/usageMonitoringTypes';
 import type { UsageEventRequestDetailResponse } from '@/lib/types';
 import { buildRequestDetailViewModel } from '../requestDetailViewModel';
-import { getRequestDetailErrorKey, RequestDetailStructuredView } from '../RequestEventsDetailsCard';
+import {
+  formatCacheRateForSource,
+  formatRequestEventTimestamp,
+  getRequestDetailErrorKey,
+  RequestDetailStructuredView,
+  RequestEventTableRow,
+  type RequestEventTileRow,
+} from '../RequestEventsDetailsCard';
 import { useThemeStore } from '@/stores';
-import { formatCompactNumber, formatDurationMs, formatPerMinuteValue, formatUsd } from '@/utils/usage';
+import { formatCompactNumber, formatPerMinuteValue, formatUsd } from '@/utils/usage';
 import styles from './MonitoringCenterTab.module.scss';
 
 ChartJS.register(
@@ -84,12 +92,6 @@ interface MonitoringSourceLike {
   source_type?: string;
 }
 
-interface FilterOption {
-  value: string;
-  label: string;
-}
-
-
 function compactMaskedText(value: string | undefined): string {
   if (!value) return '';
   const collapsedStars = value.replace(/\*{4,}/g, '***');
@@ -116,7 +118,7 @@ function buildMoreModelsTitle(models: Array<{ model: string }>): string {
   return models.map((model) => model.model).join(', ');
 }
 
-function buildSourceOptions(items: MonitoringSourceLike[]): FilterOption[] {
+function buildSourceOptions(items: MonitoringSourceLike[]): SelectOption[] {
   const options = new Map<string, string>();
   items.forEach((item) => {
     options.set(getSourceFilterKey(item), resolveSourceLabel(item).label);
@@ -127,16 +129,66 @@ function buildSourceOptions(items: MonitoringSourceLike[]): FilterOption[] {
 }
 
 
-function buildModelOptions(items: Array<{ models: Array<{ model: string }> }>): FilterOption[] {
+function buildModelOptions(items: Array<{ models: Array<{ model: string }> }>): SelectOption[] {
   return [...new Set(items.flatMap((item) => item.models.map((model) => model.model)))]
     .sort()
     .map((model) => ({ value: model, label: model }));
 }
 
-function buildRequestLogModelOptions(items: Array<{ model: string }>): FilterOption[] {
+function buildRequestLogModelOptions(items: Array<{ model: string }>): SelectOption[] {
   return [...new Set(items.map((item) => item.model))]
     .sort()
     .map((model) => ({ value: model, label: model }));
+}
+
+function withAllOption(label: string, options: SelectOption[]): SelectOption[] {
+  return [{ value: '', label }, ...options];
+}
+
+function requestLogStatusOptions(t: Translate): SelectOption[] {
+  return [
+    { value: '', label: t('usage_stats.monitoring_all_statuses') },
+    { value: 'success', label: t('usage_stats.success') },
+    { value: 'failed', label: t('usage_stats.failure') },
+  ];
+}
+
+function requestLogPageSizeOptions(t: Translate): SelectOption[] {
+  return REQUEST_LOG_PAGE_SIZE_OPTIONS.map((size) => ({
+    value: String(size),
+    label: t('usage_stats.monitoring_page_size', { count: size }),
+  }));
+}
+
+function buildRequestEventTileRow(log: UsageMonitoringRequestLog): RequestEventTileRow {
+  const logLabel = resolveSourceLabel(log);
+  const eventID = getRequestLogEventID(log);
+
+  return {
+    id: eventID || `${log.timestamp}-${log.model}-${log.source}`,
+    usageEventID: eventID,
+    requestID: eventID,
+    timestamp: log.timestamp,
+    timestampMs: Date.parse(log.timestamp) || 0,
+    timestampLabel: formatRequestEventTimestamp(log.timestamp),
+    model: log.model || '-',
+    sourceRaw: log.source_key || log.source || '-',
+    source: logLabel.label,
+    sourceTitle: logLabel.title,
+    sourceType: logLabel.meta,
+    authIndex: '-',
+    isDelete: false,
+    failed: log.failed,
+    latencyMs: Number.isFinite(log.latency_ms) ? log.latency_ms : null,
+    inputTokens: Math.max(Number(log.tokens.input_tokens) || 0, 0),
+    outputTokens: Math.max(Number(log.tokens.output_tokens) || 0, 0),
+    reasoningTokens: Math.max(Number(log.tokens.reasoning_tokens) || 0, 0),
+    cachedTokens: Math.max(Number(log.tokens.cached_tokens) || 0, 0),
+    totalTokens: Math.max(Number(log.tokens.total_tokens) || 0, 0),
+    cacheRate: formatCacheRateForSource(log.tokens.cached_tokens, log.tokens.input_tokens, log.source_type),
+    cost: 0,
+    hasPrice: false,
+  };
 }
 
 function getRequestLogEventID(log: UsageMonitoringRequestLog): string {
@@ -550,14 +602,6 @@ export function MonitoringCenterTab({
           setDetailLoading(false);
         }
       });
-  };
-
-  const handleRequestLogRowKeyDown = (event: KeyboardEvent<HTMLTableRowElement>, log: UsageMonitoringRequestLog) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    if (!canOpenRequestLogDetail(log)) return;
-
-    event.preventDefault();
-    handleOpenRequestLogDetail(log);
   };
 
   const handleBackToRequestLogs = () => {
@@ -1325,26 +1369,24 @@ export function MonitoringCenterTab({
               </div>
 
               <div className={styles.sectionFilters}>
-                <select
-                  className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                <Select
                   value={channelSourceFilter}
-                  onChange={(event) => setChannelSourceFilter(event.target.value)}
-                >
-                  <option value="">{t('usage_stats.monitoring_all_sources')}</option>
-                  {channelSourceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <select
-                  className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                  options={withAllOption(t('usage_stats.monitoring_all_sources'), channelSourceOptions)}
+                  onChange={setChannelSourceFilter}
+                  className={`${styles.monitoringSelect} ${styles.monitoringSelectCompact}`}
+                  ariaLabel={t('usage_stats.monitoring_all_sources')}
+                  fullWidth={false}
+                  dropdownMinWidth={180}
+                />
+                <Select
                   value={channelModelFilter}
-                  onChange={(event) => setChannelModelFilter(event.target.value)}
-                >
-                  <option value="">{t('usage_stats.monitoring_all_models')}</option>
-                  {channelModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+                  options={withAllOption(t('usage_stats.monitoring_all_models'), channelModelOptions)}
+                  onChange={setChannelModelFilter}
+                  className={`${styles.monitoringSelect} ${styles.monitoringSelectCompact}`}
+                  ariaLabel={t('usage_stats.monitoring_all_models')}
+                  fullWidth={false}
+                  dropdownMinWidth={180}
+                />
               </div>
 
               {channelStats.length > 0 ? (
@@ -1407,26 +1449,24 @@ export function MonitoringCenterTab({
               </div>
 
               <div className={styles.sectionFilters}>
-                <select
-                  className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                <Select
                   value={failureSourceFilter}
-                  onChange={(event) => setFailureSourceFilter(event.target.value)}
-                >
-                  <option value="">{t('usage_stats.monitoring_all_sources')}</option>
-                  {failureSourceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <select
-                  className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                  options={withAllOption(t('usage_stats.monitoring_all_sources'), failureSourceOptions)}
+                  onChange={setFailureSourceFilter}
+                  className={`${styles.monitoringSelect} ${styles.monitoringSelectCompact}`}
+                  ariaLabel={t('usage_stats.monitoring_all_sources')}
+                  fullWidth={false}
+                  dropdownMinWidth={180}
+                />
+                <Select
                   value={failureModelFilter}
-                  onChange={(event) => setFailureModelFilter(event.target.value)}
-                >
-                  <option value="">{t('usage_stats.monitoring_all_models')}</option>
-                  {failureModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+                  options={withAllOption(t('usage_stats.monitoring_all_models'), failureModelOptions)}
+                  onChange={setFailureModelFilter}
+                  className={`${styles.monitoringSelect} ${styles.monitoringSelectCompact}`}
+                  ariaLabel={t('usage_stats.monitoring_all_models')}
+                  fullWidth={false}
+                  dropdownMinWidth={180}
+                />
               </div>
 
               {failureAnalysis.length > 0 ? (
@@ -1494,113 +1534,97 @@ export function MonitoringCenterTab({
             </div>
 
             <div className={styles.sectionFilters}>
-              <select
-                className={styles.filterSelect}
+              <Select
                 value={requestLogSourceFilter}
-                onChange={(event) => {
-                  setRequestLogSourceFilter(event.target.value);
+                options={withAllOption(t('usage_stats.monitoring_all_sources'), requestLogSourceOptions)}
+                onChange={(value) => {
+                  setRequestLogSourceFilter(value);
                   resetRequestLogPage();
                 }}
-              >
-                <option value="">{t('usage_stats.monitoring_all_sources')}</option>
-                {requestLogSourceOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-              <select
-                className={styles.filterSelect}
+                className={styles.monitoringSelect}
+                ariaLabel={t('usage_stats.monitoring_all_sources')}
+                fullWidth={false}
+                dropdownMinWidth={180}
+              />
+              <Select
                 value={requestLogModelFilter}
-                onChange={(event) => {
-                  setRequestLogModelFilter(event.target.value);
+                options={withAllOption(t('usage_stats.monitoring_all_models'), requestLogModelOptions)}
+                onChange={(value) => {
+                  setRequestLogModelFilter(value);
                   resetRequestLogPage();
                 }}
-              >
-                <option value="">{t('usage_stats.monitoring_all_models')}</option>
-                {requestLogModelOptions.map((option: FilterOption) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-              <select
-                className={`${styles.filterSelect} ${styles.filterSelectCompact}`.trim()}
+                className={styles.monitoringSelect}
+                ariaLabel={t('usage_stats.monitoring_all_models')}
+                fullWidth={false}
+                dropdownMinWidth={180}
+              />
+              <Select
                 value={requestLogStatusFilter}
-                onChange={(event) => {
-                  setRequestLogStatusFilter(event.target.value as RequestLogStatusFilter);
+                options={requestLogStatusOptions(t)}
+                onChange={(value) => {
+                  setRequestLogStatusFilter(value as RequestLogStatusFilter);
                   resetRequestLogPage();
                 }}
-              >
-                <option value="">{t('usage_stats.monitoring_all_statuses')}</option>
-                <option value="success">{t('usage_stats.success')}</option>
-                <option value="failed">{t('usage_stats.failure')}</option>
-              </select>
+                className={`${styles.monitoringSelect} ${styles.monitoringSelectCompact}`}
+                ariaLabel={t('usage_stats.monitoring_all_statuses')}
+                fullWidth={false}
+                dropdownMinWidth={150}
+              />
             </div>
 
             {selectedRequestLog ? (
               renderRequestLogDetail()
             ) : requestLogs.length > 0 ? (
               <>
-                <div className={styles.tableWrapper}>
+                <div className={`${styles.tableWrapper} ${styles.requestLogTableWrapper}`.trim()}>
                   <table className={`${styles.table} ${styles.requestLogTable}`.trim()}>
                     <thead>
                       <tr>
-                        <th>{t('usage_stats.source_name')}</th>
+                        <th>{t('usage_stats.request_events_timestamp')}</th>
                         <th>{t('usage_stats.model_name')}</th>
-                        <th>{t('usage_stats.result')}</th>
+                        <th>{t('usage_stats.request_events_source')}</th>
+                        <th>{t('usage_stats.request_events_result')}</th>
+                        <th>{t('usage_stats.time')}</th>
                         <th>{t('usage_stats.input_tokens')}</th>
                         <th>{t('usage_stats.output_tokens')}</th>
-                        <th>{t('usage_stats.tokens_count')}</th>
-                        <th>{t('usage_stats.latency')}</th>
-                        <th>{t('usage_stats.last_request')}</th>
+                        <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>
+                        <th>{t('usage_stats.cached_tokens')}</th>
+                        <th>{t('usage_stats.cache_rate')}</th>
+                        <th>{t('usage_stats.total_tokens')}</th>
+                        <th>{t('usage_stats.total_cost')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {pagedRequestLogs.map((log) => {
-                        const logLabel = resolveSourceLabel(log);
-                        const canOpenDetail = canOpenRequestLogDetail(log);
-                        const requestLogID = getRequestLogEventID(log);
+                        const row = buildRequestEventTileRow(log);
                         return (
-                        <tr
-                          key={log.id ?? `${log.timestamp}-${log.model}-${log.source}`}
-                          className={canOpenDetail ? styles.requestLogClickableRow : undefined}
-                          role={canOpenDetail ? 'button' : undefined}
-                          tabIndex={canOpenDetail ? 0 : undefined}
-                          aria-label={canOpenDetail ? t('usage_stats.request_events_view_detail', { requestId: requestLogID }) : undefined}
-                          onClick={canOpenDetail ? () => handleOpenRequestLogDetail(log) : undefined}
-                          onKeyDown={canOpenDetail ? (event) => handleRequestLogRowKeyDown(event, log) : undefined}
-                        >
-                          <td title={logLabel.title}>
-                            <div className={styles.cellTitle}>{logLabel.label}</div>
-                            {logLabel.meta && <div className={styles.cellMeta}>{logLabel.meta}</div>}
-                          </td>
-                          <td>{log.model}</td>
-                          <td>
-                            <span className={`${styles.statusPill} ${log.failed ? styles.statusPillFailed : styles.statusPillSuccess}`.trim()}>
-                              {log.failed ? t('usage_stats.failure') : t('usage_stats.success')}
-                            </span>
-                          </td>
-                          <td>{formatCompactNumber(log.tokens.input_tokens)}</td>
-                          <td>{formatCompactNumber(log.tokens.output_tokens)}</td>
-                          <td>{formatCompactNumber(log.tokens.total_tokens)}</td>
-                          <td>{formatDurationMs(log.latency_ms)}</td>
-                          <td>{formatDateTime(log.timestamp, locale, timeZone)}</td>
-                        </tr>
+                          <RequestEventTableRow
+                            key={row.id}
+                            row={row}
+                            canOpenDetail={canOpenRequestLogDetail(log)}
+                            showLatency
+                            showCost
+                            t={t}
+                            onOpenDetail={() => handleOpenRequestLogDetail(log)}
+                          />
                         );
                       })}
                     </tbody>
                   </table>
                 </div>
                 <div className={styles.pagination}>
-                  <select
-                    className={`${styles.filterSelect} ${styles.pageSizeSelect}`.trim()}
+                  <Select
                     value={String(requestLogPageSize)}
-                    onChange={(event) => {
-                      setRequestLogPageSize(Number(event.target.value) as (typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]);
+                    options={requestLogPageSizeOptions(t)}
+                    onChange={(value) => {
+                      setRequestLogPageSize(Number(value) as (typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]);
                       resetRequestLogPage();
                     }}
-                  >
-                    {REQUEST_LOG_PAGE_SIZE_OPTIONS.map((size) => (
-                      <option key={size} value={String(size)}>{t('usage_stats.monitoring_page_size', { count: size })}</option>
-                    ))}
-                  </select>
+                    className={`${styles.monitoringSelect} ${styles.pageSizeSelect}`}
+                    ariaLabel={t('usage_stats.request_events_rows_per_page')}
+                    fullWidth={false}
+                    dropdownMinWidth={132}
+                  />
                   <button
                     type="button"
                     className={styles.pageButton}

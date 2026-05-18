@@ -244,20 +244,42 @@ describe('UsagePage toolbar styles', () => {
     expect(monitoringCenterStyles).toMatch(/:global\(\[data-theme='dark'\]\) \.failureModelTag\s*\{[\s\S]*?color:\s*#fca5a5;/)
   })
 
-  it('keeps Monitoring select arrows separated from labels', () => {
-    expect(monitoringCenterStyles).toMatch(/\.filterSelect\s*\{[\s\S]*?padding:\s*8px 38px 8px 12px;/)
-    expect(monitoringCenterStyles).toMatch(/\.filterSelect\s*\{[\s\S]*?appearance:\s*none;/)
-    expect(monitoringCenterStyles).toMatch(/\.filterSelect\s*\{[\s\S]*?-webkit-appearance:\s*none;/)
-    expect(monitoringCenterStyles).toContain('calc(100% - 18px) 50% / 6px 6px no-repeat')
-    expect(monitoringCenterStyles).toContain('calc(100% - 14px) 50% / 6px 6px no-repeat')
+  it('uses the shared Select control in Monitoring filters', () => {
+    expect(monitoringCenterSource).toContain("import { Select, type SelectOption } from '@/components/ui/Select'")
+    expect(monitoringCenterSource).toContain('className={styles.monitoringSelect}')
+    expect(monitoringCenterSource).toContain("options={withAllOption(t('usage_stats.monitoring_all_sources'), requestLogSourceOptions)}")
+    expect(monitoringCenterStyles).toMatch(/\.monitoringSelect\s*\{[\s\S]*?border-radius:\s*999px;/)
+    expect(monitoringCenterStyles).not.toContain('.filterSelect')
   })
 
-  it('lets Monitoring recent request logs open request details', () => {
+  it('keeps Monitoring data mounted while refresh is loading so scroll position is preserved', () => {
+    const monitoringDataHookSource = readFileSync(new URL('../components/usage/monitoring/useMonitoringCenterData.ts', import.meta.url), 'utf8')
+    const refreshStartBlock = monitoringDataHookSource.slice(
+      monitoringDataHookSource.indexOf('controllerRef.current = controller'),
+      monitoringDataHookSource.indexOf('try {')
+    )
+
+    expect(refreshStartBlock).toContain('setLoading(true)')
+    expect(refreshStartBlock).not.toContain('setData(null)')
+  })
+
+  it('lets Monitoring recent request logs reuse the Request Events row order, container, and detail action', () => {
+    expect(monitoringCenterSource).toContain('RequestEventTableRow')
+    expect(monitoringCenterSource).toContain('buildRequestEventTileRow(log)')
+    expect(monitoringCenterSource).toContain('styles.requestLogTableWrapper')
+    expect(monitoringCenterStyles).toMatch(/\.requestLogTableWrapper\s*\{[\s\S]*?border:\s*1px solid var\(--border-color\);/)
+    expect(monitoringCenterStyles).toMatch(/\.requestLogTable\s*\{[\s\S]*?min-width:\s*0;/)
+    expect(monitoringCenterStyles).not.toContain('min-width: 1280px')
+    const requestLogTableSource = monitoringCenterSource.slice(monitoringCenterSource.indexOf('styles.requestLogTable'))
+    expect(requestLogTableSource.indexOf("usage_stats.request_events_timestamp")).toBeLessThan(requestLogTableSource.indexOf("usage_stats.model_name"))
+    expect(requestLogTableSource.indexOf("usage_stats.model_name")).toBeLessThan(requestLogTableSource.indexOf("usage_stats.request_events_source"))
+    expect(requestLogTableSource.indexOf("usage_stats.request_events_source")).toBeLessThan(requestLogTableSource.indexOf("usage_stats.request_events_result"))
+    expect(requestLogTableSource.indexOf("usage_stats.request_events_result")).toBeLessThan(requestLogTableSource.indexOf("usage_stats.time"))
+    expect(requestLogTableSource.indexOf("usage_stats.total_tokens")).toBeLessThan(requestLogTableSource.indexOf("usage_stats.total_cost"))
+    expect(monitoringCenterSource).toContain('showCost\n                            t={t}')
     expect(monitoringCenterSource).toContain('fetchUsageEventRequestDetail(usageEventID, controller.signal)')
     expect(monitoringCenterSource).toContain('RequestDetailStructuredView')
-    expect(monitoringCenterSource).toContain('className={canOpenDetail ? styles.requestLogClickableRow : undefined}')
-    expect(monitoringCenterSource).toContain("aria-label={canOpenDetail ? t('usage_stats.request_events_view_detail', { requestId: requestLogID }) : undefined}")
-    expect(monitoringCenterSource).toContain('onKeyDown={canOpenDetail ? (event) => handleRequestLogRowKeyDown(event, log) : undefined}')
+    expect(monitoringCenterSource).toContain('onOpenDetail={() => handleOpenRequestLogDetail(log)}')
   })
 
   it('widens only the API key dropdown menu without changing the trigger width', () => {
@@ -266,14 +288,37 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageSource).toContain('dropdownMinWidth={180}')
   })
 
-  it('preserves the original desktop toolbar sizing while isolating refresh layout', () => {
+  it('moves the top bar continuously with the toolbar push distance', () => {
+    const topBarBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.topBar {'),
+      usagePageStyles.indexOf('.brandBlock')
+    )
+
+    expect(usagePageSource).toContain('topBarRef')
+    expect(usagePageSource).toContain('toolbarRowRef')
+    expect(usagePageSource).toContain('STICKY_TOOLBAR_PUSH_GAP_PX')
+    expect(usagePageSource).toContain("topBar.style.setProperty('--top-bar-push-offset'")
+    expect(usagePageSource).toContain("topBar.style.setProperty('--top-bar-push-progress'")
+    expect(usagePageSource).not.toContain('styles.topBarPushed')
+    expect(usagePageSource).not.toContain('toolbarSentinelRef')
+    expect(topBarBlock).toContain('position: sticky;')
+    expect(topBarBlock).toContain('top: 16px;')
+    expect(topBarBlock).toContain('z-index: 10;')
+    expect(topBarBlock).toContain('--top-bar-push-offset: 0px;')
+    expect(topBarBlock).toContain('--top-bar-push-progress: 0;')
+    expect(topBarBlock).toContain('transform: translateY(calc(-1 * var(--top-bar-push-offset)));')
+    expect(topBarBlock).toContain('opacity: calc(1 - var(--top-bar-push-progress));')
+    expect(usagePageStyles).not.toContain('.topBarPushed')
+    expect(usagePageStyles).not.toContain('.toolbarStickySentinel')
+    expect(usagePageStyles).toMatch(/\.toolbarRow\s*\{[\s\S]*?position:\s*sticky;/)
+    expect(usagePageStyles).toMatch(/\.toolbarRow\s*\{[\s\S]*?top:\s*16px;/)
+    expect(usagePageStyles).toMatch(/\.toolbarRow\s*\{[\s\S]*?z-index:\s*9;/)
+    expect(usagePageStyles).not.toMatch(/\.toolbarRow\s*\{[\s\S]*?top:\s*94px;/)
+    expect(usagePageStyles).toMatch(/\.toolbarRow\s*\{[\s\S]*?backdrop-filter:\s*blur\(18px\);/)
     expect(usagePageStyles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?align-items:\s*center;/)
     expect(usagePageStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?align-items:\s*center;/)
-    expect(usagePageStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?flex:\s*1 1 auto;/)
     expect(usagePageStyles).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?width:\s*172px;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?flex:\s*0 0 172px;/)
     expect(usagePageStyles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?width:\s*164px;/)
-    expect(usagePageStyles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?flex:\s*0 0 164px;/)
   })
 
   it('keeps custom range inputs hidden and disabled until the custom range is selected', () => {

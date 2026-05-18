@@ -39,7 +39,7 @@ const appendSelectedOption = (
   return [...options, { value: selectedValue, label: selectedLabel }];
 };
 
-type RequestEventRow = {
+export type RequestEventTileRow = {
   id: string;
   usageEventID: string;
   requestID: string;
@@ -49,6 +49,7 @@ type RequestEventRow = {
   model: string;
   sourceRaw: string;
   source: string;
+  sourceTitle?: string;
   sourceType: string;
   authIndex: string;
   isDelete: boolean;
@@ -63,6 +64,8 @@ type RequestEventRow = {
   cost: number;
   hasPrice: boolean;
 };
+
+type RequestEventsTranslate = (key: string, options?: Record<string, unknown>) => string;
 
 export interface RequestEventsDetailsCardProps {
   events: UsageEvent[];
@@ -91,13 +94,13 @@ const toNumber = (value: unknown): number => {
   return parsed;
 };
 
-const formatRequestEventTimestamp = (timestamp: string): string => {
+export const formatRequestEventTimestamp = (timestamp: string): string => {
   const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
   if (!match) return timestamp || '-';
   return `${match[1]}/${match[2]}/${match[3]} ${match[4]}:${match[5]}:${match[6]}`;
 };
 
-const formatCacheRateForSource = (cachedTokens: number, inputTokens: number, sourceType?: string): string => {
+export const formatCacheRateForSource = (cachedTokens: number, inputTokens: number, sourceType?: string): string => {
   const rate = calculateCacheRate({ inputTokens, cachedTokens, sourceType });
   return rate === null ? '-' : `${rate.toFixed(2)}%`;
 };
@@ -257,6 +260,90 @@ function RequestEventsTitle({ title, subtitle, eyebrow, totalLabel }: { title: s
   );
 }
 
+interface RequestEventTableRowProps {
+  row: RequestEventTileRow;
+  canOpenDetail: boolean;
+  showLatency: boolean;
+  showCost?: boolean;
+  t: RequestEventsTranslate;
+  onOpenDetail?: (row: RequestEventTileRow) => void;
+}
+
+export function RequestEventTableRow({
+  row,
+  canOpenDetail,
+  showLatency,
+  showCost = true,
+  t,
+  onOpenDetail,
+}: RequestEventTableRowProps) {
+  const isInteractive = canOpenDetail && Boolean(onOpenDetail);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>) => {
+    if (!isInteractive) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+
+    event.preventDefault();
+    onOpenDetail?.(row);
+  };
+
+  return (
+    <tr
+      className={isInteractive ? styles.requestEventsClickableRow : undefined}
+      role={isInteractive ? 'button' : undefined}
+      tabIndex={isInteractive ? 0 : undefined}
+      aria-label={isInteractive ? t('usage_stats.request_events_view_detail', { requestId: row.requestID }) : undefined}
+      onClick={isInteractive ? () => onOpenDetail?.(row) : undefined}
+      onKeyDown={handleKeyDown}
+    >
+      <td title={row.timestamp} className={styles.requestEventsTimestamp}>
+        {row.timestampLabel}
+      </td>
+      <td className={styles.modelCell}>{row.model}</td>
+      <td className={styles.requestEventsSourceCell} title={row.sourceTitle ?? row.source}>
+        <span className={styles.requestEventsSourceStack}>
+          <span className={styles.requestEventsSourceValue}>{row.source}</span>
+          {(row.isDelete || row.sourceType) && (
+            <span className={styles.requestEventsSourceTags}>
+              {row.sourceType && (
+                <span className={styles.credentialType}>{row.sourceType}</span>
+              )}
+              {row.isDelete && (
+                <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
+              )}
+            </span>
+          )}
+        </span>
+      </td>
+      <td>
+        <span
+          className={
+            row.failed
+              ? styles.requestEventsResultFailed
+              : styles.requestEventsResultSuccess
+          }
+        >
+          {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
+        </span>
+      </td>
+      {showLatency && (
+        <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
+      )}
+      <td>{row.inputTokens.toLocaleString()}</td>
+      <td>{row.outputTokens.toLocaleString()}</td>
+      <td>{row.reasoningTokens.toLocaleString()}</td>
+      <td>{row.cachedTokens.toLocaleString()}</td>
+      <td>{row.cacheRate}</td>
+      <td>{row.totalTokens.toLocaleString()}</td>
+      {showCost && (
+        <td title={row.hasPrice ? undefined : t('usage_stats.cost_need_price')}>
+          {row.hasPrice ? formatUsd(row.cost) : '-'}
+        </td>
+      )}
+    </tr>
+  );
+}
+
 export function RequestEventsDetailsCard({
   events,
   loading,
@@ -282,13 +369,13 @@ export function RequestEventsDetailsCard({
     field: LATENCY_SOURCE_FIELD,
     unit: t('usage_stats.duration_unit_ms'),
   });
-  const [selectedRow, setSelectedRow] = useState<RequestEventRow | null>(null);
+  const [selectedRow, setSelectedRow] = useState<RequestEventTileRow | null>(null);
   const [requestDetail, setRequestDetail] = useState<UsageEventRequestDetailResponse | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailErrorKey, setDetailErrorKey] = useState<string | null>(null);
   const requestDetailControllerRef = useRef<AbortController | null>(null);
 
-  const rows = useMemo<RequestEventRow[]>(() => {
+  const rows = useMemo<RequestEventTileRow[]>(() => {
     return events.map((event, index) => {
       const timestamp = event.timestamp;
       const timestampMs = Date.parse(timestamp);
@@ -420,9 +507,9 @@ export function RequestEventsDetailsCard({
     return () => requestDetailControllerRef.current?.abort();
   }, []);
 
-  const canOpenRequestDetail = (row: RequestEventRow): boolean => Boolean(row.usageEventID && row.requestID);
+  const canOpenRequestDetail = (row: RequestEventTileRow): boolean => Boolean(row.usageEventID && row.requestID);
 
-  const handleOpenRequestDetail = (row: RequestEventRow) => {
+  const handleOpenRequestDetail = (row: RequestEventTileRow) => {
     if (!canOpenRequestDetail(row)) return;
 
     requestDetailControllerRef.current?.abort();
@@ -447,14 +534,6 @@ export function RequestEventsDetailsCard({
           setDetailLoading(false);
         }
       });
-  };
-
-  const handleRequestRowKeyDown = (event: React.KeyboardEvent<HTMLTableRowElement>, row: RequestEventRow) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
-    if (!canOpenRequestDetail(row)) return;
-
-    event.preventDefault();
-    handleOpenRequestDetail(row);
   };
 
   const handleBackToRequestEvents = () => {
@@ -627,63 +706,16 @@ export function RequestEventsDetailsCard({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => {
-                  const canOpenDetail = canOpenRequestDetail(row);
-                  return (
-                    <tr
-                      key={row.id}
-                      className={canOpenDetail ? styles.requestEventsClickableRow : undefined}
-                      role={canOpenDetail ? 'button' : undefined}
-                      tabIndex={canOpenDetail ? 0 : undefined}
-                      aria-label={canOpenDetail ? t('usage_stats.request_events_view_detail', { requestId: row.requestID }) : undefined}
-                      onClick={canOpenDetail ? () => handleOpenRequestDetail(row) : undefined}
-                      onKeyDown={canOpenDetail ? (event) => handleRequestRowKeyDown(event, row) : undefined}
-                    >
-                    <td title={row.timestamp} className={styles.requestEventsTimestamp}>
-                      {row.timestampLabel}
-                    </td>
-                    <td className={styles.modelCell}>{row.model}</td>
-                    <td className={styles.requestEventsSourceCell} title={row.source}>
-                      <span className={styles.requestEventsSourceStack}>
-                        <span className={styles.requestEventsSourceValue}>{row.source}</span>
-                        {(row.isDelete || row.sourceType) && (
-                          <span className={styles.requestEventsSourceTags}>
-                            {row.sourceType && (
-                              <span className={styles.credentialType}>{row.sourceType}</span>
-                            )}
-                            {row.isDelete && (
-                              <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
-                            )}
-                          </span>
-                        )}
-                      </span>
-                    </td>
-                    <td>
-                      <span
-                        className={
-                          row.failed
-                            ? styles.requestEventsResultFailed
-                            : styles.requestEventsResultSuccess
-                        }
-                      >
-                        {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
-                      </span>
-                    </td>
-                    {hasLatencyData && (
-                      <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
-                    )}
-                    <td>{row.inputTokens.toLocaleString()}</td>
-                    <td>{row.outputTokens.toLocaleString()}</td>
-                    <td>{row.reasoningTokens.toLocaleString()}</td>
-                    <td>{row.cachedTokens.toLocaleString()}</td>
-                    <td>{row.cacheRate}</td>
-                    <td>{row.totalTokens.toLocaleString()}</td>
-                    <td title={row.hasPrice ? undefined : t('usage_stats.cost_need_price')}>
-                      {row.hasPrice ? formatUsd(row.cost) : '-'}
-                    </td>
-                    </tr>
-                  );
-                })}
+                {rows.map((row) => (
+                  <RequestEventTableRow
+                    key={row.id}
+                    row={row}
+                    canOpenDetail={canOpenRequestDetail(row)}
+                    showLatency={hasLatencyData}
+                    t={t}
+                    onOpenDetail={handleOpenRequestDetail}
+                  />
+                ))}
               </tbody>
             </table>
           </div>

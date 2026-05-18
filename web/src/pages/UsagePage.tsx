@@ -118,6 +118,9 @@ const REQUEST_EVENTS_PAGE_SIZES = [20, 50, 100, 500, 1000] as const;
 const REQUEST_EVENTS_DEFAULT_PAGE_SIZE = 100;
 const ALL_REQUEST_EVENTS_FILTER = '__all__';
 const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
+// 与 sticky toolbar 的 CSS top 保持一致，用于计算 header 被下一层 toolbar 顶出的距离。
+const STICKY_TOOLBAR_TOP_PX = 16;
+const STICKY_TOOLBAR_PUSH_GAP_PX = 18;
 
 export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
 
@@ -1200,6 +1203,47 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [status?.last_run_at]);
   // 只有需要时间范围的 tab 才渲染 Range 控件，避免 Credentials/Pricing 产生空白占位。
   const showRangeControls = shouldShowRangeControls(activeTab);
+  const topBarRef = useRef<HTMLElement | null>(null);
+  const toolbarRowRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let frame: number | null = null;
+
+    const updateTopBarPushOffset = () => {
+      frame = null;
+      const topBar = topBarRef.current;
+      const toolbar = toolbarRowRef.current;
+      if (!topBar || !toolbar) return;
+
+      const topBarHeight = topBar.offsetHeight;
+      const maxPushOffset = topBarHeight + STICKY_TOOLBAR_PUSH_GAP_PX;
+      const pushStartTop = STICKY_TOOLBAR_TOP_PX + maxPushOffset;
+      const toolbarTop = toolbar.getBoundingClientRect().top;
+      const pushOffset = Math.min(Math.max(pushStartTop - toolbarTop, 0), maxPushOffset);
+      const pushProgress = maxPushOffset > 0 ? pushOffset / maxPushOffset : 0;
+
+      topBar.style.setProperty('--top-bar-push-offset', `${pushOffset}px`);
+      topBar.style.setProperty('--top-bar-push-progress', String(pushProgress));
+    };
+
+    const requestUpdate = () => {
+      if (frame !== null) return;
+      frame = window.requestAnimationFrame(updateTopBarPushOffset);
+    };
+
+    requestUpdate();
+    window.addEventListener('scroll', requestUpdate, { passive: true });
+    window.addEventListener('resize', requestUpdate);
+
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      window.removeEventListener('scroll', requestUpdate);
+      window.removeEventListener('resize', requestUpdate);
+    };
+  }, [activeTab, showRangeControls, updateCheckNotice]);
+
   const {
     requestsSparkline,
     tokensSparkline,
@@ -1246,7 +1290,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   return (
     <div className={styles.pageShell}>
       <div className={styles.pageFrame}>
-        <header className={styles.topBar}>
+        <header ref={topBarRef} className={styles.topBar}>
           <div className={styles.brandBlock}>
             <span className={styles.eyebrow}>CPA Usage Keeper</span>
           </div>
@@ -1338,7 +1382,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            <div className={styles.toolbarRow}>
+            <div ref={toolbarRowRef} className={styles.toolbarRow}>
               <div className={styles.tabBar} role="tablist" aria-label={t('usage_stats.tabs_aria_label')}>
                 {tabOptions.map((option) => (
                   <button

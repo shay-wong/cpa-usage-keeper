@@ -36,7 +36,6 @@ export function useMonitoringCenterData({ range, start, end, filterError, enable
     const controller = new AbortController();
     controllerRef.current = controller;
 
-    setData(null);
     setLoading(true);
     setError('');
     try {
