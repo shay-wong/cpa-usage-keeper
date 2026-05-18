@@ -14,8 +14,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, updateCpaApiKeyAlias } from '@/lib/api';
-import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchDatabaseCleanupSettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from '@/lib/api';
+import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, DatabaseCleanupSettingsResponse, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
@@ -29,6 +29,7 @@ import {
   ChartLineSelector,
   AnalysisPanel,
   ApiKeySettingsCard,
+  DatabaseCleanupSettingsCard,
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
@@ -528,6 +529,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [apiKeySettingsError, setApiKeySettingsError] = useState('');
   const [apiKeySettingsSavingId, setApiKeySettingsSavingId] = useState<string | null>(null);
   const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
+  const [databaseCleanupSettings, setDatabaseCleanupSettings] = useState<DatabaseCleanupSettingsResponse | null>(null);
+  const [databaseCleanupSettingsLoading, setDatabaseCleanupSettingsLoading] = useState(false);
+  const [databaseCleanupSettingsSaving, setDatabaseCleanupSettingsSaving] = useState(false);
+  const [databaseCleanupSettingsError, setDatabaseCleanupSettingsError] = useState('');
+  const databaseCleanupSettingsRequestControllerRef = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
@@ -700,6 +706,53 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       setApiKeySettingsError(error instanceof Error ? error.message : 'Failed to update CPA API key alias');
     } finally {
       setApiKeySettingsSavingId(null);
+    }
+  }, [onAuthRequired]);
+
+  const loadDatabaseCleanupSettings = useCallback(async () => {
+    databaseCleanupSettingsRequestControllerRef.current?.abort();
+    const controller = new AbortController();
+    databaseCleanupSettingsRequestControllerRef.current = controller;
+
+    setDatabaseCleanupSettingsLoading(true);
+    setDatabaseCleanupSettingsError('');
+    try {
+      const response = await fetchDatabaseCleanupSettings(controller.signal);
+      if (databaseCleanupSettingsRequestControllerRef.current !== controller) {
+        return;
+      }
+      setDatabaseCleanupSettings(response);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setDatabaseCleanupSettingsError(error instanceof Error ? error.message : 'Failed to load database cleanup settings');
+    } finally {
+      if (databaseCleanupSettingsRequestControllerRef.current === controller) {
+        setDatabaseCleanupSettingsLoading(false);
+        databaseCleanupSettingsRequestControllerRef.current = null;
+      }
+    }
+  }, [onAuthRequired]);
+
+  const handleSaveDatabaseCleanupSettings = useCallback(async (settings: DatabaseCleanupSettingsResponse) => {
+    setDatabaseCleanupSettingsSaving(true);
+    setDatabaseCleanupSettingsError('');
+    try {
+      const updated = await updateDatabaseCleanupSettings(settings);
+      setDatabaseCleanupSettings(updated);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setDatabaseCleanupSettingsError(error instanceof Error ? error.message : 'Failed to update database cleanup settings');
+    } finally {
+      setDatabaseCleanupSettingsSaving(false);
     }
   }, [onAuthRequired]);
 
@@ -1038,11 +1091,11 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       return;
     }
     if (activeTab === 'settings') {
-      await Promise.all([loadApiKeySettings(), loadPricing()]);
+      await Promise.all([loadApiKeySettings(), loadDatabaseCleanupSettings(), loadPricing()]);
       return;
     }
     await loadUsage();
-  }, [activeTab, loadAnalysis, loadApiKeySettings, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials, refreshMonitoring]);
+  }, [activeTab, loadAnalysis, loadApiKeySettings, loadDatabaseCleanupSettings, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials, refreshMonitoring]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -1159,15 +1212,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (activeTab !== 'settings') {
       apiKeySettingsRequestControllerRef.current?.abort();
       apiKeySettingsRequestControllerRef.current = null;
+      databaseCleanupSettingsRequestControllerRef.current?.abort();
+      databaseCleanupSettingsRequestControllerRef.current = null;
       setApiKeySettingsLoading(false);
+      setDatabaseCleanupSettingsLoading(false);
       return;
     }
     void loadApiKeySettings();
+    void loadDatabaseCleanupSettings();
     return () => {
       apiKeySettingsRequestControllerRef.current?.abort();
       apiKeySettingsRequestControllerRef.current = null;
+      databaseCleanupSettingsRequestControllerRef.current?.abort();
+      databaseCleanupSettingsRequestControllerRef.current = null;
     };
-  }, [activeTab, loadApiKeySettings]);
+  }, [activeTab, loadApiKeySettings, loadDatabaseCleanupSettings]);
 
   useEffect(() => {
     const next = sanitizeRequestEventFilters(
@@ -1521,7 +1580,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
             {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
             {activeTab === 'settings' && apiKeySettingsError && <div className={styles.errorBox}>{apiKeySettingsError}</div>}
-            {!(activeTab === 'overview' ? error : activeTab === 'settings' ? (pricingError || apiKeySettingsError) : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
+            {activeTab === 'settings' && databaseCleanupSettingsError && <div className={styles.errorBox}>{databaseCleanupSettingsError}</div>}
+            {!(activeTab === 'overview' ? error : activeTab === 'settings' ? (pricingError || apiKeySettingsError || databaseCleanupSettingsError) : '') && statusError && <div className={styles.errorBox}>{statusError}</div>}
 
             {activeTab === 'overview' && (
               <>
@@ -1673,6 +1733,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
             {activeTab === 'settings' && (
               <div className={styles.settingsSections}>
+                <DatabaseCleanupSettingsCard
+                  settings={databaseCleanupSettings}
+                  loading={databaseCleanupSettingsLoading}
+                  saving={databaseCleanupSettingsSaving}
+                  onSave={handleSaveDatabaseCleanupSettings}
+                />
                 <ApiKeySettingsCard
                   apiKeys={apiKeySettings}
                   loading={apiKeySettingsLoading}

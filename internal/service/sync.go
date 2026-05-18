@@ -65,6 +65,7 @@ type SyncService struct {
 	requestLogFetcher            RequestLogFetcher
 	requestDetailPrefetchWG      sync.WaitGroup
 	requestDetailPrefetchWriteMu sync.Mutex
+	sqlitePath                   string
 	baseURL                      string
 	now                          func() time.Time
 }
@@ -87,6 +88,7 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 			TLSSkipVerify: cfg.TLSSkipVerify,
 		}),
 		RedisQueueKey: cfg.RedisQueueKey,
+		SQLitePath:    cfg.SQLitePath,
 	})
 }
 
@@ -98,6 +100,7 @@ type SyncServiceOptions struct {
 	RequestLogFetcher RequestLogFetcher
 	RedisQueue        RedisQueue
 	RedisQueueKey     string
+	SQLitePath        string
 	Now               func() time.Time
 }
 
@@ -124,6 +127,7 @@ func NewSyncServiceWithOptions(db *gorm.DB, opts SyncServiceOptions) *SyncServic
 		redisQueueKey:     redisQueueKey(opts.RedisQueueKey),
 		metadataFetcher:   metadataFetcher,
 		requestLogFetcher: requestLogFetcher,
+		sqlitePath:        strings.TrimSpace(opts.SQLitePath),
 		baseURL:           strings.TrimSpace(opts.BaseURL),
 		now:               now,
 	}
@@ -255,12 +259,19 @@ func (s *SyncService) WaitForRequestDetailPrefetch() {
 	s.requestDetailPrefetchWG.Wait()
 }
 
-// CleanupStorage 是每日 03:00 维护任务调用的统一入口：先清 Redis inbox，最后 VACUUM 收缩 SQLite。
+// CleanupStorage 是每日 03:00 维护任务调用的统一入口：读取数据库清理配置后执行缓存清理并收缩 SQLite。
 func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	if err := s.validate(syncMetadataOptional); err != nil {
 		return err
 	}
-	_, err := repository.CleanupStorage(s.db, s.now())
+	settings, err := repository.GetDatabaseCleanupSettings(s.db)
+	if err != nil {
+		return err
+	}
+	_, err = repository.CleanupStorageWithSettings(s.db, s.now(), dto.DatabaseCleanupSettingsInput{
+		RequestLogRetentionDays: settings.RequestLogRetentionDays,
+		MaxDatabaseSizeMB:       settings.MaxDatabaseSizeMB,
+	}, s.sqlitePath)
 	return err
 }
 

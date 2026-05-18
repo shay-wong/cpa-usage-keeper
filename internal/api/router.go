@@ -33,9 +33,10 @@ type QuotaProvider interface {
 }
 
 type OptionalProviders struct {
-	UsageIdentity service.UsageIdentityProvider
-	Quota         QuotaProvider
-	CPAAPIKeys    service.CPAAPIKeyProvider
+	UsageIdentity    service.UsageIdentityProvider
+	Quota            QuotaProvider
+	CPAAPIKeys       service.CPAAPIKeyProvider
+	DatabaseSettings service.DatabaseSettingsProvider
 }
 
 func NewRouter(
@@ -69,10 +70,12 @@ func NewRouter(
 	var usageIdentityProvider service.UsageIdentityProvider
 	var quotaProvider QuotaProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
+	var databaseSettingsProvider service.DatabaseSettingsProvider
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
+		databaseSettingsProvider = optionalProviders[0].DatabaseSettings
 	}
 
 	protected := apiV1.Group("")
@@ -86,6 +89,7 @@ func NewRouter(
 	registerUsageIdentityRoutes(protected, usageIdentityProvider)
 	registerCPAAPIKeyRoutes(protected, cpaAPIKeyProvider)
 	registerPricingRoutes(protected, pricingProvider)
+	registerSettingsRoutes(protected, databaseSettingsProvider)
 	registerQuotaRoutes(protected, quotaProvider)
 
 	if staticFS != nil {

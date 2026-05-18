@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestDetail, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, refreshUsageQuotas, updateCpaApiKeyAlias } from './api';
+import { fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchDatabaseCleanupSettings, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestDetail, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, refreshUsageQuotas, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -415,6 +415,36 @@ describe('fetchUsageEvents', () => {
     expect(response.quota?.id).toBe('auth-1');
     expect(parsed.pathname).toBe('/api/v1/quota/refresh/task-1');
     expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+
+  it('loads and updates database cleanup settings', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ request_log_retention_days: 30, max_database_size_mb: 512 }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ request_log_retention_days: 7, max_database_size_mb: 256 }),
+      } as Response);
+    const signal = new AbortController().signal;
+
+    const loaded = await fetchDatabaseCleanupSettings(signal);
+    const updated = await updateDatabaseCleanupSettings({ request_log_retention_days: 7, max_database_size_mb: 256 });
+
+    const [loadUrl, loadInit] = fetchMock.mock.calls[0];
+    const [updateUrl, updateInit] = fetchMock.mock.calls[1];
+
+    expect(loaded.max_database_size_mb).toBe(512);
+    expect(new URL(String(loadUrl), 'http://localhost').pathname).toBe('/api/v1/settings/database');
+    expect(loadInit).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(updated.request_log_retention_days).toBe(7);
+    expect(new URL(String(updateUrl), 'http://localhost').pathname).toBe('/api/v1/settings/database');
+    expect(updateInit).toMatchObject({ credentials: 'include', method: 'PUT' });
+    expect(updateInit?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(updateInit?.body).toBe(JSON.stringify({ request_log_retention_days: 7, max_database_size_mb: 256 }));
   });
 
   it('loads update check status from the protected endpoint', async () => {

@@ -1,3 +1,8 @@
+export interface DatabaseCleanupSettingsResponse {
+  request_log_retention_days: number
+  max_database_size_mb: number
+}
+
 export interface AuthSessionResponse {
   authenticated: boolean
 }
