@@ -1683,6 +1683,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 loading={monitoringLoading}
                 error={monitoringError}
                 lastUpdatedAt={lastSyncAt}
+                modelPrices={modelPrices}
               />
             )}
 

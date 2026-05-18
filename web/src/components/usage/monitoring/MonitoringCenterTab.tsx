@@ -38,7 +38,7 @@ import {
   type RequestEventTileRow,
 } from '../RequestEventsDetailsCard';
 import { useThemeStore } from '@/stores';
-import { formatCompactNumber, formatPerMinuteValue, formatUsd } from '@/utils/usage';
+import { calculateCost, formatCompactNumber, formatPerMinuteValue, formatUsd, type ModelPrice } from '@/utils/usage';
 import styles from './MonitoringCenterTab.module.scss';
 
 ChartJS.register(
@@ -61,6 +61,7 @@ interface MonitoringCenterTabProps {
   loading: boolean;
   error?: string;
   lastUpdatedAt?: Date | null;
+  modelPrices: Record<string, ModelPrice>;
 }
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -160,9 +161,33 @@ function requestLogPageSizeOptions(t: Translate): SelectOption[] {
   }));
 }
 
-function buildRequestEventTileRow(log: UsageMonitoringRequestLog): RequestEventTileRow {
-  const logLabel = resolveSourceLabel(log);
+function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: Record<string, ModelPrice>): RequestEventTileRow {
   const eventID = getRequestLogEventID(log);
+  const source = String(log.source ?? '').trim() || '-';
+  const sourceType = String(log.source_type ?? '').trim();
+  const inputTokens = Math.max(Number(log.tokens.input_tokens) || 0, 0);
+  const outputTokens = Math.max(Number(log.tokens.output_tokens) || 0, 0);
+  const reasoningTokens = Math.max(Number(log.tokens.reasoning_tokens) || 0, 0);
+  const cachedTokens = Math.max(Number(log.tokens.cached_tokens) || 0, 0);
+  const totalTokens = Math.max(Number(log.tokens.total_tokens) || 0, 0);
+  const pricing = modelPrices[log.model];
+  const cost = calculateCost({
+    timestamp: log.timestamp,
+    source,
+    source_raw: log.source_key || source,
+    source_type: sourceType,
+    auth_index: '-',
+    failed: log.failed,
+    latency_ms: Number.isFinite(log.latency_ms) ? log.latency_ms : 0,
+    tokens: {
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      reasoning_tokens: reasoningTokens,
+      cached_tokens: cachedTokens,
+      total_tokens: totalTokens,
+    },
+    __modelName: log.model,
+  }, modelPrices);
 
   return {
     id: eventID || `${log.timestamp}-${log.model}-${log.source}`,
@@ -172,22 +197,22 @@ function buildRequestEventTileRow(log: UsageMonitoringRequestLog): RequestEventT
     timestampMs: Date.parse(log.timestamp) || 0,
     timestampLabel: formatRequestEventTimestamp(log.timestamp),
     model: log.model || '-',
-    sourceRaw: log.source_key || log.source || '-',
-    source: logLabel.label,
-    sourceTitle: logLabel.title,
-    sourceType: logLabel.meta,
+    sourceRaw: log.source_key || source,
+    source,
+    sourceTitle: [source, sourceType].filter(Boolean).join(' · '),
+    sourceType,
     authIndex: '-',
     isDelete: false,
     failed: log.failed,
     latencyMs: Number.isFinite(log.latency_ms) ? log.latency_ms : null,
-    inputTokens: Math.max(Number(log.tokens.input_tokens) || 0, 0),
-    outputTokens: Math.max(Number(log.tokens.output_tokens) || 0, 0),
-    reasoningTokens: Math.max(Number(log.tokens.reasoning_tokens) || 0, 0),
-    cachedTokens: Math.max(Number(log.tokens.cached_tokens) || 0, 0),
-    totalTokens: Math.max(Number(log.tokens.total_tokens) || 0, 0),
-    cacheRate: formatCacheRateForSource(log.tokens.cached_tokens, log.tokens.input_tokens, log.source_type),
-    cost: 0,
-    hasPrice: false,
+    inputTokens,
+    outputTokens,
+    reasoningTokens,
+    cachedTokens,
+    totalTokens,
+    cacheRate: formatCacheRateForSource(cachedTokens, inputTokens, sourceType),
+    cost,
+    hasPrice: Boolean(pricing),
   };
 }
 
@@ -448,6 +473,7 @@ export function MonitoringCenterTab({
   loading,
   error,
   lastUpdatedAt,
+  modelPrices,
 }: MonitoringCenterTabProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'zh' ? 'zh-CN' : 'en-US';
@@ -1596,7 +1622,7 @@ export function MonitoringCenterTab({
                     </thead>
                     <tbody>
                       {pagedRequestLogs.map((log) => {
-                        const row = buildRequestEventTileRow(log);
+                        const row = buildRequestEventTileRow(log, modelPrices);
                         return (
                           <RequestEventTableRow
                             key={row.id}

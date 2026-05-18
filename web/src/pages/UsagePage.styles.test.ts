@@ -308,7 +308,6 @@ describe('UsagePage toolbar styles', () => {
 
   it('lets Monitoring recent request logs reuse the Request Events row order, container, and detail action', () => {
     expect(monitoringCenterSource).toContain('RequestEventTableRow')
-    expect(monitoringCenterSource).toContain('buildRequestEventTileRow(log)')
     expect(monitoringCenterSource).toContain('styles.requestLogTableWrapper')
     expect(monitoringCenterStyles).toMatch(/\.requestLogTableWrapper\s*\{[\s\S]*?border:\s*1px solid var\(--border-color\);/)
     expect(monitoringCenterStyles).toMatch(/\.requestLogTable\s*\{[\s\S]*?min-width:\s*0;/)
@@ -319,6 +318,10 @@ describe('UsagePage toolbar styles', () => {
     expect(requestLogTableSource.indexOf("usage_stats.request_events_source")).toBeLessThan(requestLogTableSource.indexOf("usage_stats.request_events_result"))
     expect(requestLogTableSource.indexOf("usage_stats.request_events_result")).toBeLessThan(requestLogTableSource.indexOf("usage_stats.time"))
     expect(requestLogTableSource.indexOf("usage_stats.total_tokens")).toBeLessThan(requestLogTableSource.indexOf("usage_stats.total_cost"))
+    expect(monitoringCenterSource).toContain('buildRequestEventTileRow(log, modelPrices)')
+    expect(monitoringCenterSource).toContain("const source = String(log.source ?? '').trim() || '-'")
+    expect(monitoringCenterSource).toContain('calculateCost({')
+    expect(monitoringCenterSource).toContain('hasPrice: Boolean(pricing)')
     expect(monitoringCenterSource).toContain('showCost\n                            t={t}')
     expect(monitoringCenterSource).toContain('fetchUsageEventRequestDetail(usageEventID, controller.signal)')
     expect(monitoringCenterSource).toContain('RequestDetailStructuredView')

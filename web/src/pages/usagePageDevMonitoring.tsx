@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 
 import { MonitoringCenterTab, useMonitoringCenterData } from '@/components/usage';
-import type { UsageTimeRange } from '@/utils/usage';
+import type { ModelPrice, UsageTimeRange } from '@/utils/usage';
 
 type MonitoringQueryState = {
   start?: string;
@@ -35,9 +35,10 @@ export const useDevMonitoringCenterData = ({
 
 type DevMonitoringCenterTabProps = Pick<DevMonitoringData, 'data' | 'loading' | 'error'> & {
   lastUpdatedAt: Date | null;
+  modelPrices: Record<string, ModelPrice>;
 };
 
-export function DevMonitoringCenterTab({ data, loading, error, lastUpdatedAt }: DevMonitoringCenterTabProps) {
+export function DevMonitoringCenterTab({ data, loading, error, lastUpdatedAt, modelPrices }: DevMonitoringCenterTabProps) {
   const { t } = useTranslation();
   return (
     <MonitoringCenterTab
@@ -45,6 +46,7 @@ export function DevMonitoringCenterTab({ data, loading, error, lastUpdatedAt }: 
       loading={loading}
       error={error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}
       lastUpdatedAt={lastUpdatedAt}
+      modelPrices={modelPrices}
     />
   );
 }
