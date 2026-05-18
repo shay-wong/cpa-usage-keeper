@@ -93,21 +93,14 @@ interface MonitoringSourceLike {
   source_type?: string;
 }
 
-function compactMaskedText(value: string | undefined): string {
-  if (!value) return '';
-  const collapsedStars = value.replace(/\*{4,}/g, '***');
-  if (collapsedStars.length <= 14) return collapsedStars;
-  return `${collapsedStars.slice(0, 4)}***${collapsedStars.slice(-4)}`;
-}
-
 function resolveSourceLabel(item: MonitoringSourceLike) {
-  const compactSource = compactMaskedText(item.source || '');
+  const source = String(item.source || '').trim();
   const sourceType = String(item.source_type || '').trim();
-  const shouldShowMeta = sourceType && sourceType.toLowerCase() !== compactSource.toLowerCase();
+  const shouldShowMeta = sourceType && sourceType.toLowerCase() !== source.toLowerCase();
   return {
-    label: compactSource || sourceType || '-',
+    label: source || sourceType || '-',
     meta: shouldShowMeta ? sourceType : '',
-    title: [item.source, sourceType].filter(Boolean).join(' · '),
+    title: [source, sourceType].filter(Boolean).join(' · '),
   };
 }
 

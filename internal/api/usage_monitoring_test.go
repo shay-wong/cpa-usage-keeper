@@ -253,7 +253,7 @@ func TestUsageMonitoringResolvesProviderByLookupKeyAndAuthIndex(t *testing.T) {
 			ID: 32, Timestamp: requestTime, Model: "codex-model", Source: "sk-other-key", AuthIndex: "codex-auth", Failed: false,
 		}},
 	}}
-	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 3, Name: "Codex Key", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "codex-auth", Type: "codex", Provider: "Codex", LookupKey: "sk-provider-key"}}}})
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 3, Name: "codex", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "codex-auth", Type: "codex", Provider: "codex", LookupKey: "sk-provider-key", BaseURL: "https://codex101.site/v1"}}}})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
 	resp := httptest.NewRecorder()
 
@@ -263,7 +263,7 @@ func TestUsageMonitoringResolvesProviderByLookupKeyAndAuthIndex(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"source":"Codex Key"`) || !contains(body, `"source_type":"codex"`) || !contains(body, `"source_key":"provider:3"`) {
+	if !contains(body, `"source":"codex(codex101.site)"`) || !contains(body, `"source_type":"codex"`) || !contains(body, `"source_key":"provider:3"`) {
 		t.Fatalf("expected codex provider resolution, got %s", body)
 	}
 	if contains(body, `"source":"openai"`) || contains(body, `"source_type":"openai"`) || contains(body, `"source_key":"provider:fallback:openai"`) {

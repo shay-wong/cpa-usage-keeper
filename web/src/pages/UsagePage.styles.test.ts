@@ -291,6 +291,8 @@ describe('UsagePage toolbar styles', () => {
     expect(monitoringCenterSource).toContain("import { Select, type SelectOption } from '@/components/ui/Select'")
     expect(monitoringCenterSource).toContain('className={styles.monitoringSelect}')
     expect(monitoringCenterSource).toContain("options={withAllOption(t('usage_stats.monitoring_all_sources'), requestLogSourceOptions)}")
+    expect(monitoringCenterSource).not.toContain('compactMaskedText')
+    expect(monitoringCenterSource).toContain("const source = String(item.source || '').trim()")
     expect(monitoringCenterStyles).toMatch(/\.monitoringSelect\s*\{[\s\S]*?border-radius:\s*999px;/)
     expect(monitoringCenterStyles).not.toContain('.filterSelect')
   })
