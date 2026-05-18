@@ -6,7 +6,13 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
 import { ApiError, fetchUsageEventRequestDetail } from '@/lib/api';
 import type { UsageEvent, UsageEventRequestDetailResponse, UsageSourceFilterOption } from '@/lib/types';
-import { buildRequestDetailViewModel, type RequestDetailHeaderPair, type RequestDetailViewModel } from './requestDetailViewModel';
+import { buildRequestDetailViewModel, type RequestDetailViewModel } from './requestDetailViewModel';
+import {
+  RequestDetailJsonBlock,
+  requestDetailBodyToJsonValue,
+  requestDetailHeadersToJsonValue,
+  type RequestDetailJsonLabels,
+} from './RequestDetailJsonViewer';
 import {
   calculateCacheRate,
   calculateCost,
@@ -106,43 +112,14 @@ export const getRequestDetailErrorKey = (error: unknown): string => {
   return 'usage_stats.request_events_detail_load_failed';
 };
 
-interface RequestDetailBodyBlockProps {
-  title: string;
-  value?: string;
-}
+type RequestDetailContentPage = 'parsed' | 'raw';
+type RequestDetailTrafficSide = 'request' | 'response';
 
-function RequestDetailBodyBlock({ title, value }: RequestDetailBodyBlockProps) {
-  if (!value) return null;
-  return (
-    <div className={styles.requestEventsDetailBodyBlock}>
-      <span>{title}</span>
-      <pre>{value}</pre>
-    </div>
-  );
+interface RequestDetailViewState {
+  requestId: string;
+  page: RequestDetailContentPage;
+  trafficSide: RequestDetailTrafficSide;
 }
-
-interface RequestDetailHeadersProps {
-  title: string;
-  headers: RequestDetailHeaderPair[];
-}
-
-function RequestDetailHeaders({ title, headers }: RequestDetailHeadersProps) {
-  if (headers.length === 0) return null;
-  return (
-    <div className={styles.requestEventsDetailHeadersBlock}>
-      <span>{title}</span>
-      <dl>
-        {headers.map((header, index) => (
-          <React.Fragment key={`${header.key}:${header.value}:${index}`}>
-            <dt>{header.key}</dt>
-            <dd>{header.value}</dd>
-          </React.Fragment>
-        ))}
-      </dl>
-    </div>
-  );
-}
-
 export interface RequestDetailStructuredViewProps {
   detail: UsageEventRequestDetailResponse;
   model: RequestDetailViewModel;
@@ -150,6 +127,16 @@ export interface RequestDetailStructuredViewProps {
 }
 
 export function RequestDetailStructuredView({ detail, model, t }: RequestDetailStructuredViewProps) {
+  const showStructuredSections = model.kind === 'json' || model.kind === 'http';
+  const defaultPage: RequestDetailContentPage = showStructuredSections ? 'parsed' : 'raw';
+  const [viewState, setViewState] = useState<RequestDetailViewState>(() => ({
+    requestId: detail.request_id,
+    page: defaultPage,
+    trafficSide: 'request',
+  }));
+  const isCurrentDetailViewState = viewState.requestId === detail.request_id;
+  const selectedPage = showStructuredSections && isCurrentDetailViewState ? viewState.page : defaultPage;
+  const activeTrafficSide = isCurrentDetailViewState ? viewState.trafficSide : 'request';
   const summaryItems = [
     { label: t('usage_stats.request_events_detail_method'), value: model.method },
     { label: t('usage_stats.request_events_detail_path'), value: model.path },
@@ -157,13 +144,42 @@ export function RequestDetailStructuredView({ detail, model, t }: RequestDetailS
     { label: t('usage_stats.request_events_detail_duration'), value: model.duration },
     { label: t('usage_stats.model_name'), value: model.model },
   ].filter((item) => item.value);
-  const showStructuredSections = model.kind === 'json' || model.kind === 'http';
+  const requestHeadersJson = useMemo(() => requestDetailHeadersToJsonValue(model.requestHeaders), [model.requestHeaders]);
+  const responseHeadersJson = useMemo(() => requestDetailHeadersToJsonValue(model.responseHeaders), [model.responseHeaders]);
+  const requestBodyJson = useMemo(() => requestDetailBodyToJsonValue(model.requestBody), [model.requestBody]);
+  const responseBodyJson = useMemo(() => requestDetailBodyToJsonValue(model.responseBody), [model.responseBody]);
+  const jsonLabels = useMemo<RequestDetailJsonLabels>(() => ({
+    collapseNode: t('usage_stats.request_events_detail_json_collapse_node'),
+    copiedNode: t('usage_stats.request_events_detail_json_copied_node'),
+    copyNode: t('usage_stats.request_events_detail_json_copy_node'),
+    expandNode: t('usage_stats.request_events_detail_json_expand_node'),
+    jsonString: t('usage_stats.request_events_detail_json_string'),
+    parseString: t('usage_stats.request_events_detail_json_parse_string'),
+    rawString: t('usage_stats.request_events_detail_json_raw_string'),
+  }), [t]);
+
+  const pageTabs: Array<{ id: RequestDetailContentPage; label: string }> = showStructuredSections
+    ? [
+        { id: 'parsed', label: t('usage_stats.request_events_detail_parsed_page') },
+        { id: 'raw', label: t('usage_stats.request_events_detail_raw_page') },
+      ]
+    : [{ id: 'raw', label: t('usage_stats.request_events_detail_raw_page') }];
+  const trafficTabs: Array<{ id: RequestDetailTrafficSide; label: string }> = [
+    { id: 'request', label: t('usage_stats.request_events_detail_request_section') },
+    { id: 'response', label: t('usage_stats.request_events_detail_response_section') },
+  ];
+  const activeTrafficBlocks = useMemo(() => (activeTrafficSide === 'request'
+    ? [
+        { title: t('usage_stats.request_events_detail_request_headers'), rootName: 'request_headers', value: requestHeadersJson },
+        { title: t('usage_stats.request_events_detail_request_body'), rootName: 'request_body', value: requestBodyJson },
+      ]
+    : [
+        { title: t('usage_stats.request_events_detail_response_headers'), rootName: 'response_headers', value: responseHeadersJson },
+        { title: t('usage_stats.request_events_detail_response_body'), rootName: 'response_body', value: responseBodyJson },
+      ]), [activeTrafficSide, requestBodyJson, requestHeadersJson, responseBodyJson, responseHeadersJson, t]);
 
   return (
     <div className={styles.requestEventsDetailContent}>
-      {model.kind === 'oversized' && (
-        <div className={styles.requestEventsDetailNotice}>{t('usage_stats.request_events_detail_parse_skipped')}</div>
-      )}
       {summaryItems.length > 0 && (
         <div className={styles.requestEventsDetailSummaryStrip}>
           {summaryItems.map((item) => (
@@ -174,24 +190,56 @@ export function RequestDetailStructuredView({ detail, model, t }: RequestDetailS
           ))}
         </div>
       )}
-      {showStructuredSections && (
-        <div className={styles.requestEventsDetailSectionGrid}>
-          <section className={styles.requestEventsDetailSection}>
-            <h5>{t('usage_stats.request_events_detail_request_section')}</h5>
-            <RequestDetailHeaders title={t('usage_stats.request_events_detail_headers')} headers={model.requestHeaders} />
-            <RequestDetailBodyBlock title={t('usage_stats.request_events_detail_body')} value={model.requestBody} />
-          </section>
-          <section className={styles.requestEventsDetailSection}>
-            <h5>{t('usage_stats.request_events_detail_response_section')}</h5>
-            <RequestDetailHeaders title={t('usage_stats.request_events_detail_headers')} headers={model.responseHeaders} />
-            <RequestDetailBodyBlock title={t('usage_stats.request_events_detail_body')} value={model.responseBody} />
-          </section>
-        </div>
+      <div className={styles.requestEventsDetailPageTabs} role="tablist" aria-label={t('usage_stats.request_events_detail_title')}>
+        {pageTabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={selectedPage === tab.id}
+            className={`${styles.requestEventsDetailPageTab} ${selectedPage === tab.id ? styles.requestEventsDetailPageTabActive : ''}`}
+            onClick={() => setViewState({ requestId: detail.request_id, page: tab.id, trafficSide: activeTrafficSide })}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {selectedPage === 'parsed' && showStructuredSections ? (
+        <section className={styles.requestEventsDetailSection} role="tabpanel">
+          <div className={styles.requestEventsDetailTrafficTabs} role="tablist" aria-label={t('usage_stats.request_events_detail_parsed_page')}>
+            {trafficTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTrafficSide === tab.id}
+                className={`${styles.requestEventsDetailTrafficTab} ${activeTrafficSide === tab.id ? styles.requestEventsDetailTrafficTabActive : ''}`}
+                onClick={() => setViewState({ requestId: detail.request_id, page: selectedPage, trafficSide: tab.id })}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          <div className={styles.requestEventsDetailJsonGrid}>
+            {activeTrafficBlocks.map((block) => (
+              <RequestDetailJsonBlock key={block.rootName} labels={jsonLabels} title={block.title} rootName={block.rootName} value={block.value} />
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className={styles.requestEventsDetailSection} role="tabpanel">
+          <h5>{t('usage_stats.request_events_detail_raw_log')}</h5>
+          <textarea
+            key={detail.request_id}
+            className={styles.requestEventsDetailRawLog}
+            aria-label={t('usage_stats.request_events_detail_raw_log')}
+            readOnly
+            spellCheck={false}
+            wrap="off"
+            defaultValue={detail.content}
+          />
+        </section>
       )}
-      <section className={styles.requestEventsDetailSection}>
-        <h5>{t('usage_stats.request_events_detail_raw_log')}</h5>
-        <pre className={styles.requestEventsDetailRawLog}>{detail.content}</pre>
-      </section>
     </div>
   );
 }

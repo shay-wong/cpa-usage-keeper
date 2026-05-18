@@ -1,7 +1,9 @@
 import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { RequestEventsDetailsCard } from './RequestEventsDetailsCard';
+import { RequestDetailStructuredView, RequestEventsDetailsCard } from './RequestEventsDetailsCard';
+import { requestDetailBodyToJsonValue } from './RequestDetailJsonViewer';
+import { buildRequestDetailViewModel } from './requestDetailViewModel';
 import type { UsageEvent } from '@/lib/types';
 
 const events: UsageEvent[] = [
@@ -215,6 +217,148 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).not.toContain('tabindex="0"');
     expect(html).not.toContain('View request detail');
     expect(html).not.toContain('_requestEventsClickableRow_');
+  });
+
+  it('separates parsed and raw JSON request detail pages', () => {
+    const content = JSON.stringify({
+      request: { method: 'POST', path: '/v1/messages' },
+      body: { model: 'claude-sonnet', messages: [{ role: 'user', content: 'hello' }] },
+    });
+    const model = buildRequestDetailViewModel(content);
+    const html = renderToStaticMarkup(
+      <RequestDetailStructuredView
+        detail={{ request_id: 'req-json', content, fetched_at: '2026-04-23T02:00:00.000Z', cached: true }}
+        model={model}
+        t={(key) => key}
+      />,
+    );
+
+    expect(html).toContain('_requestEventsDetailPageTabs_');
+    expect(html).toContain('_requestEventsDetailPageTabActive_');
+    expect(html).toContain('request_events_detail_parsed_page');
+    expect(html).toContain('request_events_detail_raw_page');
+    expect(html).toContain('_requestEventsDetailTrafficTabs_');
+    expect(html).toContain('request_events_detail_request_section');
+    expect(html).toContain('request_events_detail_response_section');
+    expect(html).toContain('request_events_detail_request_headers');
+    expect(html).toContain('request_events_detail_request_body');
+    expect(html).toContain('_requestEventsDetailJsonBlock_');
+    expect(html).toContain('_requestEventsDetailJsonExplorer_');
+    expect(html).toContain('_requestEventsDetailJsonViewer_');
+    expect(html).toContain('_requestEventsDetailJsonToggle_');
+    expect(html).toContain('_requestEventsDetailJsonBracket_');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('usage_stats.request_events_detail_json_copy_node');
+    expect(html).not.toContain('request_events_detail_raw_log');
+    expect(html).not.toContain('<details');
+    expect(html).not.toContain('{&quot;request&quot;:{&quot;method&quot;');
+  });
+
+  it('renders request headers and body through collapsible JSON viewers', () => {
+    const content = [
+      'POST /v1/messages HTTP/1.1',
+      'Content-Type: application/json',
+      'X-Model: claude-sonnet',
+      '',
+      JSON.stringify({ prompt: 'hello', stream: false }),
+      '',
+      'HTTP/1.1 200 OK',
+      'X-Request-ID: req-upstream',
+      '',
+      'plain response body',
+    ].join('\n');
+    const model = buildRequestDetailViewModel(content);
+    const html = renderToStaticMarkup(
+      <RequestDetailStructuredView
+        detail={{ request_id: 'req-log', content, fetched_at: '2026-04-23T02:00:00.000Z', cached: true }}
+        model={model}
+        t={(key) => key}
+      />,
+    );
+
+    expect(countOccurrences(html, '_requestEventsDetailJsonViewer_')).toBeGreaterThanOrEqual(2);
+    expect(html).toContain('request_headers');
+    expect(html).toContain('request_body');
+    expect(html).toContain('Content-Type');
+    expect(html).toContain('prompt');
+    expect(html).toContain('stream');
+    expect(html).toContain('request_events_detail_response_section');
+    expect(html).not.toContain('_requestEventsDetailLogSections_');
+    expect(html).not.toContain('POST /v1/messages HTTP/1.1');
+    expect(html).not.toContain('plain response body');
+  });
+
+  it('renders raw request details through a non-wrapping readonly textarea', () => {
+    const content = 'raw log line '.repeat(20);
+    const model = buildRequestDetailViewModel(content);
+    const html = renderToStaticMarkup(
+      <RequestDetailStructuredView
+        detail={{ request_id: 'req-raw', content, fetched_at: '2026-04-23T02:00:00.000Z', cached: true }}
+        model={model}
+        t={(key) => key}
+      />,
+    );
+
+    expect(html).toContain('<textarea');
+    expect(html).toContain('wrap="off"');
+    expect(html).toMatch(/<textarea[^>]*readonly/i);
+    expect(html).toContain('raw log line raw log line');
+    expect(html).not.toContain('<pre');
+  });
+
+  it('summarizes response event-stream data lines into human-readable JSON values', () => {
+    const value = requestDetailBodyToJsonValue([
+      'event: response.created',
+      'data: {"type":"response.created","response":{"id":"resp_1","object":"response","created_at":1779080877,"status":"in_progress","model":"gpt-4.1","instructions":"large system prompt","input":[{"role":"user","content":"hello"}]}}',
+      '',
+      'event: response.output_text.delta',
+      'data: {"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"hello world"}',
+      '',
+      'event: response.completed',
+      'data: {"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"tool_use","arguments":"large tool payload"}],"usage":{"input_tokens":1,"output_tokens":2}}}',
+    ].join('\n'));
+
+    expect(value).toEqual({
+      stream_type: 'event-stream',
+      event_count: 3,
+      output_text: 'hello world',
+      events: [
+        {
+          event: 'response.created',
+          data: {
+            type: 'response.created',
+            response: {
+              id: 'resp_1',
+              object: 'response',
+              status: 'in_progress',
+              model: 'gpt-4.1',
+              created_at: 1779080877,
+            },
+          },
+        },
+        {
+          event: 'response.output_text.delta',
+          data: { type: 'response.output_text.delta', output_index: 0, content_index: 0, delta: 'hello world' },
+        },
+        {
+          event: 'response.completed',
+          data: {
+            type: 'response.completed',
+            response: { id: 'resp_1', status: 'completed', usage: { input_tokens: 1, output_tokens: 2 } },
+          },
+        },
+      ],
+    });
+    expect(JSON.stringify(value)).not.toContain('large system prompt');
+    expect(JSON.stringify(value)).not.toContain('large tool payload');
+  });
+
+
+  it('keeps oversized JSON bodies as raw strings in the parsed viewer', () => {
+    const content = `{"payload":"${'x'.repeat(2 * 1024 * 1024 + 1)}"}`;
+    const value = requestDetailBodyToJsonValue(content);
+
+    expect(value).toBe(content);
   });
 
   it('shows per-event cost when model pricing exists', () => {
