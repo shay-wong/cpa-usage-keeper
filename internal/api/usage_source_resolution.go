@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/redact"
 )
 
@@ -66,8 +67,7 @@ type usageSourceResolution struct {
 func usageSourceResolutionFromIdentity(item entities.UsageIdentity, fallbackIdentity string) usageSourceResolution {
 	identityType := safeAIProviderDisplayValue(item.Type, fallbackIdentity, "")
 	displayName := firstNonEmptyString(
-		safeAIProviderDisplayValue(item.Name, fallbackIdentity, ""),
-		safeAIProviderDisplayValue(item.Provider, fallbackIdentity, ""),
+		safeAIProviderDisplayValue(helper.UsageIdentityDisplayName(item), fallbackIdentity, ""),
 		identityType,
 		redact.APIKeyDisplayName(fallbackIdentity),
 	)
