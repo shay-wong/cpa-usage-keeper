@@ -194,6 +194,10 @@ export interface UsageIdentity {
   identity: string
   type: string
   provider: string
+  prefix: string
+  priority?: number
+  disabled: boolean
+  note?: string
   plan_type?: string
   active_start?: string
   active_until?: string
@@ -328,6 +332,8 @@ export interface AnalysisResponse {
   token_usage: AnalysisTokenUsageBucket[]
   api_key_composition: AnalysisCompositionItem[]
   model_composition: AnalysisCompositionItem[]
+  auth_files_composition: AnalysisCompositionItem[]
+  ai_provider_composition: AnalysisCompositionItem[]
   heatmap: AnalysisHeatmapPayload
 }
 

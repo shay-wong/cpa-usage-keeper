@@ -157,6 +157,8 @@ export async function fetchUsageEvents(range: string, start?: string, end?: stri
 }
 
 
+export type UsageIdentityPageSort = 'priority' | 'total_requests' | 'total_tokens'
+
 export async function fetchUsageEventRequestDetail(eventId: string, signal?: AbortSignal): Promise<UsageEventRequestDetailResponse> {
   const response = await apiFetch(apiPath(`/usage/events/${encodeURIComponent(eventId)}/detail`), { signal })
   if (!response.ok) {
@@ -167,6 +169,8 @@ export async function fetchUsageEventRequestDetail(eventId: string, signal?: Abo
 
 export interface FetchUsageIdentitiesPageOptions {
   authType?: UsageIdentityAuthType
+  activeOnly?: boolean
+  sort?: UsageIdentityPageSort
   page?: number
   pageSize?: number
 }
@@ -184,6 +188,12 @@ export async function fetchUsageIdentitiesPage(signal?: AbortSignal, options?: F
   const params = new URLSearchParams()
   if (options?.authType) {
     params.set('auth_type', String(options.authType))
+  }
+  if (typeof options?.activeOnly === 'boolean') {
+    params.set('active_only', String(options.activeOnly))
+  }
+  if (options?.sort) {
+    params.set('sort', options.sort)
   }
   if (typeof options?.page === 'number' && Number.isFinite(options.page) && options.page > 0) {
     params.set('page', String(Math.floor(options.page)))

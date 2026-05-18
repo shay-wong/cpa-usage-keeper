@@ -645,6 +645,10 @@ func baseAuthFileUsageIdentity(file authfiles.AuthFile) entities.UsageIdentity {
 		Identity:     file.AuthIndex,
 		Type:         file.Type,
 		Provider:     file.Provider,
+		Prefix:       file.Prefix,
+		Priority:     file.Priority,
+		Disabled:     file.Disabled,
+		Note:         file.Note,
 	}
 }
 
@@ -738,6 +742,9 @@ func providerMetadataUsageIdentities(inputs []servicedto.ProviderMetadataInput) 
 			LookupKey:    input.LookupKey,
 			Prefix:       input.Prefix,
 			BaseURL:      input.BaseURL,
+			Priority:     input.Priority,
+			Disabled:     input.Disabled,
+			Note:         input.Note,
 		})
 	}
 	return identities
@@ -748,7 +755,7 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 	items := make([]servicedto.ProviderMetadataInput, 0)
 	seen := make(map[string]struct{})
 	// Provider metadata 只生成 auth-index 身份；prefix 作为同一身份的附加字段保存，不再生成独立行。
-	appendItem := func(lookupKey, prefix, providerType, displayName, authIndex, baseURL string) {
+	appendItem := func(lookupKey, prefix, providerType, displayName, authIndex, baseURL string, priority *int, disabled *bool, note *string) {
 		lookupKey = strings.TrimSpace(lookupKey)
 		prefix = strings.TrimSpace(prefix)
 		providerType = strings.TrimSpace(providerType)
@@ -769,12 +776,15 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 			DisplayName:  displayName,
 			AuthIndex:    authIndex,
 			BaseURL:      baseURL,
+			Priority:     priority,
+			Disabled:     disabled,
+			Note:         note,
 		})
 	}
 	appendProviderEntries := func(providerType string, configs []providerconfig.ProviderKeyConfig) {
 		for _, cfg := range configs {
 			displayName := firstNonEmpty(cfg.Name, providerType)
-			appendItem(cfg.APIKey, cfg.Prefix, providerType, displayName, cfg.AuthIndex, cfg.BaseURL)
+			appendItem(cfg.APIKey, cfg.Prefix, providerType, displayName, cfg.AuthIndex, cfg.BaseURL, cfg.Priority, cfg.Disabled, cfg.Note)
 		}
 	}
 
@@ -787,7 +797,7 @@ func flattenProviderMetadata(cfg providerconfig.ProviderMetadataConfig) []servic
 	for _, provider := range cfg.OpenAICompatibility {
 		displayName := firstNonEmpty(provider.Name, "openai")
 		for _, entry := range provider.APIKeyEntries {
-			appendItem(entry.APIKey, provider.Prefix, "openai", displayName, entry.AuthIndex, provider.BaseURL)
+			appendItem(entry.APIKey, provider.Prefix, "openai", displayName, entry.AuthIndex, provider.BaseURL, provider.Priority, provider.Disabled, provider.Note)
 		}
 	}
 

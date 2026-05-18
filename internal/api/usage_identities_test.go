@@ -59,6 +59,10 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		Identity:                   rawAuthFileIdentity,
 		Type:                       "auth-file",
 		Provider:                   "anthropic",
+		Prefix:                     "claude-team",
+		Priority:                   apiIntPtr(4),
+		Disabled:                   apiBoolPtr(true),
+		Note:                       apiStringPtr("desktop note"),
 		TotalRequests:              10,
 		SuccessCount:               8,
 		FailureCount:               2,
@@ -112,6 +116,10 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 		`"auth_type_name":"oauth"`,
 		`"type":"auth-file"`,
 		`"provider":"anthropic"`,
+		`"prefix":"claude-team"`,
+		`"priority":4`,
+		`"disabled":true`,
+		`"note":"desktop note"`,
 		`"total_requests":10`,
 		`"success_count":8`,
 		`"failure_count":2`,
@@ -165,7 +173,7 @@ func TestUsageIdentitiesRouteKeepsAuthFileIdentityForQuotaRefreshAndMasksDisplay
 	}
 }
 
-func TestUsageIdentitiesRouteDoesNotReturnUnpublishedMetadataFields(t *testing.T) {
+func TestUsageIdentitiesRouteReturnsPublishedMetadataFields(t *testing.T) {
 	activeStart := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
 	activeUntil := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	accountID := "acct_123"
@@ -181,6 +189,9 @@ func TestUsageIdentitiesRouteDoesNotReturnUnpublishedMetadataFields(t *testing.T
 		Provider:     "Codex",
 		Prefix:       "codex-prefix",
 		BaseURL:      baseURL,
+		Priority:     apiIntPtr(1),
+		Disabled:     nil,
+		Note:         apiStringPtr("codex note"),
 		AccountID:    &accountID,
 		ActiveStart:  &activeStart,
 		ActiveUntil:  &activeUntil,
@@ -199,13 +210,16 @@ func TestUsageIdentitiesRouteDoesNotReturnUnpublishedMetadataFields(t *testing.T
 		`"plan_type":"team"`,
 		`"active_start":"2026-05-01T00:00:00Z"`,
 		`"active_until":"2026-06-01T00:00:00Z"`,
+		`"prefix":"codex-prefix"`,
+		`"priority":1`,
+		`"disabled":false`,
+		`"note":"codex note"`,
 	} {
 		if !contains(body, expected) {
 			t.Fatalf("expected API response to include %s, got %s", expected, body)
 		}
 	}
 	for _, forbidden := range []string{
-		`"prefix"`,
 		`"base_url"`,
 		`"account_id"`,
 	} {
@@ -230,7 +244,7 @@ func TestUsageIdentitiesPageRouteFiltersByAuthTypeAndPaginates(t *testing.T) {
 			Provider:     "Codex",
 		}},
 	}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/page?auth_type=1&page=2&page_size=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/page?auth_type=1&page=2&page_size=10&active_only=true&sort=priority", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)
@@ -239,8 +253,8 @@ func TestUsageIdentitiesPageRouteFiltersByAuthTypeAndPaginates(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if captured.AuthType == nil || *captured.AuthType != entities.UsageIdentityAuthTypeAuthFile || captured.Page != 2 || captured.PageSize != 10 {
-		t.Fatalf("expected auth_type/page/page_size request, got %+v", captured)
+	if captured.AuthType == nil || *captured.AuthType != entities.UsageIdentityAuthTypeAuthFile || captured.Page != 2 || captured.PageSize != 10 || captured.ActiveOnly == nil || !*captured.ActiveOnly || captured.Sort != "priority" {
+		t.Fatalf("expected auth_type/page/page_size/active_only/sort request, got %+v", captured)
 	}
 	for _, expected := range []string{`"identities":[`, `"id":"11"`, `"total_count":25`, `"page":2`, `"page_size":10`, `"total_pages":3`} {
 		if !contains(body, expected) {
@@ -272,8 +286,8 @@ func TestUsageIdentitiesRouteReturnsProviderDisplayName(t *testing.T) {
 	if !contains(body, `"displayName":"Provider Name(Team Prefix)"`) {
 		t.Fatalf("expected displayName with name and prefix, got %s", body)
 	}
-	if contains(body, `"prefix"`) {
-		t.Fatalf("expected raw prefix field to stay unpublished, got %s", body)
+	if !contains(body, `"prefix":"Team Prefix"`) {
+		t.Fatalf("expected published prefix field, got %s", body)
 	}
 }
 
@@ -315,4 +329,16 @@ func TestUsageIdentityReplacesLegacyMetadataRoutes(t *testing.T) {
 			t.Fatalf("expected %s to return 404, got %d: %s", path, resp.Code, resp.Body.String())
 		}
 	}
+}
+
+func apiStringPtr(value string) *string {
+	return &value
+}
+
+func apiIntPtr(value int) *int {
+	return &value
+}
+
+func apiBoolPtr(value bool) *bool {
+	return &value
 }
