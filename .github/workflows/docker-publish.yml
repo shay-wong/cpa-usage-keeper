@@ -1,9 +1,19 @@
 name: Publish release Docker image
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      release_ref:
+        required: true
+        type: string
+      release_name:
+        required: true
+        type: string
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
 
 permissions:
   contents: read
@@ -13,8 +23,46 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+
+          release_tag="${INPUT_RELEASE_NAME:-$GITHUB_REF_NAME}"
+          release_ref="${INPUT_RELEASE_REF:-$GITHUB_REF}"
+          release_tag="${release_tag#refs/tags/}"
+
+          if [[ ! "$release_ref" =~ ^refs/tags/ ]]; then
+            release_ref="refs/tags/${release_tag}"
+          fi
+
+          if [[ ! "$release_tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-fork\.[0-9]+)?$ ]]; then
+            echo "Unsupported release tag: ${release_tag}" >&2
+            exit 1
+          fi
+
+          major="${BASH_REMATCH[1]}"
+          minor_number="${BASH_REMATCH[2]}"
+          patch="${BASH_REMATCH[3]}"
+          suffix="${BASH_REMATCH[4]}"
+          base="${major}.${minor_number}.${patch}"
+
+          {
+            echo "ref=${release_ref}"
+            echo "tag=${release_tag}"
+            echo "version=${base}${suffix}"
+            echo "base=${base}"
+            echo "minor=${major}.${minor_number}"
+            echo "major=${major}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -31,19 +79,20 @@ jobs:
             ${{ steps.repo.outputs.image }}
             shaywong/cpa-usage-keeper
           tags: |
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest
+            type=raw,value=${{ steps.release.outputs.tag }}
+            type=raw,value=${{ steps.release.outputs.version }}
+            type=raw,value=${{ steps.release.outputs.base }}
+            type=raw,value=${{ steps.release.outputs.minor }}
+            type=raw,value=${{ steps.release.outputs.major }}
             type=sha,prefix=sha-
-            type=ref,event=tag,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{version}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=semver,pattern={{major}},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v4
@@ -59,6 +108,6 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            VERSION=${{ github.ref_name }}
+            VERSION=${{ steps.release.outputs.tag }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

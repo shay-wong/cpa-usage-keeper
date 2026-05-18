@@ -1,6 +1,6 @@
 [Unit]
 Description=CPA Usage Keeper
-Documentation=https://github.com/Willxup/cpa-usage-keeper
+Documentation=https://github.com/shay-wong/cpa-usage-keeper
 Wants=network-online.target
 After=network-online.target
 

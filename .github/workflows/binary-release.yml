@@ -1,15 +1,53 @@
 name: Publish release binaries
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
+    inputs:
+      release_ref:
+        required: true
+        type: string
+      release_name:
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
+  resolve-release:
+    runs-on: ubuntu-24.04
+    outputs:
+      release_name: ${{ steps.release.outputs.release_name }}
+      release_ref: ${{ steps.release.outputs.release_ref }}
+    steps:
+      - name: Resolve release tag
+        id: release
+        env:
+          INPUT_RELEASE_NAME: ${{ inputs.release_name }}
+          INPUT_RELEASE_REF: ${{ inputs.release_ref }}
+        run: |
+          set -euo pipefail
+
+          release_name="${INPUT_RELEASE_NAME:-$GITHUB_REF_NAME}"
+          release_ref="${INPUT_RELEASE_REF:-$GITHUB_REF}"
+          release_name="${release_name#refs/tags/}"
+
+          if [[ ! "$release_ref" =~ ^refs/tags/ ]]; then
+            release_ref="refs/tags/${release_name}"
+          fi
+
+          if [[ ! "$release_name" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-fork\.[0-9]+)?$ ]]; then
+            echo "Unsupported release tag: ${release_name}" >&2
+            exit 1
+          fi
+
+          {
+            echo "release_name=${release_name}"
+            echo "release_ref=${release_ref}"
+          } >> "$GITHUB_OUTPUT"
+
   binary-release-linux:
+    needs: resolve-release
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -26,6 +64,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-release.outputs.release_ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -52,7 +92,7 @@ jobs:
 
       - name: Build binary package
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.resolve-release.outputs.release_name }}
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CC: ${{ matrix.cc }}
@@ -72,11 +112,12 @@ jobs:
       - name: Upload binary package artifact
         uses: actions/upload-artifact@v6
         with:
-          name: cpa-usage-keeper-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
-          path: dist/cpa-usage-keeper_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
+          name: cpa-usage-keeper-${{ needs.resolve-release.outputs.release_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
+          path: dist/cpa-usage-keeper_${{ needs.resolve-release.outputs.release_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
           if-no-files-found: error
 
   binary-release-darwin:
+    needs: resolve-release
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
@@ -93,6 +134,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-release.outputs.release_ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -116,7 +159,7 @@ jobs:
 
       - name: Build binary package
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.resolve-release.outputs.release_name }}
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           ASSET_ARCH: ${{ matrix.asset_arch }}
@@ -134,11 +177,12 @@ jobs:
       - name: Upload binary package artifact
         uses: actions/upload-artifact@v6
         with:
-          name: cpa-usage-keeper-${{ github.ref_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
-          path: dist/cpa-usage-keeper_${{ github.ref_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
+          name: cpa-usage-keeper-${{ needs.resolve-release.outputs.release_name }}-${{ matrix.goos }}-${{ matrix.asset_arch }}
+          path: dist/cpa-usage-keeper_${{ needs.resolve-release.outputs.release_name }}_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
           if-no-files-found: error
 
   binary-release-windows:
+    needs: resolve-release
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
@@ -159,6 +203,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve-release.outputs.release_ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -193,7 +239,7 @@ jobs:
       - name: Build binary package
         shell: msys2 {0}
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.resolve-release.outputs.release_name }}
           GOOS: windows
           GOARCH: ${{ matrix.goarch }}
           ASSET_ARCH: ${{ matrix.asset_arch }}
@@ -211,7 +257,7 @@ jobs:
       - name: Archive binary package
         shell: pwsh
         env:
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ needs.resolve-release.outputs.release_name }}
           ASSET_ARCH: ${{ matrix.asset_arch }}
         run: |
           $packageName = "cpa-usage-keeper_${env:VERSION}_windows_${env:ASSET_ARCH}"
@@ -220,13 +266,14 @@ jobs:
       - name: Upload binary package artifact
         uses: actions/upload-artifact@v6
         with:
-          name: cpa-usage-keeper-${{ github.ref_name }}-windows-${{ matrix.asset_arch }}
-          path: dist/cpa-usage-keeper_${{ github.ref_name }}_windows_${{ matrix.asset_arch }}.zip
+          name: cpa-usage-keeper-${{ needs.resolve-release.outputs.release_name }}-windows-${{ matrix.asset_arch }}
+          path: dist/cpa-usage-keeper_${{ needs.resolve-release.outputs.release_name }}_windows_${{ matrix.asset_arch }}.zip
           if-no-files-found: error
 
   publish-release:
     runs-on: ubuntu-24.04
     needs:
+      - resolve-release
       - binary-release-linux
       - binary-release-darwin
       - binary-release-windows
@@ -241,11 +288,12 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum ./*.tar.gz ./*.zip > checksums.txt
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ needs.resolve-release.outputs.release_name }}
           files: |
             dist/*.tar.gz
             dist/*.zip

@@ -147,11 +147,43 @@ npm --prefix ./web run typecheck
 npm --prefix ./web run build
 ```
 
+## 版本与镜像标签
+
+本 fork 的发布由 `stable` 分支自动生成。每次 `stable` 更新时，会基于 upstream 最新稳定版本创建 fork 版本 tag：
+
+```text
+v1.8.0-fork.1
+v1.8.0-fork.2
+v1.8.1-fork.1
+```
+
+Docker 镜像会同时发布到 GHCR 和 Docker Hub：
+
+```text
+ghcr.io/shay-wong/cpa-usage-keeper
+docker.io/shaywong/cpa-usage-keeper
+```
+
+常用镜像标签：
+
+| 标签 | 含义 |
+| --- | --- |
+| `latest` | 最新 fork 发布版 |
+| `v1.8.0-fork.1` | 精确 Git release tag 对应版本 |
+| `1.8.0-fork.1` | 不带 `v` 的精确 fork 版本 |
+| `1.8.0` | 基于 upstream `1.8.0` 的最新 fork 发布版 |
+| `1.8` | 基于 upstream `1.8.x` 的最新 fork 发布版 |
+| `1` | 基于 upstream `1.x` 的最新 fork 发布版 |
+| `dev` | `dev` 分支最新开发版，不建议生产使用 |
+| `sha-xxxxxxx` | 固定 commit 构建，适合复现和回滚 |
+
+需要稳定部署时，建议使用 `1.8.0`、`1.8` 或精确的 `v1.8.0-fork.1`；如果希望始终跟随本 fork 最新发布版，可以使用 `latest`。
+
 ## Linux 二进制运行
 
 ### 下载
 
-在 [Releases](https://github.com/Willxup/cpa-usage-keeper/releases/latest) 下载对应架构的 Linux 二进制包，或使用命令行下载：
+在 [Releases](https://github.com/shay-wong/cpa-usage-keeper/releases/latest) 下载对应架构的 Linux 二进制包，或使用命令行下载：
 
 ```bash
 curl -L -o cpa-usage-keeper.tar.gz "<替换为 Linux 二进制包下载地址>"
@@ -215,7 +247,7 @@ docker run -d \
   -e REDIS_QUEUE_ADDR=host.docker.internal:8317 \
   -e AUTH_ENABLED=true \
   -e LOGIN_PASSWORD=replace-with-your-login-password \
-  ghcr.io/willxup/cpa-usage-keeper:latest
+  ghcr.io/shay-wong/cpa-usage-keeper:latest
 ```
 
 `/data` 用于保存 SQLite 数据库、备份文件和日志文件，请挂载到持久化目录。
@@ -241,7 +273,7 @@ services:
       - cpa-network
 
   cpa-usage-keeper:
-    image: ghcr.io/willxup/cpa-usage-keeper:latest
+    image: ghcr.io/shay-wong/cpa-usage-keeper:latest
     container_name: cpa-usage-keeper
     restart: unless-stopped
     depends_on:

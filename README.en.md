@@ -147,11 +147,43 @@ npm --prefix ./web run typecheck
 npm --prefix ./web run build
 ```
 
+## Versions and image tags
+
+This fork publishes releases from the `stable` branch automatically. Each `stable` update creates a fork release tag based on the latest stable upstream version:
+
+```text
+v1.8.0-fork.1
+v1.8.0-fork.2
+v1.8.1-fork.1
+```
+
+Docker images are published to both GHCR and Docker Hub:
+
+```text
+ghcr.io/shay-wong/cpa-usage-keeper
+docker.io/shaywong/cpa-usage-keeper
+```
+
+Common image tags:
+
+| Tag | Meaning |
+| --- | --- |
+| `latest` | Latest fork release |
+| `v1.8.0-fork.1` | Exact Git release tag |
+| `1.8.0-fork.1` | Exact fork version without the `v` prefix |
+| `1.8.0` | Latest fork release based on upstream `1.8.0` |
+| `1.8` | Latest fork release based on upstream `1.8.x` |
+| `1` | Latest fork release based on upstream `1.x` |
+| `dev` | Latest development build from the `dev` branch; not recommended for production |
+| `sha-xxxxxxx` | Fixed commit build for reproduction and rollback |
+
+For stable deployments, prefer `1.8.0`, `1.8`, or an exact tag such as `v1.8.0-fork.1`. Use `latest` only when you want to follow the newest fork release automatically.
+
 ## Linux Binary Service
 
 ### Download
 
-Download the Linux binary package for your architecture from [Releases](https://github.com/Willxup/cpa-usage-keeper/releases/latest), or use the command line:
+Download the Linux binary package for your architecture from [Releases](https://github.com/shay-wong/cpa-usage-keeper/releases/latest), or use the command line:
 
 ```bash
 curl -L -o cpa-usage-keeper.tar.gz "<replace-with-linux-binary-download-url>"
@@ -215,7 +247,7 @@ docker run -d \
   -e REDIS_QUEUE_ADDR=host.docker.internal:8317 \
   -e AUTH_ENABLED=true \
   -e LOGIN_PASSWORD=replace-with-your-login-password \
-  ghcr.io/willxup/cpa-usage-keeper:latest
+  ghcr.io/shay-wong/cpa-usage-keeper:latest
 ```
 
 `/data` stores the SQLite database, backups, and log files. Mount it to persistent storage.
@@ -241,7 +273,7 @@ services:
       - cpa-network
 
   cpa-usage-keeper:
-    image: ghcr.io/willxup/cpa-usage-keeper:latest
+    image: ghcr.io/shay-wong/cpa-usage-keeper:latest
     container_name: cpa-usage-keeper
     restart: unless-stopped
     depends_on:
