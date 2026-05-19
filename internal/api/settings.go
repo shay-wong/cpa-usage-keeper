@@ -10,8 +10,9 @@ import (
 )
 
 type databaseCleanupSettingsResponse struct {
-	RequestLogRetentionDays int `json:"request_log_retention_days"`
-	MaxDatabaseSizeMB       int `json:"max_database_size_mb"`
+	RequestLogRetentionDays  int    `json:"request_log_retention_days"`
+	MaxDatabaseSizeMB        int    `json:"max_database_size_mb"`
+	CurrentDatabaseSizeBytes *int64 `json:"current_database_size_bytes,omitempty"`
 }
 
 type updateDatabaseCleanupSettingsRequest struct {
@@ -25,14 +26,15 @@ func registerSettingsRoutes(router gin.IRoutes, provider service.DatabaseSetting
 			c.JSON(http.StatusOK, databaseCleanupSettingsResponse{})
 			return
 		}
-		settings, err := provider.GetDatabaseCleanupSettings(c.Request.Context())
+		snapshot, err := provider.GetDatabaseCleanupSettings(c.Request.Context())
 		if err != nil {
 			writeInternalError(c, "get database cleanup settings failed", err)
 			return
 		}
 		c.JSON(http.StatusOK, databaseCleanupSettingsResponse{
-			RequestLogRetentionDays: settings.RequestLogRetentionDays,
-			MaxDatabaseSizeMB:       settings.MaxDatabaseSizeMB,
+			RequestLogRetentionDays:  snapshot.Settings.RequestLogRetentionDays,
+			MaxDatabaseSizeMB:        snapshot.Settings.MaxDatabaseSizeMB,
+			CurrentDatabaseSizeBytes: snapshot.CurrentDatabaseSizeBytes,
 		})
 	})
 
@@ -50,7 +52,7 @@ func registerSettingsRoutes(router gin.IRoutes, provider service.DatabaseSetting
 			c.JSON(http.StatusBadRequest, gin.H{"error": "database cleanup settings must be non-negative"})
 			return
 		}
-		settings, err := provider.UpdateDatabaseCleanupSettings(c.Request.Context(), servicedto.UpdateDatabaseCleanupSettingsInput{
+		snapshot, err := provider.UpdateDatabaseCleanupSettings(c.Request.Context(), servicedto.UpdateDatabaseCleanupSettingsInput{
 			RequestLogRetentionDays: request.RequestLogRetentionDays,
 			MaxDatabaseSizeMB:       request.MaxDatabaseSizeMB,
 		})
@@ -63,8 +65,9 @@ func registerSettingsRoutes(router gin.IRoutes, provider service.DatabaseSetting
 			return
 		}
 		c.JSON(http.StatusOK, databaseCleanupSettingsResponse{
-			RequestLogRetentionDays: settings.RequestLogRetentionDays,
-			MaxDatabaseSizeMB:       settings.MaxDatabaseSizeMB,
+			RequestLogRetentionDays:  snapshot.Settings.RequestLogRetentionDays,
+			MaxDatabaseSizeMB:        snapshot.Settings.MaxDatabaseSizeMB,
+			CurrentDatabaseSizeBytes: snapshot.CurrentDatabaseSizeBytes,
 		})
 	})
 }

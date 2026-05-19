@@ -479,11 +479,11 @@ describe('fetchUsageEvents', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ request_log_retention_days: 30, max_database_size_mb: 512 }),
+        json: async () => ({ request_log_retention_days: 30, max_database_size_mb: 512, current_database_size_bytes: 3145728 }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ request_log_retention_days: 7, max_database_size_mb: 256 }),
+        json: async () => ({ request_log_retention_days: 7, max_database_size_mb: 256, current_database_size_bytes: 3145728 }),
       } as Response);
     const signal = new AbortController().signal;
 
@@ -494,6 +494,7 @@ describe('fetchUsageEvents', () => {
     const [updateUrl, updateInit] = fetchMock.mock.calls[1];
 
     expect(loaded.max_database_size_mb).toBe(512);
+    expect(loaded.current_database_size_bytes).toBe(3145728);
     expect(new URL(String(loadUrl), 'http://localhost').pathname).toBe('/api/v1/settings/database');
     expect(loadInit).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
     expect(updated.request_log_retention_days).toBe(7);

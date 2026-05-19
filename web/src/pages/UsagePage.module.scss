@@ -1775,6 +1775,14 @@
   }
 }
 
+.databaseCleanupSettingsValue {
+  padding-left: 10px;
+  color: var(--text-primary);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
 .databaseCleanupSettingsActions {
   display: flex;
   justify-content: flex-end;

@@ -109,7 +109,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	usageService := service.NewUsageServiceWithRequestLogFetcher(db, cpaClient)
 	usageIdentityService := service.NewUsageIdentityService(db)
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
-	databaseSettingsService := service.NewDatabaseSettingsService(db)
+	databaseSettingsService := service.NewDatabaseSettingsService(db, cfg.SQLitePath)
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}

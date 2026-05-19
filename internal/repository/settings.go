@@ -120,6 +120,11 @@ func cleanupUsageRequestDetailsByDatabaseSize(db *gorm.DB, maxDatabaseSizeMB int
 	}
 }
 
+// GetSQLiteDatabaseSizeBytes 返回当前 SQLite 文件大小；内存库或无路径时 ok=false。
+func GetSQLiteDatabaseSizeBytes(sqlitePath string) (int64, bool, error) {
+	return sqliteDatabaseSizeBytes(sqlitePath)
+}
+
 func usageRequestDetailCleanupBatchSize(db *gorm.DB) (int, error) {
 	var total int64
 	if err := db.Model(&entities.UsageRequestDetail{}).Count(&total).Error; err != nil {

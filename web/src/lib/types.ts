@@ -1,6 +1,12 @@
 export interface DatabaseCleanupSettingsResponse {
   request_log_retention_days: number
   max_database_size_mb: number
+  current_database_size_bytes?: number
+}
+
+export interface UpdateDatabaseCleanupSettingsRequest {
+  request_log_retention_days: number
+  max_database_size_mb: number
 }
 
 export type AuthRole = 'admin' | 'api_key_viewer'

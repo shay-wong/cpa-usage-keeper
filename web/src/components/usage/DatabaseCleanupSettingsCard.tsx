@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import type { DatabaseCleanupSettingsResponse } from '@/lib/types';
+import type { DatabaseCleanupSettingsResponse, UpdateDatabaseCleanupSettingsRequest } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
 interface DatabaseCleanupSettingsTitleProps {
@@ -26,7 +26,7 @@ export interface DatabaseCleanupSettingsCardProps {
   settings: DatabaseCleanupSettingsResponse | null;
   loading?: boolean;
   saving?: boolean;
-  onSave: (settings: DatabaseCleanupSettingsResponse) => void | Promise<void>;
+  onSave: (settings: UpdateDatabaseCleanupSettingsRequest) => void | Promise<void>;
 }
 
 const toDraftValue = (value: number | undefined): string => String(Math.max(0, Math.floor(value ?? 0)));
@@ -36,9 +36,18 @@ const parseNonNegativeInteger = (value: string): number | null => {
   return Math.floor(parsed);
 };
 
+function formatDatabaseSize(bytes: number | undefined): string {
+  if (!Number.isFinite(bytes) || (bytes ?? 0) < 0) return '-';
+  const value = bytes ?? 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 export function DatabaseCleanupSettingsCard({ settings, loading = false, saving = false, onSave }: DatabaseCleanupSettingsCardProps) {
   const { t } = useTranslation();
-  const formKey = `${settings?.request_log_retention_days ?? 0}:${settings?.max_database_size_mb ?? 0}`;
+  const formKey = `${settings?.request_log_retention_days ?? 0}:${settings?.max_database_size_mb ?? 0}:${settings?.current_database_size_bytes ?? 0}`;
 
   return (
     <Card
@@ -65,7 +74,7 @@ export function DatabaseCleanupSettingsCard({ settings, loading = false, saving 
 interface DatabaseCleanupSettingsFormProps {
   settings: DatabaseCleanupSettingsResponse | null;
   saving: boolean;
-  onSave: (settings: DatabaseCleanupSettingsResponse) => void | Promise<void>;
+  onSave: (settings: UpdateDatabaseCleanupSettingsRequest) => void | Promise<void>;
 }
 
 function DatabaseCleanupSettingsForm({ settings, saving, onSave }: DatabaseCleanupSettingsFormProps) {
@@ -90,6 +99,11 @@ function DatabaseCleanupSettingsForm({ settings, saving, onSave }: DatabaseClean
 
   return (
     <>
+      <div className={styles.databaseCleanupSettingsField}>
+        <span>{t('usage_stats.database_cleanup_current_size_label')}</span>
+        <strong className={styles.databaseCleanupSettingsValue}>{formatDatabaseSize(settings?.current_database_size_bytes)}</strong>
+        <small>{t('usage_stats.database_cleanup_current_size_hint')}</small>
+      </div>
       <div className={styles.databaseCleanupSettingsGrid}>
         <label className={styles.databaseCleanupSettingsField}>
           <span>{t('usage_stats.database_cleanup_retention_days')}</span>
@@ -102,7 +116,7 @@ function DatabaseCleanupSettingsForm({ settings, saving, onSave }: DatabaseClean
             className={styles.usagePillControl}
             disabled={saving}
           />
-          <small>{t('usage_stats.database_cleanup_disabled_hint')}</small>
+          <small>{t('usage_stats.database_cleanup_retention_hint')}</small>
         </label>
         <label className={styles.databaseCleanupSettingsField}>
           <span>{t('usage_stats.database_cleanup_max_size_mb')}</span>

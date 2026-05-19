@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type DatabaseCleanupSettingsResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventRequestDetailResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse } from './types'
+import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type DatabaseCleanupSettingsResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventRequestDetailResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UpdateDatabaseCleanupSettingsRequest } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -368,7 +368,7 @@ export async function fetchDatabaseCleanupSettings(signal?: AbortSignal): Promis
   return response.json()
 }
 
-export async function updateDatabaseCleanupSettings(settings: DatabaseCleanupSettingsResponse): Promise<DatabaseCleanupSettingsResponse> {
+export async function updateDatabaseCleanupSettings(settings: UpdateDatabaseCleanupSettingsRequest): Promise<DatabaseCleanupSettingsResponse> {
   const response = await apiFetch(apiPath('/settings/database'), {
     method: 'PUT',
     headers: {
