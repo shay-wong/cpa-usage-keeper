@@ -365,7 +365,7 @@ func TestUsageEventsDoesNotMarkRowDeletedWhenAuthIndexMatchesIdentity(t *testing
 	}
 }
 
-func TestUsageEventsRedactsMissingOAuthIdentitySource(t *testing.T) {
+func TestUsageEventsShowsMissingOAuthIdentityEmailSource(t *testing.T) {
 	rawEmail := "user@example.com"
 	rawAuthIndex := "auth-secret"
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
@@ -386,8 +386,11 @@ func TestUsageEventsRedactsMissingOAuthIdentitySource(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if contains(body, rawEmail) || contains(body, rawAuthIndex) || contains(body, `"auth_index"`) {
-		t.Fatalf("expected missing oauth identity source data to be redacted, got %s", body)
+	if !contains(body, `"source":"user@example.com"`) {
+		t.Fatalf("expected missing oauth identity email source to stay unmasked, got %s", body)
+	}
+	if contains(body, rawAuthIndex) || contains(body, `"auth_index"`) {
+		t.Fatalf("expected auth index data to stay hidden, got %s", body)
 	}
 }
 

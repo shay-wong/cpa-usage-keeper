@@ -129,9 +129,8 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 		return usageSourceResolution{DisplayName: "-", SourceKey: "raw:-"}
 	}
 	if looksLikeEmail(normalizedSource) {
-		masked := redact.APIKeyDisplayName(normalizedSource)
 		return usageSourceResolution{
-			DisplayName: masked,
+			DisplayName: normalizedSource,
 			SourceKey:   "email:" + redact.APIAlias(normalizedSource),
 		}
 	}
