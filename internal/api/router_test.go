@@ -301,6 +301,19 @@ func contains(s, sub string) bool {
 	return len(sub) == 0 || (len(s) >= len(sub) && (func() bool { return stringContains(s, sub) })())
 }
 
+func countSubstring(s, sub string) int {
+	if len(sub) == 0 {
+		return 0
+	}
+	count := 0
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			count++
+		}
+	}
+	return count
+}
+
 func stringContains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
 		if s[i:i+len(sub)] == sub {

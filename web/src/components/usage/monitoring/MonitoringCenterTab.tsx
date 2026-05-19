@@ -79,7 +79,8 @@ const HOURLY_WINDOW_OPTIONS: ReadonlyArray<{ value: HourlyWindowMode; labelKey: 
 
 const CHART_GRID_COLOR = 'rgba(148, 163, 184, 0.14)';
 const CHART_GRID_COLOR_STRONG = 'rgba(148, 163, 184, 0.18)';
-const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+// 最近请求日志分页选项最大 1000 条，对齐单次日志加载上限。
+const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 500, 1000] as const;
 const REQUEST_STATUS_BUCKET_COUNT = 16;
 const REQUEST_STATUS_SINGLE_BUCKET_MS = 60_000;
 
@@ -1501,7 +1502,7 @@ export function MonitoringCenterTab({
                     </thead>
                     <tbody>
                       {failureAnalysis.map((failure) => {
-                        const visibleModels = failure.models.slice(0, 2);
+                        const visibleModels = failure.models;
                         const failureLabel = resolveSourceLabel(failure);
                         return (
                           <tr key={failure.source_key || failure.source}>
@@ -1518,7 +1519,7 @@ export function MonitoringCenterTab({
                             <td>
                               <div className={styles.modelTagList}>
                                 {visibleModels.map((model) => {
-                                  const label = `${t('usage_stats.requests_count')}: ${formatCompactNumber(model.failure)}`;
+                                  const label = `${t('usage_stats.failure_count')}: ${formatCompactNumber(model.failure)}`;
                                   return (
                                     <span className={styles.modelTooltipItem} key={`${failure.source}-${model.model}`}>
                                       <button className={styles.modelTooltipButton} type="button" title={label} aria-label={label}>

@@ -15,6 +15,9 @@ interface MonitoringCenterState {
   refresh: () => Promise<void>;
 }
 
+// 最近请求日志最多一次加载 1000 条，对齐页面最大分页条数。
+const MONITORING_REQUEST_LOG_LIMIT = 1000;
+
 export function useMonitoringCenterData({ range, start, end, filterError, enabled, onAuthRequired }: UseMonitoringCenterDataOptions): MonitoringCenterState {
   const [data, setData] = useState<MonitoringCenterViewModel | null>(null);
   const [loading, setLoading] = useState(false);
@@ -39,7 +42,7 @@ export function useMonitoringCenterData({ range, start, end, filterError, enable
     setLoading(true);
     setError('');
     try {
-      const response = await fetchUsageMonitoring(range, start, end, controller.signal);
+      const response = await fetchUsageMonitoring(range, start, end, controller.signal, MONITORING_REQUEST_LOG_LIMIT);
       if (controllerRef.current !== controller) return;
       setData(response);
     } catch (err: unknown) {

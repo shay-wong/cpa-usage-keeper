@@ -308,6 +308,21 @@ describe('UsagePage toolbar styles', () => {
     expect(refreshStartBlock).not.toContain('setData(null)')
   })
 
+  it('loads enough Monitoring request logs to support the 1000 rows page-size option', () => {
+    const monitoringDataHookSource = readFileSync(new URL('../components/usage/monitoring/useMonitoringCenterData.ts', import.meta.url), 'utf8')
+
+    expect(monitoringCenterSource).toContain('const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 500, 1000] as const')
+    expect(monitoringDataHookSource).toContain('const MONITORING_REQUEST_LOG_LIMIT = 1000')
+    expect(monitoringDataHookSource).toContain('fetchUsageMonitoring(range, start, end, controller.signal, MONITORING_REQUEST_LOG_LIMIT)')
+  })
+
+  it('shows Monitoring failure model counts with failure semantics', () => {
+    expect(monitoringCenterSource).toContain('const visibleModels = failure.models')
+    expect(monitoringCenterSource).not.toContain('failure.models.slice(0, 2)')
+    expect(monitoringCenterSource).toContain("t('usage_stats.failure_count')")
+    expect(monitoringCenterSource).not.toContain("`${t('usage_stats.requests_count')}: ${formatCompactNumber(model.failure)}`")
+  })
+
   it('lets Monitoring recent request logs reuse the Request Events row order, container, and detail action', () => {
     expect(monitoringCenterSource).toContain('RequestEventTableRow')
     expect(monitoringCenterSource).toContain('styles.requestLogTableWrapper')

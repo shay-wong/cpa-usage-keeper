@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,13 @@ import (
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"github.com/gin-gonic/gin"
+)
+
+const (
+	// 监控中心聚合后的最近状态最多展示 12 条，避免合并多来源后 tooltip 被旧数据撑大。
+	usageMonitoringRecentRequestPayloadLimit = 12
+	// 监控中心聚合后的模型明细最多展示 10 个，保持列表可读。
+	usageMonitoringPayloadTopListLimit = 10
 )
 
 type usageMonitoringResponse struct {
@@ -343,66 +351,195 @@ func buildUsageMonitoringChannelStatsPayload(rows []service.UsageMonitoringChann
 	if len(rows) == 0 {
 		return []usageMonitoringChannelStatPayload{}
 	}
-	payload := make([]usageMonitoringChannelStatPayload, 0, len(rows))
+	merged := make([]usageMonitoringChannelStatPayload, 0, len(rows))
+	indexBySourceKey := map[string]int{}
 	for _, row := range rows {
-		models := make([]usageMonitoringChannelModelStatPayload, 0, len(row.Models))
-		for _, model := range row.Models {
-			models = append(models, usageMonitoringChannelModelStatPayload{
-				Model:           model.Model,
-				Requests:        model.Requests,
-				Success:         model.Success,
-				Failed:          model.Failed,
-				SuccessRate:     model.SuccessRate,
-				TotalTokens:     model.TotalTokens,
-				LastRequestTime: model.LastRequestTime,
-				RecentRequests:  buildUsageMonitoringRecentRequestsPayload(model.RecentRequests),
-			})
+		source := buildUsageMonitoringSourcePayload(row.Source, row.AuthIndex, resolver)
+		key := monitoringPayloadSourceKey(source)
+		index, exists := indexBySourceKey[key]
+		if !exists {
+			indexBySourceKey[key] = len(merged)
+			merged = append(merged, usageMonitoringChannelStatPayload{usageMonitoringSourcePayload: source})
+			index = len(merged) - 1
 		}
-		payload = append(payload, usageMonitoringChannelStatPayload{
-			usageMonitoringSourcePayload: buildUsageMonitoringSourcePayload(row.Source, row.AuthIndex, resolver),
-			TotalRequests:                row.TotalRequests,
-			SuccessRequests:              row.SuccessRequests,
-			FailedRequests:               row.FailedRequests,
-			TotalTokens:                  row.TotalTokens,
-			InputTokens:                  row.InputTokens,
-			OutputTokens:                 row.OutputTokens,
-			CachedTokens:                 row.CachedTokens,
-			ReasoningTokens:              row.ReasoningTokens,
-			SuccessRate:                  row.SuccessRate,
-			LastRequestTime:              row.LastRequestTime,
-			RecentRequests:               buildUsageMonitoringRecentRequestsPayload(row.RecentRequests),
-			Models:                       models,
-		})
+		current := &merged[index]
+		current.TotalRequests += row.TotalRequests
+		current.SuccessRequests += row.SuccessRequests
+		current.FailedRequests += row.FailedRequests
+		current.TotalTokens += row.TotalTokens
+		current.InputTokens += row.InputTokens
+		current.OutputTokens += row.OutputTokens
+		current.CachedTokens += row.CachedTokens
+		current.ReasoningTokens += row.ReasoningTokens
+		current.SuccessRate = service.MonitoringPercentage(current.SuccessRequests, current.TotalRequests)
+		current.LastRequestTime = latestTimePtr(current.LastRequestTime, row.LastRequestTime)
+		current.RecentRequests = mergeUsageMonitoringRecentRequestPayloads(current.RecentRequests, buildUsageMonitoringRecentRequestsPayload(row.RecentRequests))
+		current.Models = mergeUsageMonitoringChannelModelPayloads(current.Models, row.Models)
 	}
-	return payload
+	for index := range merged {
+		merged[index].Models = limitUsageMonitoringChannelModelPayloads(merged[index].Models)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		if merged[i].TotalRequests == merged[j].TotalRequests {
+			if merged[i].Source == merged[j].Source {
+				return merged[i].SourceKey < merged[j].SourceKey
+			}
+			return merged[i].Source < merged[j].Source
+		}
+		return merged[i].TotalRequests > merged[j].TotalRequests
+	})
+	return limitUsageMonitoringChannelStatsPayload(merged)
 }
 
 func buildUsageMonitoringFailureAnalysisPayload(rows []service.UsageMonitoringFailureStat, resolver usageSourceResolver) []usageMonitoringFailureStatPayload {
 	if len(rows) == 0 {
 		return []usageMonitoringFailureStatPayload{}
 	}
-	payload := make([]usageMonitoringFailureStatPayload, 0, len(rows))
+	merged := make([]usageMonitoringFailureStatPayload, 0, len(rows))
+	indexBySourceKey := map[string]int{}
 	for _, row := range rows {
-		models := make([]usageMonitoringFailureModelStatPayload, 0, len(row.Models))
-		for _, model := range row.Models {
-			models = append(models, usageMonitoringFailureModelStatPayload{
-				Model:          model.Model,
-				Success:        model.Success,
-				Failure:        model.Failure,
-				Total:          model.Total,
-				SuccessRate:    model.SuccessRate,
-				LastTimestamp:  model.LastTimestamp,
-				RecentRequests: buildUsageMonitoringRecentRequestsPayload(model.RecentRequests),
-			})
+		source := buildUsageMonitoringSourcePayload(row.Source, row.AuthIndex, resolver)
+		key := monitoringPayloadSourceKey(source)
+		index, exists := indexBySourceKey[key]
+		if !exists {
+			indexBySourceKey[key] = len(merged)
+			merged = append(merged, usageMonitoringFailureStatPayload{usageMonitoringSourcePayload: source})
+			index = len(merged) - 1
 		}
-		payload = append(payload, usageMonitoringFailureStatPayload{
-			usageMonitoringSourcePayload: buildUsageMonitoringSourcePayload(row.Source, row.AuthIndex, resolver),
-			FailedCount:                  row.FailedCount,
-			LastFailTime:                 row.LastFailTime,
-			Models:                       models,
-		})
+		current := &merged[index]
+		current.FailedCount += row.FailedCount
+		current.LastFailTime = latestTimePtr(current.LastFailTime, row.LastFailTime)
+		current.Models = mergeUsageMonitoringFailureModelPayloads(current.Models, row.Models)
 	}
-	return payload
+	for index := range merged {
+		merged[index].Models = limitUsageMonitoringFailureModelPayloads(merged[index].Models)
+	}
+	sort.Slice(merged, func(i, j int) bool {
+		if merged[i].FailedCount == merged[j].FailedCount {
+			if merged[i].Source == merged[j].Source {
+				return merged[i].SourceKey < merged[j].SourceKey
+			}
+			return merged[i].Source < merged[j].Source
+		}
+		return merged[i].FailedCount > merged[j].FailedCount
+	})
+	return limitUsageMonitoringFailureStatsPayload(merged)
+}
+
+func limitUsageMonitoringChannelStatsPayload(items []usageMonitoringChannelStatPayload) []usageMonitoringChannelStatPayload {
+	if len(items) <= usageMonitoringPayloadTopListLimit {
+		return items
+	}
+	return items[:usageMonitoringPayloadTopListLimit]
+}
+
+func limitUsageMonitoringFailureStatsPayload(items []usageMonitoringFailureStatPayload) []usageMonitoringFailureStatPayload {
+	if len(items) <= usageMonitoringPayloadTopListLimit {
+		return items
+	}
+	return items[:usageMonitoringPayloadTopListLimit]
+}
+
+func monitoringPayloadSourceKey(source usageMonitoringSourcePayload) string {
+	if strings.TrimSpace(source.SourceKey) != "" {
+		return strings.TrimSpace(source.SourceKey)
+	}
+	return strings.TrimSpace(source.Source) + "\x00" + strings.TrimSpace(source.SourceType)
+}
+
+func latestTimePtr(current *time.Time, next *time.Time) *time.Time {
+	if next == nil {
+		return current
+	}
+	if current == nil || next.After(*current) {
+		value := next.UTC()
+		return &value
+	}
+	return current
+}
+
+func mergeUsageMonitoringRecentRequestPayloads(current []usageMonitoringRecentRequestPayload, next []usageMonitoringRecentRequestPayload) []usageMonitoringRecentRequestPayload {
+	merged := append(append([]usageMonitoringRecentRequestPayload{}, current...), next...)
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].Timestamp < merged[j].Timestamp
+	})
+	if len(merged) <= usageMonitoringRecentRequestPayloadLimit {
+		return merged
+	}
+	return merged[len(merged)-usageMonitoringRecentRequestPayloadLimit:]
+}
+
+func mergeUsageMonitoringChannelModelPayloads(current []usageMonitoringChannelModelStatPayload, rows []service.UsageMonitoringChannelModelStat) []usageMonitoringChannelModelStatPayload {
+	indexByModel := map[string]int{}
+	for index, model := range current {
+		indexByModel[model.Model] = index
+	}
+	for _, row := range rows {
+		index, exists := indexByModel[row.Model]
+		if !exists {
+			indexByModel[row.Model] = len(current)
+			current = append(current, usageMonitoringChannelModelStatPayload{Model: row.Model})
+			index = len(current) - 1
+		}
+		model := &current[index]
+		model.Requests += row.Requests
+		model.Success += row.Success
+		model.Failed += row.Failed
+		model.TotalTokens += row.TotalTokens
+		model.SuccessRate = service.MonitoringPercentage(model.Success, model.Requests)
+		model.LastRequestTime = latestTimePtr(model.LastRequestTime, row.LastRequestTime)
+		model.RecentRequests = mergeUsageMonitoringRecentRequestPayloads(model.RecentRequests, buildUsageMonitoringRecentRequestsPayload(row.RecentRequests))
+	}
+	sort.Slice(current, func(i, j int) bool {
+		if current[i].Requests == current[j].Requests {
+			return current[i].Model < current[j].Model
+		}
+		return current[i].Requests > current[j].Requests
+	})
+	return current
+}
+
+func limitUsageMonitoringChannelModelPayloads(current []usageMonitoringChannelModelStatPayload) []usageMonitoringChannelModelStatPayload {
+	if len(current) > usageMonitoringPayloadTopListLimit {
+		return current[:usageMonitoringPayloadTopListLimit]
+	}
+	return current
+}
+
+func mergeUsageMonitoringFailureModelPayloads(current []usageMonitoringFailureModelStatPayload, rows []service.UsageMonitoringFailureModelStat) []usageMonitoringFailureModelStatPayload {
+	indexByModel := map[string]int{}
+	for index, model := range current {
+		indexByModel[model.Model] = index
+	}
+	for _, row := range rows {
+		index, exists := indexByModel[row.Model]
+		if !exists {
+			indexByModel[row.Model] = len(current)
+			current = append(current, usageMonitoringFailureModelStatPayload{Model: row.Model})
+			index = len(current) - 1
+		}
+		model := &current[index]
+		model.Success += row.Success
+		model.Failure += row.Failure
+		model.Total += row.Total
+		model.SuccessRate = service.MonitoringPercentage(model.Success, model.Total)
+		model.LastTimestamp = latestTimePtr(model.LastTimestamp, row.LastTimestamp)
+		model.RecentRequests = mergeUsageMonitoringRecentRequestPayloads(model.RecentRequests, buildUsageMonitoringRecentRequestsPayload(row.RecentRequests))
+	}
+	sort.Slice(current, func(i, j int) bool {
+		if current[i].Failure == current[j].Failure {
+			return current[i].Model < current[j].Model
+		}
+		return current[i].Failure > current[j].Failure
+	})
+	return current
+}
+
+func limitUsageMonitoringFailureModelPayloads(current []usageMonitoringFailureModelStatPayload) []usageMonitoringFailureModelStatPayload {
+	if len(current) > usageMonitoringPayloadTopListLimit {
+		return current[:usageMonitoringPayloadTopListLimit]
+	}
+	return current
 }
 
 func buildUsageMonitoringRequestLogsPayload(rows []service.UsageMonitoringRequestLog, resolver usageSourceResolver) []usageMonitoringRequestLogPayload {
