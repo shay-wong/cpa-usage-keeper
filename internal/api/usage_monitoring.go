@@ -553,7 +553,7 @@ func buildUsageMonitoringRequestLogsPayload(rows []service.UsageMonitoringReques
 			ID:         row.ID,
 			Timestamp:  row.Timestamp.UTC().Format(time.RFC3339),
 			Model:      row.Model,
-			Source:     safeUsageSourceDisplay(resolved, row.AuthIndex),
+			Source:     usageMonitoringSourceDisplay(row.Source, resolved, row.AuthIndex),
 			SourceType: resolved.SourceType,
 			SourceKey:  safeUsageSourceKey(resolved),
 			Failed:     row.Failed,
@@ -573,10 +573,18 @@ func buildUsageMonitoringRequestLogsPayload(rows []service.UsageMonitoringReques
 func buildUsageMonitoringSourcePayload(rawSource string, authIndex string, resolver usageSourceResolver) usageMonitoringSourcePayload {
 	resolved := resolver.resolve(rawSource, authIndex)
 	return usageMonitoringSourcePayload{
-		Source:     safeUsageSourceDisplay(resolved, authIndex),
+		Source:     usageMonitoringSourceDisplay(rawSource, resolved, authIndex),
 		SourceType: resolved.SourceType,
 		SourceKey:  safeUsageSourceKey(resolved),
 	}
+}
+
+func usageMonitoringSourceDisplay(rawSource string, resolved usageSourceResolution, authIndex string) string {
+	trimmed := strings.TrimSpace(rawSource)
+	if trimmed != "" {
+		return trimmed
+	}
+	return safeUsageSourceDisplay(resolved, authIndex)
 }
 
 func buildUsageMonitoringRecentRequestsPayload(rows []service.UsageMonitoringRecentRequest) []usageMonitoringRecentRequestPayload {

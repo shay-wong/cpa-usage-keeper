@@ -100,11 +100,8 @@ func TestUsageMonitoringReturnsResolvedPayload(t *testing.T) {
 	if !contains(body, `"kpis":{"total_requests":2`) || !contains(body, `"model_distribution":[`) || !contains(body, `"daily_trend":[{"date":"2026-04-22"`) {
 		t.Fatalf("expected monitoring payload, got %s", body)
 	}
-	if !contains(body, `"source":"OpenAI Mirror"`) {
-		t.Fatalf("expected monitoring source to reuse usage event safe display, got %s", body)
-	}
-	if contains(body, "sk-provider-key") {
-		t.Fatalf("expected monitoring payload to hide raw provider key, got %s", body)
+	if !contains(body, `"source":"sk-provider-key"`) {
+		t.Fatalf("expected monitoring source to expose raw source text, got %s", body)
 	}
 	if !contains(body, `"source_type":"openai"`) || !contains(body, `"source_key":"provider:2"`) {
 		t.Fatalf("expected resolved source metadata, got %s", body)
@@ -141,11 +138,8 @@ func TestUsageMonitoringReturnsPayloadWhenIdentityResolutionFails(t *testing.T) 
 	if !contains(body, `"kpis":{"total_requests":1`) || !contains(body, `"request_logs":[{"id":7`) {
 		t.Fatalf("expected monitoring payload when identity resolution fails, got %s", body)
 	}
-	if !contains(body, `"source":"openai"`) {
-		t.Fatalf("expected fallback source display to match usage events, got %s", body)
-	}
-	if contains(body, "sk-provider-key") {
-		t.Fatalf("expected fallback source to hide raw provider key, got %s", body)
+	if !contains(body, `"source":"sk-provider-key"`) {
+		t.Fatalf("expected fallback monitoring source to expose raw source text, got %s", body)
 	}
 	if !contains(body, `"source_key":"provider:fallback:openai:redacted_api_`) {
 		t.Fatalf("expected stable fallback source key, got %s", body)
@@ -180,11 +174,11 @@ func TestUsageMonitoringResolvesProviderByLookupKeyAndAuthIndex(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if !contains(body, `"source":"codex(codex101.site)"`) {
-		t.Fatalf("expected codex provider display name, got %s", body)
+	if !contains(body, `"source":"sk-provider-key"`) {
+		t.Fatalf("expected codex provider raw source text, got %s", body)
 	}
-	if contains(body, "sk-provider-key") || contains(body, "sk-other-key") {
-		t.Fatalf("expected codex provider raw keys to stay hidden, got %s", body)
+	if !contains(body, `"source":"sk-other-key"`) {
+		t.Fatalf("expected unmatched codex raw source text, got %s", body)
 	}
 	if !contains(body, `"source_type":"codex"`) || !contains(body, `"source_key":"provider:3"`) {
 		t.Fatalf("expected codex provider metadata, got %s", body)
@@ -311,14 +305,14 @@ func TestUsageMonitoringFallbackProviderSourcesStaySeparate(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
 	body := resp.Body.String()
-	if countSubstring(body, `"source":"openai"`) != 2 {
+	if countSubstring(body, `"source_type":"openai"`) != 2 {
 		t.Fatalf("expected two fallback openai rows, got %s", body)
 	}
 	if countSubstring(body, `"source_key":"provider:fallback:openai:redacted_api_`) != 2 {
 		t.Fatalf("expected fallback provider source keys to stay unique, got %s", body)
 	}
-	if contains(body, "sk-first-openai-key") || contains(body, "sk-second-openai-key") {
-		t.Fatalf("expected fallback rows to hide raw keys, got %s", body)
+	if !contains(body, "sk-first-openai-key") || !contains(body, "sk-second-openai-key") {
+		t.Fatalf("expected fallback rows to expose raw source text, got %s", body)
 	}
 }
 
