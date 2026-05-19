@@ -62,6 +62,7 @@ interface MonitoringCenterTabProps {
   error?: string;
   lastUpdatedAt?: Date | null;
   modelPrices: Record<string, ModelPrice>;
+  query?: string;
 }
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -468,14 +469,13 @@ export function MonitoringCenterTab({
   error,
   lastUpdatedAt,
   modelPrices,
+  query = '',
 }: MonitoringCenterTabProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'zh' ? 'zh-CN' : 'en-US';
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const isDark = resolvedTheme === 'dark';
   const chartThemeColors = useMemo(() => getChartThemeColors(isDark), [isDark]);
-  const [queryInput, setQueryInput] = useState('');
-  const [appliedQuery, setAppliedQuery] = useState('');
   const [channelSourceFilter, setChannelSourceFilter] = useState('');
   const [channelModelFilter, setChannelModelFilter] = useState('');
   const [failureSourceFilter, setFailureSourceFilter] = useState('');
@@ -510,7 +510,7 @@ export function MonitoringCenterTab({
     ? Math.max(1, Math.ceil((rangeEndMs - rangeStartMs) / 86_400_000))
     : Math.max(1, data?.daily_trend.length ?? 1);
   const averageRpd = (kpis?.total_requests ?? 0) / rpdDays;
-  const normalizedQuery = normalizeQuery(appliedQuery);
+  const normalizedQuery = normalizeQuery(query);
   const modelDistribution = useMemo(() => {
     const items = data?.model_distribution ?? [];
     return normalizedQuery ? items.filter((item) => includesQuery([item.model], normalizedQuery)) : items;
@@ -646,10 +646,6 @@ export function MonitoringCenterTab({
     const fallbackDay = hourlyModelDay || toDateInputValue(filteredByQuery[filteredByQuery.length - 1]?.hour, timeZone);
     return filterHourlyPoints(filteredByQuery, hourlyModelWindowMode, fallbackDay, timeZone);
   }, [data?.hourly_model_trend, hourlyModelDay, hourlyModelWindowMode, normalizedQuery, timeZone]);
-
-  const applySearch = () => {
-    setAppliedQuery(queryInput);
-  };
 
   const renderRequestLogDetail = () => {
     if (!selectedRequestLog) return null;
@@ -1123,30 +1119,6 @@ export function MonitoringCenterTab({
               {t('usage_stats.monitoring_query_results', { count: channelStats.length + failureAnalysis.length + requestLogs.length })}
             </span>
           )}
-        </div>
-      </div>
-
-      <div className={styles.filters}>
-        <div className={styles.queryControls}>
-          <label className={styles.filterLabel} htmlFor="monitoring-search-input">
-            {t('usage_stats.monitoring_search_label')}
-          </label>
-          <input
-            id="monitoring-search-input"
-            type="text"
-            className={styles.filterInput}
-            placeholder={t('usage_stats.monitoring_search_placeholder')}
-            value={queryInput}
-            onChange={(event) => setQueryInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                applySearch();
-              }
-            }}
-          />
-          <Button variant="secondary" size="sm" onClick={applySearch}>
-            {t('usage_stats.monitoring_search_apply')}
-          </Button>
         </div>
       </div>
 

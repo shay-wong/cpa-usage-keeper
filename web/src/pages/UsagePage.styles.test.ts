@@ -27,8 +27,11 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('keeps refresh controls outside the query filter layout', () => {
-    expect(usagePageSource).toContain('{showRangeControls && (\n                  <div className={styles.usageFilterBar}>')
+    expect(usagePageSource).toContain('{showRangeControls && (\n                  <>')
+    expect(usagePageSource).toContain('<div className={styles.usageFilterBar}>')
     expect(usagePageSource).toContain('className={styles.usageRefreshSlot}')
+    expect(usagePageSource).toContain('showMonitoringQuery && (')
+    expect(usagePageSource.indexOf('styles.monitoringQueryGroup')).toBeLessThan(usagePageSource.indexOf('styles.apiKeyFilterGroup'))
     expect(usagePageSource).not.toContain('styles.usageFilterBarCollapsed')
     expect(usagePageStyles).toMatch(/\.usageRefreshSlot\s*\{[\s\S]*?flex:\s*0 0 auto;/)
   })
@@ -381,6 +384,7 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?align-items:\s*center;/)
     expect(usagePageStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?align-items:\s*center;/)
     expect(usagePageStyles).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?width:\s*172px;/)
+    expect(usagePageStyles).toMatch(/\.monitoringQueryInput\s*\{[\s\S]*?width:\s*220px;/)
     expect(usagePageStyles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?width:\s*164px;/)
   })
 

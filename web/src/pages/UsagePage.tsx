@@ -15,8 +15,9 @@ import {
   Filler
 } from 'chart.js';
 import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchDatabaseCleanupSettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from '@/lib/api';
-import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, DatabaseCleanupSettingsResponse, StatusResponse, UsageEvent, UsageSourceFilterOption } from '@/lib/types';
+import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, DatabaseCleanupSettingsResponse, StatusResponse, UsageEvent, UsageSourceFilterOption, UpdateDatabaseCleanupSettingsRequest } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
+import { Button } from '@/components/ui/Button';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
 import { Select } from '@/components/ui/Select';
 import { IconRefreshCw } from '@/components/ui/icons';
@@ -561,6 +562,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
   const eventsFilterOptionsRequestControllerRef = useRef<AbortController | null>(null);
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
+  const [monitoringQueryInput, setMonitoringQueryInput] = useState('');
+  const [monitoringQuery, setMonitoringQuery] = useState('');
   const credentialsData = useCredentialsTabData({
     enabled: activeTab === 'credentials',
     onAuthRequired,
@@ -743,7 +746,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired]);
 
-  const handleSaveDatabaseCleanupSettings = useCallback(async (settings: DatabaseCleanupSettingsResponse) => {
+  const handleSaveDatabaseCleanupSettings = useCallback(async (settings: UpdateDatabaseCleanupSettingsRequest) => {
     setDatabaseCleanupSettingsSaving(true);
     setDatabaseCleanupSettingsError('');
     try {
@@ -1118,6 +1121,37 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     activeTab,
     eventsPage,
   });
+  const showMonitoringQuery = activeTab === 'monitoring';
+  const applyMonitoringQuery = useCallback(() => {
+    setMonitoringQuery(monitoringQueryInput.trim());
+  }, [monitoringQueryInput]);
+
+  const handleMonitoringQueryInputKeyDown = useCallback((event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      applyMonitoringQuery();
+    }
+  }, [applyMonitoringQuery]);
+
+  const handleMonitoringTabChange = useCallback((nextTab: UsageTab) => {
+    setActiveTab(nextTab);
+    if (nextTab !== 'monitoring') {
+      setMonitoringQueryInput('');
+      setMonitoringQuery('');
+    }
+  }, []);
+
+  const handleMonitoringQueryInputChange = useCallback((event: SyntheticEvent<HTMLInputElement>) => {
+    setMonitoringQueryInput(event.currentTarget.value);
+  }, []);
+
+  const handleMonitoringQueryClear = useCallback(() => {
+    setMonitoringQueryInput('');
+    setMonitoringQuery('');
+  }, []);
+
+  const handleTabClick = useCallback((nextTab: UsageTab) => {
+    handleMonitoringTabChange(nextTab);
+  }, [handleMonitoringTabChange]);
 
   const handleManualRefresh = useCallback(async () => {
     setManualRefreshLoading(true);
@@ -1476,7 +1510,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                     role="tab"
                     aria-selected={activeTab === option.value}
                     className={`${styles.tabPill} ${activeTab === option.value ? styles.tabPillActive : ''}`.trim()}
-                    onClick={() => setActiveTab(option.value)}
+                    onClick={() => handleTabClick(option.value)}
                   >
                     {option.label}
                   </button>
@@ -1485,95 +1519,135 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
 
               <div className={styles.toolbarActionsRight}>
                 {showRangeControls && (
-                  <div className={styles.usageFilterBar}>
-                    <div className={styles.apiKeyFilterGroup}>
-                    <label className={`${styles.usageFilterField} ${styles.apiKeyFilterField}`.trim()}>
-                      <span className={styles.usageFilterLabel}>{t('usage_stats.api_key_filter')}</span>
-                      <Select
-                        value={selectedApiKeyId}
-                        options={apiKeySelectOptions}
-                        onChange={setSelectedApiKeyId}
-                        className={styles.apiKeySelectControl}
-                        ariaLabel={t('usage_stats.api_key_filter')}
-                        fullWidth
-                        dropdownMinWidth={180}
-                      />
-                    </label>
-                  </div>
-                    <div className={styles.timeRangeGroup}>
-                    <label className={`${styles.usageFilterField} ${styles.rangeFilterField}`.trim()}>
-                      <span className={styles.usageFilterLabel}>{t('usage_stats.range_filter')}</span>
-                      <Select
-                        value={timeRange}
-                        options={timeRangeOptions}
-                        onChange={(value) => setTimeRange(value as UsageTimeRange)}
-                        className={styles.rangeSelectControl}
-                        ariaLabel={t('usage_stats.range_filter')}
-                        fullWidth
-                      />
-                    </label>
-                    <div
-                      className={`${styles.customRangeFieldGroup} ${isCustomRange ? styles.customRangeFieldGroupOpen : ''}`.trim()}
-                      aria-hidden={!isCustomRange}
-                    >
-                      <label className={styles.customRangeField}>
-                        <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
-                        <input
-                          type="date"
-                          className={`input ${styles.customRangeInput}`}
-                          value={customTimeRange.start}
-                          min={customDateRangeBounds.min}
-                          max={customDateRangeBounds.max}
-                          disabled={!isCustomRange}
-                          onClick={handleCustomDateInputActivate}
-                          onFocus={handleCustomDateInputActivate}
-                          onKeyDown={handleCustomDateInputKeyDown}
-                          onPaste={(event) => event.preventDefault()}
-                          onChange={(event) => {
-                            const nextValue = event.target.value;
-                            if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
-                            setCustomTimeRange((current) => ({
-                              ...current,
-                              start: nextValue
-                            }));
-                          }}
-                          aria-label={t('usage_stats.custom_start')}
-                        />
-                      </label>
-                      <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
-                      <label className={styles.customRangeField}>
-                        <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
-                        <input
-                          type="date"
-                          className={`input ${styles.customRangeInput}`}
-                          value={customTimeRange.end}
-                          min={customDateRangeBounds.min}
-                          max={customDateRangeBounds.max}
-                          disabled={!isCustomRange}
-                          onClick={handleCustomDateInputActivate}
-                          onFocus={handleCustomDateInputActivate}
-                          onKeyDown={handleCustomDateInputKeyDown}
-                          onPaste={(event) => event.preventDefault()}
-                          onChange={(event) => {
-                            const nextValue = event.target.value;
-                            if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
-                            setCustomTimeRange((current) => ({
-                              ...current,
-                              end: nextValue
-                            }));
-                          }}
-                          aria-label={t('usage_stats.custom_end')}
-                        />
-                      </label>
+                  <>
+                    <div className={styles.usageFilterBar}>
+                      {showMonitoringQuery && (
+                        <div className={styles.monitoringQueryGroup}>
+                          <label className={`${styles.usageFilterField} ${styles.monitoringQueryField}`.trim()}>
+                            <span className={styles.usageFilterLabel}>{t('usage_stats.monitoring_search_label')}</span>
+                            <input
+                              id="monitoring-search-input"
+                              type="text"
+                              className={`input ${styles.usagePillControl} ${styles.monitoringQueryInput}`.trim()}
+                              placeholder={t('usage_stats.monitoring_search_placeholder')}
+                              value={monitoringQueryInput}
+                              onChange={handleMonitoringQueryInputChange}
+                              onKeyDown={handleMonitoringQueryInputKeyDown}
+                              aria-label={t('usage_stats.monitoring_search_label')}
+                            />
+                          </label>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className={styles.usagePillAction}
+                            onClick={applyMonitoringQuery}
+                          >
+                            {t('usage_stats.monitoring_search_apply')}
+                          </Button>
+                          {monitoringQuery && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className={styles.usagePillAction}
+                              onClick={handleMonitoringQueryClear}
+                            >
+                              {t('usage_stats.clear_filters')}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                      <div className={styles.apiKeyFilterGroup}>
+                        <label className={`${styles.usageFilterField} ${styles.apiKeyFilterField}`.trim()}>
+                          <span className={styles.usageFilterLabel}>{t('usage_stats.api_key_filter')}</span>
+                          <Select
+                            value={selectedApiKeyId}
+                            options={apiKeySelectOptions}
+                            onChange={setSelectedApiKeyId}
+                            className={styles.apiKeySelectControl}
+                            ariaLabel={t('usage_stats.api_key_filter')}
+                            fullWidth
+                            dropdownMinWidth={180}
+                          />
+                        </label>
+                      </div>
                     </div>
-                  </div>
+
+                    <div className={styles.timeRangeGroup}>
+                      <label className={`${styles.usageFilterField} ${styles.rangeFilterField}`.trim()}>
+                        <span className={styles.usageFilterLabel}>{t('usage_stats.range_filter')}</span>
+                        <Select
+                          value={timeRange}
+                          options={timeRangeOptions}
+                          onChange={(value) => setTimeRange(value as UsageTimeRange)}
+                          className={styles.rangeSelectControl}
+                          ariaLabel={t('usage_stats.range_filter')}
+                          fullWidth
+                        />
+                      </label>
+                      <div
+                        className={`${styles.customRangeFieldGroup} ${isCustomRange ? styles.customRangeFieldGroupOpen : ''}`.trim()}
+                        aria-hidden={!isCustomRange}
+                      >
+                        <label className={styles.customRangeField}>
+                          <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_start')}</span>
+                          <input
+                            type="date"
+                            className={`input ${styles.customRangeInput}`}
+                            value={customTimeRange.start}
+                            min={customDateRangeBounds.min}
+                            max={customDateRangeBounds.max}
+                            disabled={!isCustomRange}
+                            onClick={handleCustomDateInputActivate}
+                            onFocus={handleCustomDateInputActivate}
+                            onKeyDown={handleCustomDateInputKeyDown}
+                            onPaste={(event) => event.preventDefault()}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
+                              setCustomTimeRange((current) => ({
+                                ...current,
+                                start: nextValue
+                              }));
+                            }}
+                            aria-label={t('usage_stats.custom_start')}
+                          />
+                        </label>
+                        <span className={styles.customRangeSeparator} aria-hidden="true">—</span>
+                        <label className={styles.customRangeField}>
+                          <span className={styles.customRangeFieldLabel}>{t('usage_stats.custom_end')}</span>
+                          <input
+                            type="date"
+                            className={`input ${styles.customRangeInput}`}
+                            value={customTimeRange.end}
+                            min={customDateRangeBounds.min}
+                            max={customDateRangeBounds.max}
+                            disabled={!isCustomRange}
+                            onClick={handleCustomDateInputActivate}
+                            onFocus={handleCustomDateInputActivate}
+                            onKeyDown={handleCustomDateInputKeyDown}
+                            onPaste={(event) => event.preventDefault()}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              if (!isCustomDateWithinBounds(nextValue, customDateRangeBounds)) return;
+                              setCustomTimeRange((current) => ({
+                                ...current,
+                                end: nextValue
+                              }));
+                            }}
+                            aria-label={t('usage_stats.custom_end')}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
                     {isCustomRange && customRangeHint && (
                       <span className={styles.customRangeHint}>{customRangeHint}</span>
                     )}
                     {isCustomRange && customRangeError && (
                       <span className={styles.customRangeError}>{customRangeError}</span>
                     )}
-                  </div>
+                  </>
                 )}
                 <div className={styles.usageRefreshSlot}>
                   <div className={styles.usageFilterActions}>
@@ -1684,6 +1758,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 error={monitoringError}
                 lastUpdatedAt={lastSyncAt}
                 modelPrices={modelPrices}
+                query={monitoringQuery}
               />
             )}
 
