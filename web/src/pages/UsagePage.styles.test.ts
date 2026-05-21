@@ -345,6 +345,17 @@ describe('UsagePage toolbar styles', () => {
     expect(monitoringCenterStyles).not.toContain('.filterSelect')
   })
 
+  it('lets Monitoring channel and failure source labels wrap within the source column', () => {
+    expect(monitoringCenterSource).toContain('styles.cellTitle')
+    expect(monitoringCenterSource).toContain('styles.cellMeta')
+    expect(monitoringCenterStyles).toMatch(/\.cellTitle\s*\{[\s\S]*?text-overflow:\s*clip;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellTitle\s*\{[\s\S]*?white-space:\s*normal;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellTitle\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellMeta\s*\{[\s\S]*?text-overflow:\s*clip;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellMeta\s*\{[\s\S]*?white-space:\s*normal;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellMeta\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
+  })
+
   it('keeps Monitoring data mounted while refresh is loading so scroll position is preserved', () => {
     const monitoringDataHookSource = readFileSync(new URL('../components/usage/monitoring/useMonitoringCenterData.ts', import.meta.url), 'utf8')
     const refreshStartBlock = monitoringDataHookSource.slice(
