@@ -53,6 +53,7 @@ import {
   type UsageTimeRange
 } from '@/utils/usage';
 import type { Theme } from '@/types';
+import { BrandLink } from '@/components/BrandLink';
 import styles from './UsagePage.module.scss';
 import { DevMonitoringCenterTab, useDevMonitoringCenterData } from './usagePageDevMonitoring';
 import { devUsageTabLabelKey, withDevUsageTabs } from './usagePageDevTabs';
@@ -129,6 +130,8 @@ export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
 export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
+
+export const getBackToCPALinkURL = (status: Pick<StatusResponse, 'cpa_management_url'> | null) => status?.cpa_management_url ?? '';
 
 export const getUpdateCheckToastDuration = (kind: 'success' | 'info' | 'error') => (kind === 'error' ? 6_000 : 4_000);
 
@@ -602,6 +605,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (updateCheckNotice.kind === 'success') return styles.updateCheckToastSuccess;
     return styles.updateCheckToastInfo;
   })() : '';
+  const cpaManagementURL = useMemo(() => getBackToCPALinkURL(status), [status]);
 
   const resolvedRangeStartMs = toTimestampMs(overviewUsage?.range_start);
   const resolvedRangeEndMs = toTimestampMs(overviewUsage?.range_end);
@@ -1401,7 +1405,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       <div className={styles.pageFrame}>
         <header ref={topBarRef} className={styles.topBar}>
           <div className={styles.brandBlock}>
-            <span className={styles.eyebrow}>CPA Usage Keeper</span>
+            <BrandLink className={styles.eyebrow} />
           </div>
           <div className={styles.topBarActions}>
             <LanguageSwitcher />
@@ -1470,11 +1474,32 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </div>
             )}
 
-            {lastSyncAt && (
+            {(cpaManagementURL || lastSyncAt) && (
               <div className={styles.toolbarMetaRow}>
-                <span className={styles.lastRefreshed}>
-                  {t('usage_stats.last_updated')}: {lastSyncAt.toLocaleTimeString()}
-                </span>
+                {lastSyncAt && (
+                  <span className={styles.lastRefreshed}>
+                    {t('usage_stats.last_updated')}: {lastSyncAt.toLocaleTimeString()}
+                  </span>
+                )}
+                {cpaManagementURL && (
+                  <div className={styles.toolbarMetaRight}>
+                    <a
+                      className={styles.backToCpaLink}
+                      href={cpaManagementURL}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label={t('usage_stats.back_to_cpa_aria')}
+                    >
+                      <span>{t('usage_stats.back_to_cpa')}</span>
+                      <span className={styles.backToCpaIcon} aria-hidden="true">
+                        <svg viewBox="0 0 16 16" focusable="false">
+                          <path d="M6 4h6v6" />
+                          <path d="M12 4 5 11" />
+                        </svg>
+                      </span>
+                    </a>
+                  </div>
+                )}
               </div>
             )}
 

@@ -39,6 +39,7 @@ const (
 	migrationAddUsageIdentitySyncMetadataFields     = "20260517_add_usage_identity_sync_metadata_fields"
 	migrationUsageOverviewRollupDimensions          = "20260518_usage_overview_rollup_dimensions"
 	migrationCreateDatabaseCleanupSettings          = "20260518_create_database_cleanup_settings"
+	migrationAddUsageEventReasoningEffort           = "20260519_add_usage_event_reasoning_effort"
 )
 
 type schemaMigration struct {
@@ -122,6 +123,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageIdentitySyncMetadataFields, run: addUsageIdentitySyncMetadataFieldsMigration},
 		{version: migrationUsageOverviewRollupDimensions, run: usageOverviewRollupDimensionsMigration, disableTransaction: true},
 		{version: migrationCreateDatabaseCleanupSettings, run: createDatabaseCleanupSettingsMigration},
+		{version: migrationAddUsageEventReasoningEffort, run: addUsageEventReasoningEffortMigration},
 	}
 }
 

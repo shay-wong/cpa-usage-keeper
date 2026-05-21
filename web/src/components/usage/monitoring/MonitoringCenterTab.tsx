@@ -192,6 +192,7 @@ function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: R
     timestampMs: Date.parse(log.timestamp) || 0,
     timestampLabel: formatRequestEventTimestamp(log.timestamp),
     model: log.model || '-',
+    reasoningEffort: '-',
     sourceRaw: log.source_key || source,
     source,
     sourceTitle: [source, sourceType].filter(Boolean).join(' · '),
