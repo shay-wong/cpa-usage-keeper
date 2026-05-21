@@ -49,17 +49,18 @@ type usageEventFilterOptionsResponse struct {
 }
 
 type usageEventPayload struct {
-	ID         string                 `json:"id,omitempty"`
-	RequestID  string                 `json:"request_id,omitempty"`
-	Timestamp  string                 `json:"timestamp"`
-	Model      string                 `json:"model"`
-	Source     string                 `json:"source"`
-	SourceRaw  string                 `json:"source_raw,omitempty"`
-	SourceType string                 `json:"source_type,omitempty"`
-	IsDelete   bool                   `json:"isDelete,omitempty"`
-	Failed     bool                   `json:"failed"`
-	LatencyMS  int64                  `json:"latency_ms"`
-	Tokens     usageEventTokenPayload `json:"tokens"`
+	ID              string                 `json:"id,omitempty"`
+	RequestID       string                 `json:"request_id,omitempty"`
+	Timestamp       string                 `json:"timestamp"`
+	Model           string                 `json:"model"`
+	ReasoningEffort string                 `json:"reasoning_effort,omitempty"`
+	Source          string                 `json:"source"`
+	SourceRaw       string                 `json:"source_raw,omitempty"`
+	SourceType      string                 `json:"source_type,omitempty"`
+	IsDelete        bool                   `json:"isDelete,omitempty"`
+	Failed          bool                   `json:"failed"`
+	LatencyMS       int64                  `json:"latency_ms"`
+	Tokens          usageEventTokenPayload `json:"tokens"`
 }
 
 type usageEventTokenPayload struct {
@@ -211,15 +212,16 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			id = strconv.FormatInt(row.ID, 10)
 		}
 		payload = append(payload, usageEventPayload{
-			ID:         id,
-			RequestID:  row.RequestID,
-			Timestamp:  timeutil.FormatStorageTime(row.Timestamp),
-			Model:      row.Model,
-			Source:     source,
-			SourceType: identity.Type,
-			IsDelete:   isDelete,
-			Failed:     row.Failed,
-			LatencyMS:  row.LatencyMS,
+			ID:              id,
+			RequestID:       row.RequestID,
+			Timestamp:       timeutil.FormatStorageTime(row.Timestamp),
+			Model:           row.Model,
+			ReasoningEffort: strings.TrimSpace(row.ReasoningEffort),
+			Source:          source,
+			SourceType:      identity.Type,
+			IsDelete:        isDelete,
+			Failed:          row.Failed,
+			LatencyMS:       row.LatencyMS,
 			Tokens: usageEventTokenPayload{
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,

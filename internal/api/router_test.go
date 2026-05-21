@@ -127,6 +127,27 @@ func TestStatusReturnsEmptyStateWithoutProvider(t *testing.T) {
 	}
 }
 
+func TestBuildCPAManagementURLAppendsManagementPage(t *testing.T) {
+	got := BuildCPAManagementURL("https://cpa.example.com")
+	if got != "https://cpa.example.com/management.html" {
+		t.Fatalf("expected management URL, got %q", got)
+	}
+}
+
+func TestBuildCPAManagementURLAvoidsDoubleSlash(t *testing.T) {
+	got := BuildCPAManagementURL("https://cpa.example.com/")
+	if got != "https://cpa.example.com/management.html" {
+		t.Fatalf("expected management URL without double slash, got %q", got)
+	}
+}
+
+func TestBuildCPAManagementURLEmptyBaseURL(t *testing.T) {
+	got := BuildCPAManagementURL("")
+	if got != "" {
+		t.Fatalf("expected empty URL, got %q", got)
+	}
+}
+
 func TestStatusReturnsVersionAndUpdateCheckFlag(t *testing.T) {
 	previousVersion := version.Version
 	t.Cleanup(func() { version.Version = previousVersion })
@@ -299,6 +320,19 @@ func TestStaticAssetResponsesUseLongCache(t *testing.T) {
 
 func contains(s, sub string) bool {
 	return len(sub) == 0 || (len(s) >= len(sub) && (func() bool { return stringContains(s, sub) })())
+}
+
+func countSubstring(s, sub string) int {
+	if len(sub) == 0 {
+		return 0
+	}
+	count := 0
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			count++
+		}
+	}
+	return count
 }
 
 func stringContains(s, sub string) bool {

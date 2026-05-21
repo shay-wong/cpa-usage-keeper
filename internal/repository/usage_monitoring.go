@@ -12,8 +12,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const monitoringRepositoryTopListLimit = 10
-
 var usageMonitoringAggregateTimeLayouts = []string{
 	time.RFC3339Nano,
 	"2006-01-02 15:04:05.999999999-07:00",
@@ -343,7 +341,6 @@ func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB,
 	}, ", "))
 	channelQuery = channelQuery.Group("COALESCE(TRIM(source), ''), COALESCE(TRIM(auth_index), '')")
 	channelQuery = channelQuery.Order("total_requests DESC, source ASC, auth_index ASC")
-	channelQuery = channelQuery.Limit(10)
 
 	var channelRows []usageMonitoringChannelStatRow
 	if err := channelQuery.Scan(&channelRows).Error; err != nil {
@@ -371,7 +368,6 @@ func ListUsageMonitoringFailureStatsWithFilter(ctx context.Context, db *gorm.DB,
 	failureQuery = failureQuery.Select("COALESCE(TRIM(source), '') AS source, COALESCE(TRIM(auth_index), '') AS auth_index, COUNT(*) AS failed_count, MAX(timestamp) AS last_fail_time")
 	failureQuery = failureQuery.Group("COALESCE(TRIM(source), ''), COALESCE(TRIM(auth_index), '')")
 	failureQuery = failureQuery.Order("failed_count DESC, source ASC, auth_index ASC")
-	failureQuery = failureQuery.Limit(10)
 
 	var failureRows []usageMonitoringFailureStatRow
 	if err := failureQuery.Scan(&failureRows).Error; err != nil {
@@ -412,17 +408,11 @@ aggregated AS (
 	JOIN targets ON COALESCE(TRIM(usage_events.source), '') = targets.source AND COALESCE(TRIM(usage_events.auth_index), '') = targets.auth_index
 	%s
 	GROUP BY targets.target_index, COALESCE(TRIM(usage_events.source), ''), COALESCE(TRIM(usage_events.auth_index), ''), COALESCE(TRIM(usage_events.model), '')
-),
-ranked AS (
-	SELECT *, ROW_NUMBER() OVER (PARTITION BY target_index ORDER BY requests DESC, model ASC) AS row_number
-	FROM aggregated
 )
 SELECT source, auth_index, model, requests, success, failed, total_tokens, last_request_time
-FROM ranked
-WHERE row_number <= ?
+FROM aggregated
 ORDER BY target_index ASC, requests DESC, model ASC`, targetSQL, filterSQL)
 	args := append(targetArgs, filterArgs...)
-	args = append(args, monitoringRepositoryTopListLimit)
 	rowValues := []usageMonitoringChannelModelStatRow{}
 	if err := db.WithContext(ctx).Raw(query, args...).Scan(&rowValues).Error; err != nil {
 		return nil, fmt.Errorf("load usage monitoring channel model stats: %w", err)
@@ -453,17 +443,11 @@ aggregated AS (
 	%s
 	GROUP BY targets.target_index, COALESCE(TRIM(usage_events.source), ''), COALESCE(TRIM(usage_events.auth_index), ''), COALESCE(TRIM(usage_events.model), '')
 	HAVING SUM(CASE WHEN usage_events.failed THEN 1 ELSE 0 END) > 0
-),
-ranked AS (
-	SELECT *, ROW_NUMBER() OVER (PARTITION BY target_index ORDER BY failure DESC, model ASC) AS row_number
-	FROM aggregated
 )
 SELECT source, auth_index, model, success, failure, total, last_timestamp
-FROM ranked
-WHERE row_number <= ?
+FROM aggregated
 ORDER BY target_index ASC, failure DESC, model ASC`, targetSQL, filterSQL)
 	args := append(targetArgs, filterArgs...)
-	args = append(args, monitoringRepositoryTopListLimit)
 	rowValues := []usageMonitoringFailureModelStatRow{}
 	if err := db.WithContext(ctx).Raw(query, args...).Scan(&rowValues).Error; err != nil {
 		return nil, fmt.Errorf("load usage monitoring failure model stats: %w", err)

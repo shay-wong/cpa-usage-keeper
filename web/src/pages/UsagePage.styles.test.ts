@@ -27,8 +27,11 @@ describe('UsagePage toolbar styles', () => {
   })
 
   it('keeps refresh controls outside the query filter layout', () => {
-    expect(usagePageSource).toContain('{showRangeControls && (\n                  <div className={styles.usageFilterBar}>')
+    expect(usagePageSource).toContain('{showRangeControls && (\n                  <>')
+    expect(usagePageSource).toContain('<div className={styles.usageFilterBar}>')
     expect(usagePageSource).toContain('className={styles.usageRefreshSlot}')
+    expect(usagePageSource).toContain('showMonitoringQuery && (')
+    expect(usagePageSource.indexOf('styles.monitoringQueryGroup')).toBeLessThan(usagePageSource.indexOf('styles.apiKeyFilterGroup'))
     expect(usagePageSource).not.toContain('styles.usageFilterBarCollapsed')
     expect(usagePageStyles).toMatch(/\.usageRefreshSlot\s*\{[\s\S]*?flex:\s*0 0 auto;/)
   })
@@ -88,13 +91,58 @@ describe('UsagePage toolbar styles', () => {
 
   it('lets API Key Settings content scroll inside the card instead of being clipped', () => {
     expect(usagePageStyles).toMatch(/\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?min-height:\s*auto;/)
-    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?flex:\s*1 1 auto;/)
+    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?flex:\s*0 0 auto;/)
+    expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
     expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?min-height:\s*0;/)
     expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?overflow-y:\s*auto;/)
     expect(usagePageStyles).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?padding-right:\s*4px;/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?height:\s*auto;/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*480px;/)
-    expect(usagePageStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.apiKeySettingsList\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    const apiKeySettingsMobileBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+      usagePageStyles.indexOf('.pricesList')
+    )
+
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsCard:global\(\.card\)\s*\{[\s\S]*?height:\s*auto;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsList\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsItem\s*\{[^}]*align-items:\s*stretch;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?width:\s*100%;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?width:\s*100%;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?min-width:\s*0;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasField\s*\{[\s\S]*?:global\(\.form-group\)\s*\{[\s\S]*?margin-bottom:\s*0;/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeyAliasInput\s*\{[\s\S]*?max-width:\s*100%;/)
+  })
+
+  it('keeps Model Pricing Settings list viewport aligned with API Key Settings without shrinking it behind the form', () => {
+    const settingsSectionsBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.settingsSections {'),
+      usagePageStyles.indexOf('// Pricing Section')
+    )
+    const pricingBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.pricingFixedCard {'),
+      usagePageStyles.indexOf('.priceForm')
+    )
+    const apiKeyBodyBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.apiKeySettingsBody {'),
+      usagePageStyles.indexOf('.apiKeySettingsList')
+    )
+    const apiKeySettingsMobileBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('@include mobile {\n  .apiKeySettingsCard:global(.card)'),
+      usagePageStyles.indexOf('.pricesList')
+    )
+    const pricingGridBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.pricesGrid {'),
+      usagePageStyles.indexOf('.priceItem')
+    )
+
+    expect(settingsSectionsBlock).toMatch(/--settings-list-scroll-height:\s*480px;/)
+    expect(pricingBlock).toMatch(/\.pricingFixedCard\s*\{[\s\S]*?height:\s*auto;/)
+    expect(pricingBlock).not.toMatch(/\.pricingSection\s*\{[\s\S]*?height:\s*480px;/)
+    expect(apiKeyBodyBlock).toMatch(/height:\s*var\(--settings-list-scroll-height\);/)
+    expect(apiKeySettingsMobileBlock).toMatch(/\.apiKeySettingsBody\s*\{[\s\S]*?height:\s*var\(--settings-list-scroll-height\);/)
+    expect(pricingGridBlock).toMatch(/height:\s*var\(--settings-list-scroll-height\);/)
+    expect(pricingGridBlock).toMatch(/\.pricesGrid\s*\{[\s\S]*?overflow:\s*auto;/)
+    expect(pricingGridBlock).not.toMatch(/@include mobile\s*\{[\s\S]*?overflow:\s*visible;/)
   })
 
   it('keeps the Analysis chart presentation aligned with the reference design', () => {
@@ -297,6 +345,17 @@ describe('UsagePage toolbar styles', () => {
     expect(monitoringCenterStyles).not.toContain('.filterSelect')
   })
 
+  it('lets Monitoring channel and failure source labels wrap within the source column', () => {
+    expect(monitoringCenterSource).toContain('styles.cellTitle')
+    expect(monitoringCenterSource).toContain('styles.cellMeta')
+    expect(monitoringCenterStyles).toMatch(/\.cellTitle\s*\{[\s\S]*?text-overflow:\s*clip;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellTitle\s*\{[\s\S]*?white-space:\s*normal;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellTitle\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellMeta\s*\{[\s\S]*?text-overflow:\s*clip;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellMeta\s*\{[\s\S]*?white-space:\s*normal;/)
+    expect(monitoringCenterStyles).toMatch(/\.cellMeta\s*\{[\s\S]*?overflow-wrap:\s*anywhere;/)
+  })
+
   it('keeps Monitoring data mounted while refresh is loading so scroll position is preserved', () => {
     const monitoringDataHookSource = readFileSync(new URL('../components/usage/monitoring/useMonitoringCenterData.ts', import.meta.url), 'utf8')
     const refreshStartBlock = monitoringDataHookSource.slice(
@@ -306,6 +365,21 @@ describe('UsagePage toolbar styles', () => {
 
     expect(refreshStartBlock).toContain('setLoading(true)')
     expect(refreshStartBlock).not.toContain('setData(null)')
+  })
+
+  it('loads enough Monitoring request logs to support the 1000 rows page-size option', () => {
+    const monitoringDataHookSource = readFileSync(new URL('../components/usage/monitoring/useMonitoringCenterData.ts', import.meta.url), 'utf8')
+
+    expect(monitoringCenterSource).toContain('const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 500, 1000] as const')
+    expect(monitoringDataHookSource).toContain('const MONITORING_REQUEST_LOG_LIMIT = 1000')
+    expect(monitoringDataHookSource).toContain('fetchUsageMonitoring(range, start, end, controller.signal, MONITORING_REQUEST_LOG_LIMIT)')
+  })
+
+  it('shows Monitoring failure model counts with failure semantics', () => {
+    expect(monitoringCenterSource).toContain('const visibleModels = failure.models')
+    expect(monitoringCenterSource).not.toContain('failure.models.slice(0, 2)')
+    expect(monitoringCenterSource).toContain("t('usage_stats.failure_count')")
+    expect(monitoringCenterSource).not.toContain("`${t('usage_stats.requests_count')}: ${formatCompactNumber(model.failure)}`")
   })
 
   it('lets Monitoring recent request logs reuse the Request Events row order, container, and detail action', () => {
@@ -366,6 +440,7 @@ describe('UsagePage toolbar styles', () => {
     expect(usagePageStyles).toMatch(/\.toolbarActionsRight\s*\{[\s\S]*?align-items:\s*center;/)
     expect(usagePageStyles).toMatch(/\.usageFilterBar\s*\{[\s\S]*?align-items:\s*center;/)
     expect(usagePageStyles).toMatch(/\.apiKeySelectControl\s*\{[\s\S]*?width:\s*172px;/)
+    expect(usagePageStyles).toMatch(/\.monitoringQueryInput\s*\{[\s\S]*?width:\s*220px;/)
     expect(usagePageStyles).toMatch(/\.rangeSelectControl\s*\{[\s\S]*?width:\s*164px;/)
   })
 

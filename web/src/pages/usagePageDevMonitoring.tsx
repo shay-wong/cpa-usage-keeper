@@ -36,9 +36,10 @@ export const useDevMonitoringCenterData = ({
 type DevMonitoringCenterTabProps = Pick<DevMonitoringData, 'data' | 'loading' | 'error'> & {
   lastUpdatedAt: Date | null;
   modelPrices: Record<string, ModelPrice>;
+  query?: string;
 };
 
-export function DevMonitoringCenterTab({ data, loading, error, lastUpdatedAt, modelPrices }: DevMonitoringCenterTabProps) {
+export function DevMonitoringCenterTab({ data, loading, error, lastUpdatedAt, modelPrices, query = '' }: DevMonitoringCenterTabProps) {
   const { t } = useTranslation();
   return (
     <MonitoringCenterTab
@@ -47,6 +48,7 @@ export function DevMonitoringCenterTab({ data, loading, error, lastUpdatedAt, mo
       error={error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}
       lastUpdatedAt={lastUpdatedAt}
       modelPrices={modelPrices}
+      query={query}
     />
   );
 }

@@ -12,10 +12,12 @@ import (
 )
 
 const (
+	// 监控中心小卡片仅展示最近 12 条状态点，避免卡片过高。
 	monitoringRecentRequestLimit = 12
-	monitoringDefaultLogLimit    = 100
-	monitoringMaxLogLimit        = 500
-	monitoringTopListLimit       = 10
+	// 最近请求日志未指定分页加载量时默认取 100 条，控制首次响应体积。
+	monitoringDefaultLogLimit = 100
+	// 最近请求日志最大加载 1000 条，对齐前端最大每页条数。
+	monitoringMaxLogLimit = 1000
 )
 
 type UsageMonitoringProvider interface {
@@ -32,13 +34,7 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto
 		return nil, err
 	}
 
-	logLimit := filter.Limit
-	if logLimit <= 0 {
-		logLimit = monitoringDefaultLogLimit
-	}
-	if logLimit > monitoringMaxLogLimit {
-		logLimit = monitoringMaxLogLimit
-	}
+	logLimit := normalizeMonitoringLogLimit(filter.Limit)
 	repositoryFilter := repodto.UsageQueryFilter{
 		StartTime: filter.StartTime,
 		EndTime:   filter.EndTime,
@@ -81,6 +77,16 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto
 		FailureAnalysis:   buildMonitoringFailureAnalysis(failureRows, failureModelRows, recentRequestsBySourceModel),
 		RequestLogs:       buildMonitoringRequestLogs(recentEvents, logLimit),
 	}, nil
+}
+
+func normalizeMonitoringLogLimit(limit int) int {
+	if limit <= 0 {
+		return monitoringDefaultLogLimit
+	}
+	if limit > monitoringMaxLogLimit {
+		return monitoringMaxLogLimit
+	}
+	return limit
 }
 
 func buildMonitoringKPI(overview *servicedto.UsageOverviewSnapshot, analysis *servicedto.AnalysisSnapshot) UsageMonitoringKPI {
@@ -143,7 +149,7 @@ func buildMonitoringModelDistribution(analysis *servicedto.AnalysisSnapshot, hou
 	}
 	items := make([]UsageMonitoringModelDistributionItem, 0, len(itemsByModel))
 	for _, item := range itemsByModel {
-		item.SuccessRate = percentage(item.SuccessCount, item.TotalRequests)
+		item.SuccessRate = MonitoringPercentage(item.SuccessCount, item.TotalRequests)
 		items = append(items, item)
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -221,7 +227,7 @@ func buildMonitoringChannelStats(rows []repository.UsageMonitoringChannelStatRec
 			Requests:        row.Requests,
 			Success:         row.Success,
 			Failed:          row.Failed,
-			SuccessRate:     percentage(row.Success, row.Requests),
+			SuccessRate:     MonitoringPercentage(row.Success, row.Requests),
 			TotalTokens:     row.TotalTokens,
 			LastRequestTime: &lastRequestTime,
 			RecentRequests:  trimRecentRequests(recentRequestsBySourceModel[modelKey]),
@@ -238,7 +244,6 @@ func buildMonitoringChannelStats(rows []repository.UsageMonitoringChannelStatRec
 			}
 			return models[i].Requests > models[j].Requests
 		})
-		models = limitMonitoringChannelModelStats(models, monitoringTopListLimit)
 		lastRequestTime := row.LastRequestTime.UTC()
 		result = append(result, UsageMonitoringChannelStat{
 			Source:          strings.TrimSpace(row.Source),
@@ -251,7 +256,7 @@ func buildMonitoringChannelStats(rows []repository.UsageMonitoringChannelStatRec
 			OutputTokens:    row.OutputTokens,
 			CachedTokens:    row.CachedTokens,
 			ReasoningTokens: row.ReasoningTokens,
-			SuccessRate:     percentage(row.SuccessRequests, row.TotalRequests),
+			SuccessRate:     MonitoringPercentage(row.SuccessRequests, row.TotalRequests),
 			LastRequestTime: &lastRequestTime,
 			RecentRequests:  trimRecentRequests(recentRequestsBySource[key]),
 			Models:          models,
@@ -271,7 +276,7 @@ func buildMonitoringFailureAnalysis(rows []repository.UsageMonitoringFailureStat
 			Success:        row.Success,
 			Failure:        row.Failure,
 			Total:          row.Total,
-			SuccessRate:    percentage(row.Success, row.Total),
+			SuccessRate:    MonitoringPercentage(row.Success, row.Total),
 			LastTimestamp:  &lastTimestamp,
 			RecentRequests: trimRecentRequests(recentRequestsBySourceModel[modelKey]),
 		})
@@ -287,7 +292,6 @@ func buildMonitoringFailureAnalysis(rows []repository.UsageMonitoringFailureStat
 			}
 			return models[i].Failure > models[j].Failure
 		})
-		models = limitMonitoringFailureModelStats(models, monitoringTopListLimit)
 		lastFailTime := row.LastFailTime.UTC()
 		failures = append(failures, UsageMonitoringFailureStat{
 			Source:       strings.TrimSpace(row.Source),
@@ -380,9 +384,6 @@ func topChannelModelRowsBySource(rows []repository.UsageMonitoringChannelModelSt
 			}
 			return models[i].Requests > models[j].Requests
 		})
-		if len(models) > monitoringTopListLimit {
-			models = models[:monitoringTopListLimit]
-		}
 		modelsBySource[key] = models
 	}
 	return modelsBySource
@@ -404,9 +405,6 @@ func topFailureModelRowsBySource(rows []repository.UsageMonitoringFailureModelSt
 			}
 			return models[i].Failure > models[j].Failure
 		})
-		if len(models) > monitoringTopListLimit {
-			models = models[:monitoringTopListLimit]
-		}
 		modelsBySource[key] = models
 	}
 	return modelsBySource
@@ -475,23 +473,10 @@ func normalizeHourBucket(value string) string {
 	return parsed.UTC().Format(time.RFC3339)
 }
 
-func percentage(numerator int64, denominator int64) float64 {
+// MonitoringPercentage 统一计算监控成功率，分母为 0 时返回 0 避免无效比例。
+func MonitoringPercentage(numerator int64, denominator int64) float64 {
 	if denominator <= 0 {
 		return 0
 	}
 	return (float64(numerator) / float64(denominator)) * 100
-}
-
-func limitMonitoringChannelModelStats(items []UsageMonitoringChannelModelStat, limit int) []UsageMonitoringChannelModelStat {
-	if len(items) <= limit {
-		return items
-	}
-	return items[:limit]
-}
-
-func limitMonitoringFailureModelStats(items []UsageMonitoringFailureModelStat, limit int) []UsageMonitoringFailureModelStat {
-	if len(items) <= limit {
-		return items
-	}
-	return items[:limit]
 }

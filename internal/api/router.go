@@ -32,11 +32,16 @@ type QuotaProvider interface {
 	GetRefreshTask(context.Context, string) (quota.RefreshTaskResponse, error)
 }
 
+type StatusRouteConfig struct {
+	CPAManagementURL string
+}
+
 type OptionalProviders struct {
 	UsageIdentity    service.UsageIdentityProvider
 	Quota            QuotaProvider
 	CPAAPIKeys       service.CPAAPIKeyProvider
 	DatabaseSettings service.DatabaseSettingsProvider
+	Status           StatusRouteConfig
 }
 
 func NewRouter(
@@ -71,17 +76,19 @@ func NewRouter(
 	var quotaProvider QuotaProvider
 	var cpaAPIKeyProvider service.CPAAPIKeyProvider
 	var databaseSettingsProvider service.DatabaseSettingsProvider
+	var statusConfig StatusRouteConfig
 	if len(optionalProviders) > 0 {
 		usageIdentityProvider = optionalProviders[0].UsageIdentity
 		quotaProvider = optionalProviders[0].Quota
 		cpaAPIKeyProvider = optionalProviders[0].CPAAPIKeys
 		databaseSettingsProvider = optionalProviders[0].DatabaseSettings
+		statusConfig = optionalProviders[0].Status
 	}
 	authHandler.setCPAAPIKeyProvider(cpaAPIKeyProvider)
 
 	adminProtected := apiV1.Group("")
 	adminProtected.Use(authHandler.adminMiddleware())
-	registerStatusRoutes(adminProtected, statusProvider)
+	registerStatusRoutes(adminProtected, statusProvider, statusConfig)
 	registerUpdateRoutes(adminProtected, nil)
 	registerUsageOverviewRoute(adminProtected, usageProvider)
 	registerUsageMonitoringRoute(adminProtected, usageProvider, usageIdentityProvider)
@@ -227,30 +234,40 @@ type statusResponse struct {
 	Timezone           string     `json:"timezone"`
 	Version            string     `json:"version"`
 	UpdateCheckEnabled bool       `json:"updateCheckEnabled"`
+	CPAManagementURL   string     `json:"cpa_management_url,omitempty"`
 	LastRunAt          *time.Time `json:"last_run_at,omitempty"`
 	LastError          string     `json:"last_error,omitempty"`
 	LastWarning        string     `json:"last_warning,omitempty"`
 	LastStatus         string     `json:"last_status,omitempty"`
 }
 
-func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider) {
+func BuildCPAManagementURL(baseURL string) string {
+	trimmed := strings.TrimSpace(baseURL)
+	if trimmed == "" {
+		return ""
+	}
+	return strings.TrimRight(trimmed, "/") + "/management.html"
+}
+
+func registerStatusRoutes(router gin.IRoutes, statusProvider StatusProvider, config StatusRouteConfig) {
 	router.GET("/status", func(c *gin.Context) {
 		if statusProvider == nil {
-			c.JSON(http.StatusOK, buildStatusResponse(poller.Status{}))
+			c.JSON(http.StatusOK, buildStatusResponse(poller.Status{}, config))
 			return
 		}
 
-		c.JSON(http.StatusOK, buildStatusResponse(statusProvider.Status()))
+		c.JSON(http.StatusOK, buildStatusResponse(statusProvider.Status(), config))
 	})
 }
 
-func buildStatusResponse(status poller.Status) statusResponse {
+func buildStatusResponse(status poller.Status, config StatusRouteConfig) statusResponse {
 	response := statusResponse{
 		Running:            status.Running,
 		SyncRunning:        status.SyncRunning,
 		Timezone:           time.Local.String(),
 		Version:            version.Version,
 		UpdateCheckEnabled: updatecheck.IsStableVersion(version.Version),
+		CPAManagementURL:   config.CPAManagementURL,
 		LastError:          status.LastError,
 		LastWarning:        status.LastWarning,
 		LastStatus:         status.LastStatus,

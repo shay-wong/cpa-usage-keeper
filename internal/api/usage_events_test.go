@@ -76,6 +76,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		ID:                  42,
 		Timestamp:           time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
 		Model:               "claude-sonnet",
+		ReasoningEffort:     "medium",
 		AuthType:            "apikey",
 		Provider:            "OpenAI Mirror",
 		Source:              "sk-provider-key",
@@ -124,6 +125,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if !contains(body, `"cache_read_tokens":3`) || !contains(body, `"cache_creation_tokens":4`) {
 		t.Fatalf("expected cache token fields in response body: %s", body)
+	}
+	if !contains(body, `"reasoning_effort":"medium"`) {
+		t.Fatalf("expected reasoning effort in response body: %s", body)
 	}
 	if provider.filterCalls != 1 {
 		t.Fatalf("expected ListUsageEvents to be called once, got %d", provider.filterCalls)
@@ -365,7 +369,7 @@ func TestUsageEventsDoesNotMarkRowDeletedWhenAuthIndexMatchesIdentity(t *testing
 	}
 }
 
-func TestUsageEventsRedactsMissingOAuthIdentitySource(t *testing.T) {
+func TestUsageEventsShowsMissingOAuthIdentityEmailSource(t *testing.T) {
 	rawEmail := "user@example.com"
 	rawAuthIndex := "auth-secret"
 	provider := &usageEventsStub{events: []servicedto.UsageEventRecord{{
@@ -386,8 +390,11 @@ func TestUsageEventsRedactsMissingOAuthIdentitySource(t *testing.T) {
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if contains(body, rawEmail) || contains(body, rawAuthIndex) || contains(body, `"auth_index"`) {
-		t.Fatalf("expected missing oauth identity source data to be redacted, got %s", body)
+	if !contains(body, `"source":"user@example.com"`) {
+		t.Fatalf("expected missing oauth identity email source to stay unmasked, got %s", body)
+	}
+	if contains(body, rawAuthIndex) || contains(body, `"auth_index"`) {
+		t.Fatalf("expected auth index data to stay hidden, got %s", body)
 	}
 }
 

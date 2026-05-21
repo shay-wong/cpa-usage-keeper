@@ -719,20 +719,24 @@
 }
 
 .cellTitle {
-  overflow: hidden;
+  overflow: visible;
   color: var(--text-primary);
   font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .cellMeta {
   margin-top: 2px;
-  overflow: hidden;
+  overflow: visible;
   color: var(--text-secondary);
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .modelTagList {

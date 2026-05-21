@@ -115,7 +115,10 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 	// AI provider 没有命中时，再用 oauth/auth file 的 auth_index 解析账号身份。
 	if normalizedAuthIndex != "" {
 		if identity, ok := r.authIdentities[normalizedAuthIndex]; ok {
-			displayName := safeAuthIdentityDisplayName(identity.Name, normalizedAuthIndex)
+			displayName := strings.TrimSpace(identity.Name)
+			if displayName == "" {
+				displayName = normalizedAuthIndex
+			}
 			return usageSourceResolution{
 				DisplayName: displayName,
 				SourceType:  firstNonEmptyString(identity.Type, identity.Provider),
@@ -124,14 +127,13 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 		}
 	}
 
-	// 没有 identity 命中时走安全 fallback，避免把原始 API key 暴露给前端。
+	// 没有 identity 命中时走安全 fallback，展示值不暴露原始 API key，source_key 保持单来源唯一。
 	if normalizedSource == "" {
 		return usageSourceResolution{DisplayName: "-", SourceKey: "raw:-"}
 	}
 	if looksLikeEmail(normalizedSource) {
-		masked := redact.APIKeyDisplayName(normalizedSource)
 		return usageSourceResolution{
-			DisplayName: masked,
+			DisplayName: normalizedSource,
 			SourceKey:   "email:" + redact.APIAlias(normalizedSource),
 		}
 	}
@@ -139,13 +141,13 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 		return usageSourceResolution{
 			DisplayName: inferredProvider,
 			SourceType:  inferredProvider,
-			SourceKey:   "provider:fallback:" + inferredProvider,
+			SourceKey:   "provider:fallback:" + inferredProvider + ":" + redact.APIAlias(normalizedSource),
 		}
 	}
 	masked := redact.APIKeyDisplayName(normalizedSource)
 	return usageSourceResolution{
 		DisplayName: masked,
-		SourceKey:   "raw:" + masked,
+		SourceKey:   "raw:" + redact.APIAlias(normalizedSource),
 	}
 }
 

@@ -62,6 +62,7 @@ interface MonitoringCenterTabProps {
   error?: string;
   lastUpdatedAt?: Date | null;
   modelPrices: Record<string, ModelPrice>;
+  query?: string;
 }
 
 type Translate = (key: string, options?: Record<string, unknown>) => string;
@@ -79,7 +80,8 @@ const HOURLY_WINDOW_OPTIONS: ReadonlyArray<{ value: HourlyWindowMode; labelKey: 
 
 const CHART_GRID_COLOR = 'rgba(148, 163, 184, 0.14)';
 const CHART_GRID_COLOR_STRONG = 'rgba(148, 163, 184, 0.18)';
-const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+// 最近请求日志分页选项最大 1000 条，对齐单次日志加载上限。
+const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 500, 1000] as const;
 const REQUEST_STATUS_BUCKET_COUNT = 16;
 const REQUEST_STATUS_SINGLE_BUCKET_MS = 60_000;
 
@@ -190,6 +192,7 @@ function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: R
     timestampMs: Date.parse(log.timestamp) || 0,
     timestampLabel: formatRequestEventTimestamp(log.timestamp),
     model: log.model || '-',
+    reasoningEffort: '-',
     sourceRaw: log.source_key || source,
     source,
     sourceTitle: [source, sourceType].filter(Boolean).join(' · '),
@@ -467,14 +470,13 @@ export function MonitoringCenterTab({
   error,
   lastUpdatedAt,
   modelPrices,
+  query = '',
 }: MonitoringCenterTabProps) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'zh' ? 'zh-CN' : 'en-US';
   const resolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const isDark = resolvedTheme === 'dark';
   const chartThemeColors = useMemo(() => getChartThemeColors(isDark), [isDark]);
-  const [queryInput, setQueryInput] = useState('');
-  const [appliedQuery, setAppliedQuery] = useState('');
   const [channelSourceFilter, setChannelSourceFilter] = useState('');
   const [channelModelFilter, setChannelModelFilter] = useState('');
   const [failureSourceFilter, setFailureSourceFilter] = useState('');
@@ -509,7 +511,7 @@ export function MonitoringCenterTab({
     ? Math.max(1, Math.ceil((rangeEndMs - rangeStartMs) / 86_400_000))
     : Math.max(1, data?.daily_trend.length ?? 1);
   const averageRpd = (kpis?.total_requests ?? 0) / rpdDays;
-  const normalizedQuery = normalizeQuery(appliedQuery);
+  const normalizedQuery = normalizeQuery(query);
   const modelDistribution = useMemo(() => {
     const items = data?.model_distribution ?? [];
     return normalizedQuery ? items.filter((item) => includesQuery([item.model], normalizedQuery)) : items;
@@ -645,10 +647,6 @@ export function MonitoringCenterTab({
     const fallbackDay = hourlyModelDay || toDateInputValue(filteredByQuery[filteredByQuery.length - 1]?.hour, timeZone);
     return filterHourlyPoints(filteredByQuery, hourlyModelWindowMode, fallbackDay, timeZone);
   }, [data?.hourly_model_trend, hourlyModelDay, hourlyModelWindowMode, normalizedQuery, timeZone]);
-
-  const applySearch = () => {
-    setAppliedQuery(queryInput);
-  };
 
   const renderRequestLogDetail = () => {
     if (!selectedRequestLog) return null;
@@ -1125,30 +1123,6 @@ export function MonitoringCenterTab({
         </div>
       </div>
 
-      <div className={styles.filters}>
-        <div className={styles.queryControls}>
-          <label className={styles.filterLabel} htmlFor="monitoring-search-input">
-            {t('usage_stats.monitoring_search_label')}
-          </label>
-          <input
-            id="monitoring-search-input"
-            type="text"
-            className={styles.filterInput}
-            placeholder={t('usage_stats.monitoring_search_placeholder')}
-            value={queryInput}
-            onChange={(event) => setQueryInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                applySearch();
-              }
-            }}
-          />
-          <Button variant="secondary" size="sm" onClick={applySearch}>
-            {t('usage_stats.monitoring_search_apply')}
-          </Button>
-        </div>
-      </div>
-
       {hasError && <div className={styles.errorBox}>{error}</div>}
 
       {loading && !data ? (
@@ -1501,7 +1475,7 @@ export function MonitoringCenterTab({
                     </thead>
                     <tbody>
                       {failureAnalysis.map((failure) => {
-                        const visibleModels = failure.models.slice(0, 2);
+                        const visibleModels = failure.models;
                         const failureLabel = resolveSourceLabel(failure);
                         return (
                           <tr key={failure.source_key || failure.source}>
@@ -1518,7 +1492,7 @@ export function MonitoringCenterTab({
                             <td>
                               <div className={styles.modelTagList}>
                                 {visibleModels.map((model) => {
-                                  const label = `${t('usage_stats.requests_count')}: ${formatCompactNumber(model.failure)}`;
+                                  const label = `${t('usage_stats.failure_count')}: ${formatCompactNumber(model.failure)}`;
                                   return (
                                     <span className={styles.modelTooltipItem} key={`${failure.source}-${model.model}`}>
                                       <button className={styles.modelTooltipButton} type="button" title={label} aria-label={label}>
