@@ -115,7 +115,10 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 	// AI provider 没有命中时，再用 oauth/auth file 的 auth_index 解析账号身份。
 	if normalizedAuthIndex != "" {
 		if identity, ok := r.authIdentities[normalizedAuthIndex]; ok {
-			displayName := safeAuthIdentityDisplayName(identity.Name, normalizedAuthIndex)
+			displayName := strings.TrimSpace(identity.Name)
+			if displayName == "" {
+				displayName = normalizedAuthIndex
+			}
 			return usageSourceResolution{
 				DisplayName: displayName,
 				SourceType:  firstNonEmptyString(identity.Type, identity.Provider),

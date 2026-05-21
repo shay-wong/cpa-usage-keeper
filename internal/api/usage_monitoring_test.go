@@ -322,6 +322,38 @@ func TestUsageMonitoringFallbackProviderSourcesStaySeparate(t *testing.T) {
 	}
 }
 
+func TestUsageMonitoringShowsAuthFileSourceWithoutMasking(t *testing.T) {
+	requestTime := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
+	rawName := "wang@example.com"
+	provider := &usageMonitoringStub{monitoring: &service.UsageMonitoringSnapshot{
+		KPIs: service.UsageMonitoringKPI{TotalRequests: 1, SuccessRequests: 1},
+		ChannelStats: []service.UsageMonitoringChannelStat{{
+			Source: "ignored-source", AuthIndex: "auth-file-index", TotalRequests: 1, SuccessRequests: 1, LastRequestTime: &requestTime,
+		}},
+		RequestLogs: []service.UsageMonitoringRequestLog{{
+			ID: 89, Timestamp: requestTime, Model: "codex-model", Source: "ignored-source", AuthIndex: "auth-file-index", Failed: false, TotalTokens: 12,
+		}},
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
+		ID: 7, Name: rawName, AuthType: entities.UsageIdentityAuthTypeAuthFile, AuthTypeName: "oauth", Identity: "auth-file-index", Type: "codex", Provider: "codex", TotalRequests: 1,
+	}}}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"source":"wang@example.com"`) {
+		t.Fatalf("expected auth file source to stay unmasked in monitoring payload, got %s", body)
+	}
+	if !contains(body, `"source_type":"codex"`) {
+		t.Fatalf("expected auth file source type to remain visible, got %s", body)
+	}
+}
+
 func TestUsageMonitoringShowsEmailSourceWithoutMasking(t *testing.T) {
 	requestTime := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
 	rawEmail := "user@example.com"
