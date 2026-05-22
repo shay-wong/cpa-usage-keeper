@@ -96,7 +96,19 @@ describe('UsagePage Overview loading display', () => {
 
 describe('UsagePage Back to CPA link', () => {
   it('uses the CPA management URL from status', () => {
-    expect(getBackToCPALinkURL({ cpa_management_url: 'https://cpa.example.com/management.html' })).toBe('https://cpa.example.com/management.html');
+    expect(getBackToCPALinkURL({ cpa_management_url: 'https://cpa.example.com/management.html' }, { hostname: 'keeper.example.com' })).toBe('https://cpa.example.com/management.html');
+  });
+
+  it('maps Docker service hostnames to the current browser host', () => {
+    expect(getBackToCPALinkURL({ cpa_management_url: 'http://cli-proxy-api:8317/management.html' }, { hostname: '192.168.1.23' })).toBe('http://192.168.1.23:8317/management.html');
+  });
+
+  it('maps local CPA hosts to the current browser host', () => {
+    expect(getBackToCPALinkURL({ cpa_management_url: 'http://0.0.0.0:8317/management.html' }, { hostname: 'localhost' })).toBe('http://localhost:8317/management.html');
+  });
+
+  it('leaves invalid CPA management URLs unchanged', () => {
+    expect(getBackToCPALinkURL({ cpa_management_url: '/management.html' }, { hostname: 'localhost' })).toBe('/management.html');
   });
 
   it('hides the link when status does not include a CPA management URL', () => {

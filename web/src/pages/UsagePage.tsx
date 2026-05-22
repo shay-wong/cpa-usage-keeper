@@ -124,6 +124,24 @@ const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 // 与 sticky toolbar 的 CSS top 保持一致，用于计算 header 被下一层 toolbar 顶出的距离。
 const STICKY_TOOLBAR_TOP_PX = 16;
 const STICKY_TOOLBAR_PUSH_GAP_PX = 18;
+const BROWSER_LOCAL_CPA_HOSTS = new Set(['cli-proxy-api', 'localhost', '127.0.0.1', '0.0.0.0', '::1']);
+
+interface BackToCPALinkLocation {
+  hostname: string;
+}
+
+const getCurrentBackToCPALinkLocation = (): BackToCPALinkLocation | undefined => (
+  typeof window === 'undefined' ? undefined : window.location
+);
+
+const normalizeCPALinkHostname = (hostname: string) => hostname.trim().replace(/^\[|\]$/g, '').toLowerCase();
+
+const shouldUseCurrentHostForCPALink = (hostname: string) => {
+  const normalizedHostname = normalizeCPALinkHostname(hostname);
+  if (!normalizedHostname) return false;
+  if (BROWSER_LOCAL_CPA_HOSTS.has(normalizedHostname)) return true;
+  return !normalizedHostname.includes('.') && !normalizedHostname.includes(':');
+};
 
 export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
 
@@ -131,7 +149,23 @@ export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls
 
 export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
 
-export const getBackToCPALinkURL = (status: Pick<StatusResponse, 'cpa_management_url'> | null) => status?.cpa_management_url ?? '';
+export const getBackToCPALinkURL = (
+  status: Pick<StatusResponse, 'cpa_management_url'> | null,
+  currentLocation: BackToCPALinkLocation | undefined = getCurrentBackToCPALinkLocation()
+) => {
+  const rawURL = status?.cpa_management_url?.trim();
+  if (!rawURL) return '';
+
+  try {
+    const url = new URL(rawURL);
+    if (currentLocation?.hostname && shouldUseCurrentHostForCPALink(url.hostname)) {
+      url.hostname = currentLocation.hostname;
+    }
+    return url.toString();
+  } catch {
+    return rawURL;
+  }
+};
 
 export const getUpdateCheckToastDuration = (kind: 'success' | 'info' | 'error') => (kind === 'error' ? 6_000 : 4_000);
 
