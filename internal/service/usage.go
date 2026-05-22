@@ -252,29 +252,33 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 	}
 	result := make([]servicedto.UsageEventRecord, 0, len(page.Events))
 	for _, row := range page.Events {
-		result = append(result, servicedto.UsageEventRecord{
-			ID:                  row.ID,
-			Timestamp:           row.Timestamp,
-			APIGroupKey:         row.APIGroupKey,
-			Model:               row.Model,
-			ReasoningEffort:     row.ReasoningEffort,
-			AuthType:            row.AuthType,
-			RequestID:           row.RequestID,
-			Provider:            row.Provider,
-			Source:              row.Source,
-			AuthIndex:           row.AuthIndex,
-			Failed:              row.Failed,
-			LatencyMS:           row.LatencyMS,
-			InputTokens:         row.InputTokens,
-			OutputTokens:        row.OutputTokens,
-			ReasoningTokens:     row.ReasoningTokens,
-			CachedTokens:        row.CachedTokens,
-			CacheReadTokens:     row.CacheReadTokens,
-			CacheCreationTokens: row.CacheCreationTokens,
-			TotalTokens:         row.TotalTokens,
-		})
+		result = append(result, mapUsageEventRecord(row))
 	}
 	return &servicedto.UsageEventsPage{Events: result, Models: page.Models, TotalCount: page.TotalCount, Page: page.Page, PageSize: page.PageSize, TotalPages: page.TotalPages}, nil
+}
+
+func mapUsageEventRecord(row repodto.UsageEventRecord) servicedto.UsageEventRecord {
+	return servicedto.UsageEventRecord{
+		ID:                  row.ID,
+		Timestamp:           row.Timestamp,
+		APIGroupKey:         row.APIGroupKey,
+		Model:               row.Model,
+		ReasoningEffort:     row.ReasoningEffort,
+		AuthType:            row.AuthType,
+		RequestID:           row.RequestID,
+		Provider:            row.Provider,
+		Source:              row.Source,
+		AuthIndex:           row.AuthIndex,
+		Failed:              row.Failed,
+		LatencyMS:           row.LatencyMS,
+		InputTokens:         row.InputTokens,
+		OutputTokens:        row.OutputTokens,
+		ReasoningTokens:     row.ReasoningTokens,
+		CachedTokens:        row.CachedTokens,
+		CacheReadTokens:     row.CacheReadTokens,
+		CacheCreationTokens: row.CacheCreationTokens,
+		TotalTokens:         row.TotalTokens,
+	}
 }
 
 // usageRequestDetailSourceCLIProxyAPI 标记详情缓存来源，统一 lazy fetch 与同步期预取的写入值。

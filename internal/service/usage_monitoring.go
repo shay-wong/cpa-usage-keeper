@@ -307,19 +307,21 @@ func buildMonitoringFailureAnalysis(rows []repository.UsageMonitoringFailureStat
 func buildMonitoringRequestLogs(events []repodto.UsageEventRecord, limit int) []UsageMonitoringRequestLog {
 	logs := make([]UsageMonitoringRequestLog, 0, len(events))
 	for _, event := range events {
+		row := mapUsageEventRecord(event)
 		logs = append(logs, UsageMonitoringRequestLog{
-			ID:              event.ID,
-			Timestamp:       event.Timestamp.UTC(),
-			Model:           normalizeMonitoringDimension(event.Model),
-			Source:          event.Source,
-			AuthIndex:       event.AuthIndex,
-			Failed:          event.Failed,
-			LatencyMS:       event.LatencyMS,
-			InputTokens:     event.InputTokens,
-			OutputTokens:    event.OutputTokens,
-			ReasoningTokens: event.ReasoningTokens,
-			CachedTokens:    event.CachedTokens,
-			TotalTokens:     event.TotalTokens,
+			ID:              row.ID,
+			Timestamp:       row.Timestamp.UTC(),
+			Model:           normalizeMonitoringDimension(row.Model),
+			ReasoningEffort: strings.TrimSpace(row.ReasoningEffort),
+			Source:          row.Source,
+			AuthIndex:       row.AuthIndex,
+			Failed:          row.Failed,
+			LatencyMS:       row.LatencyMS,
+			InputTokens:     row.InputTokens,
+			OutputTokens:    row.OutputTokens,
+			ReasoningTokens: row.ReasoningTokens,
+			CachedTokens:    row.CachedTokens,
+			TotalTokens:     row.TotalTokens,
 		})
 		if len(logs) >= limit {
 			break

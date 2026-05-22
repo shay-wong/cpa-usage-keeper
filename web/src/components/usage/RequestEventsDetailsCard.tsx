@@ -346,6 +346,68 @@ export function RequestEventTableRow({
   );
 }
 
+interface RequestEventsTableProps {
+  rows: RequestEventTileRow[];
+  canOpenDetail: (row: RequestEventTileRow) => boolean;
+  showLatency: boolean;
+  showCost?: boolean;
+  latencyHint?: string;
+  t: RequestEventsTranslate;
+  onOpenDetail?: (row: RequestEventTileRow) => void;
+  footer?: React.ReactNode;
+}
+
+export function RequestEventsTable({
+  rows,
+  canOpenDetail,
+  showLatency,
+  showCost = true,
+  latencyHint,
+  t,
+  onOpenDetail,
+  footer,
+}: RequestEventsTableProps) {
+  return (
+    <div className={styles.requestEventsTableFrame}>
+      <div className={styles.requestEventsTableScroll}>
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>{t('usage_stats.request_events_timestamp')}</th>
+              <th>{t('usage_stats.model_name')}</th>
+              <th>{t('usage_stats.reasoning_effort')}</th>
+              <th>{t('usage_stats.request_events_source')}</th>
+              <th>{t('usage_stats.request_events_result')}</th>
+              {showLatency && <th title={latencyHint}>{t('usage_stats.time')}</th>}
+              <th>{t('usage_stats.input_tokens')}</th>
+              <th>{t('usage_stats.output_tokens')}</th>
+              <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>
+              <th>{t('usage_stats.cached_tokens')}</th>
+              <th>{t('usage_stats.cache_rate')}</th>
+              <th>{t('usage_stats.total_tokens')}</th>
+              {showCost && <th>{t('usage_stats.total_cost')}</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <RequestEventTableRow
+                key={row.id}
+                row={row}
+                canOpenDetail={canOpenDetail(row)}
+                showLatency={showLatency}
+                showCost={showCost}
+                t={t}
+                onOpenDetail={onOpenDetail}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {footer ? <div className={styles.requestEventsTableFooter}>{footer}</div> : null}
+    </div>
+  );
+}
+
 export function RequestEventsDetailsCard({
   events,
   loading,
@@ -690,59 +752,33 @@ export function RequestEventsDetailsCard({
           description={t('usage_stats.request_events_empty_desc')}
         />
       ) : (
-        <>
-          <div className={styles.requestEventsTableWrapper}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>{t('usage_stats.request_events_timestamp')}</th>
-                  <th>{t('usage_stats.model_name')}</th>
-                  <th>{t('usage_stats.reasoning_effort')}</th>
-                  <th>{t('usage_stats.request_events_source')}</th>
-                  <th>{t('usage_stats.request_events_result')}</th>
-                  {hasLatencyData && <th title={latencyHint}>{t('usage_stats.time')}</th>}
-                  <th>{t('usage_stats.input_tokens')}</th>
-                  <th>{t('usage_stats.output_tokens')}</th>
-                  <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>
-                  <th>{t('usage_stats.cached_tokens')}</th>
-                  <th>{t('usage_stats.cache_rate')}</th>
-                  <th>{t('usage_stats.total_tokens')}</th>
-                  <th>{t('usage_stats.total_cost')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <RequestEventTableRow
-                    key={row.id}
-                    row={row}
-                    canOpenDetail={canOpenRequestDetail(row)}
-                    showLatency={hasLatencyData}
-                    t={t}
-                    onOpenDetail={handleOpenRequestDetail}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className={styles.requestEventsPaginationFooter}>
-            <div className={styles.requestEventsPaginationControls}>
-              <label className={styles.requestEventsPageSizeControl}>
-                <span>{t('usage_stats.request_events_rows_per_page')}</span>
-                <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} disabled={loading}>
-                  {pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                </select>
-              </label>
-              <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page - 1)} disabled={loading || safePage <= 1}>
-                {t('usage_stats.request_events_previous_page')}
-              </button>
-              <span className={styles.requestEventsPaginationPage}>{pageLabel}</span>
-              <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page + 1)} disabled={loading || safeTotalPages === 0 || safePage >= safeTotalPages}>
-                {t('usage_stats.request_events_next_page')}
-              </button>
+        <RequestEventsTable
+          rows={rows}
+          canOpenDetail={canOpenRequestDetail}
+          showLatency={hasLatencyData}
+          latencyHint={latencyHint}
+          t={t}
+          onOpenDetail={handleOpenRequestDetail}
+          footer={(
+            <div className={styles.requestEventsPaginationFooter}>
+              <div className={styles.requestEventsPaginationControls}>
+                <label className={styles.requestEventsPageSizeControl}>
+                  <span>{t('usage_stats.request_events_rows_per_page')}</span>
+                  <select value={pageSize} onChange={(event) => onPageSizeChange(Number(event.target.value))} disabled={loading}>
+                    {pageSizeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                  </select>
+                </label>
+                <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page - 1)} disabled={loading || safePage <= 1}>
+                  {t('usage_stats.request_events_previous_page')}
+                </button>
+                <span className={styles.requestEventsPaginationPage}>{pageLabel}</span>
+                <button type="button" className={styles.requestEventsPagerButton} onClick={() => onPageChange(page + 1)} disabled={loading || safeTotalPages === 0 || safePage >= safeTotalPages}>
+                  {t('usage_stats.request_events_next_page')}
+                </button>
+              </div>
             </div>
-          </div>
-        </>
+          )}
+        />
       )}
     </Card>
   );

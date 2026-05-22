@@ -34,7 +34,7 @@ import {
   formatRequestEventTimestamp,
   getRequestDetailErrorKey,
   RequestDetailStructuredView,
-  RequestEventTableRow,
+  RequestEventsTable,
   type RequestEventTileRow,
 } from '../RequestEventsDetailsCard';
 import { useThemeStore } from '@/stores';
@@ -192,7 +192,7 @@ function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: R
     timestampMs: Date.parse(log.timestamp) || 0,
     timestampLabel: formatRequestEventTimestamp(log.timestamp),
     model: log.model || '-',
-    reasoningEffort: '-',
+    reasoningEffort: String(log.reasoning_effort ?? '').trim() || '-',
     sourceRaw: log.source_key || source,
     source,
     sourceTitle: [source, sourceType].filter(Boolean).join(' · '),
@@ -596,8 +596,6 @@ export function MonitoringCenterTab({
   }, []);
 
   const resetRequestLogPage = () => setRequestLogPage(1);
-
-  const canOpenRequestLogDetail = (log: UsageMonitoringRequestLog): boolean => Boolean(getRequestLogEventID(log));
 
   const handleOpenRequestLogDetail = (log: UsageMonitoringRequestLog) => {
     const usageEventID = getRequestLogEventID(log);
@@ -1568,77 +1566,52 @@ export function MonitoringCenterTab({
             {selectedRequestLog ? (
               renderRequestLogDetail()
             ) : requestLogs.length > 0 ? (
-              <>
-                <div className={`${styles.tableWrapper} ${styles.requestLogTableWrapper}`.trim()}>
-                  <table className={`${styles.table} ${styles.requestLogTable}`.trim()}>
-                    <thead>
-                      <tr>
-                        <th>{t('usage_stats.request_events_timestamp')}</th>
-                        <th>{t('usage_stats.model_name')}</th>
-                        <th>{t('usage_stats.request_events_source')}</th>
-                        <th>{t('usage_stats.request_events_result')}</th>
-                        <th>{t('usage_stats.time')}</th>
-                        <th>{t('usage_stats.input_tokens')}</th>
-                        <th>{t('usage_stats.output_tokens')}</th>
-                        <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>
-                        <th>{t('usage_stats.cached_tokens')}</th>
-                        <th>{t('usage_stats.cache_rate')}</th>
-                        <th>{t('usage_stats.total_tokens')}</th>
-                        <th>{t('usage_stats.total_cost')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedRequestLogs.map((log) => {
-                        const row = buildRequestEventTileRow(log, modelPrices);
-                        return (
-                          <RequestEventTableRow
-                            key={row.id}
-                            row={row}
-                            canOpenDetail={canOpenRequestLogDetail(log)}
-                            showLatency
-                            showCost
-                            t={t}
-                            onOpenDetail={() => handleOpenRequestLogDetail(log)}
-                          />
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                <div className={styles.pagination}>
-                  <Select
-                    value={String(requestLogPageSize)}
-                    options={requestLogPageSizeOptions(t)}
-                    onChange={(value) => {
-                      setRequestLogPageSize(Number(value) as (typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]);
-                      resetRequestLogPage();
-                    }}
-                    className={`${styles.monitoringSelect} ${styles.pageSizeSelect}`}
-                    ariaLabel={t('usage_stats.request_events_rows_per_page')}
-                    fullWidth={false}
-                    dropdownMinWidth={132}
-                  />
-                  <button
-                    type="button"
-                    className={styles.pageButton}
-                    disabled={currentRequestLogPage <= 1}
-                    onClick={() => setRequestLogPage((page) => Math.max(1, page - 1))}
-                  >
-                    {t('usage_stats.request_events_previous_page')}
-                  </button>
-                  <span className={styles.pageStatus}>
-                    {t('usage_stats.request_events_page_label', { page: currentRequestLogPage, totalPages: requestLogTotalPages })}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.pageButton}
-                    disabled={currentRequestLogPage >= requestLogTotalPages}
-                    onClick={() => setRequestLogPage((page) => Math.min(requestLogTotalPages, page + 1))}
-                  >
-                    {t('usage_stats.request_events_next_page')}
-                  </button>
-                </div>
-              </>
+              <RequestEventsTable
+                rows={pagedRequestLogs.map((log) => buildRequestEventTileRow(log, modelPrices))}
+                canOpenDetail={(row) => Boolean(row.usageEventID)}
+                showLatency
+                showCost
+                t={t}
+                onOpenDetail={(row) => {
+                  const log = pagedRequestLogs.find((item) => getRequestLogEventID(item) === row.usageEventID);
+                  if (log) handleOpenRequestLogDetail(log);
+                }}
+                footer={(
+                  <div className={styles.pagination}>
+                    <Select
+                      value={String(requestLogPageSize)}
+                      options={requestLogPageSizeOptions(t)}
+                      onChange={(value) => {
+                        setRequestLogPageSize(Number(value) as (typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]);
+                        resetRequestLogPage();
+                      }}
+                      className={`${styles.monitoringSelect} ${styles.pageSizeSelect}`}
+                      ariaLabel={t('usage_stats.request_events_rows_per_page')}
+                      fullWidth={false}
+                      dropdownMinWidth={132}
+                    />
+                    <button
+                      type="button"
+                      className={styles.pageButton}
+                      disabled={currentRequestLogPage <= 1}
+                      onClick={() => setRequestLogPage((page) => Math.max(1, page - 1))}
+                    >
+                      {t('usage_stats.request_events_previous_page')}
+                    </button>
+                    <span className={styles.pageStatus}>
+                      {t('usage_stats.request_events_page_label', { page: currentRequestLogPage, totalPages: requestLogTotalPages })}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.pageButton}
+                      disabled={currentRequestLogPage >= requestLogTotalPages}
+                      onClick={() => setRequestLogPage((page) => Math.min(requestLogTotalPages, page + 1))}
+                    >
+                      {t('usage_stats.request_events_next_page')}
+                    </button>
+                  </div>
+                )}
+              />
             ) : (
               <EmptyInline message={t('usage_stats.monitoring_request_logs_empty')} />
             )}

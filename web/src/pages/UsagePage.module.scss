@@ -2321,17 +2321,18 @@
 }
 
 .requestEventsPaginationFooter {
-  --usage-pagination-bar-height: 51px;
+  --usage-pagination-bar-height: 48px;
 
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex: 0 0 var(--usage-pagination-bar-height);
   gap: $spacing-md;
-  height: var(--usage-pagination-bar-height);
+  min-height: var(--usage-pagination-bar-height);
   box-sizing: border-box;
-  margin: $spacing-sm calc(-1 * #{$spacing-lg}) 0;
   padding: 0 #{$spacing-lg};
-  border-top: 1px solid var(--border-color);
 }
 
 .requestEventsPaginationControls {
@@ -2392,11 +2393,27 @@
 
 
 
-.requestEventsTableWrapper {
+.requestEventsTableFrame {
+  display: flex;
+  flex-direction: column;
+  height: clamp(560px, 72vh, 760px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: $radius-lg;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary)),
+    var(--bg-primary)
+  );
+  box-shadow:
+    0 18px 40px rgb(0 0 0 / 0.10),
+    inset 0 1px 0 rgb(255 255 255 / 0.03);
+}
+
+.requestEventsTableScroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
-  height: clamp(400px, 60vh, 600px);
-  border: 1px solid var(--border-color);
-  border-radius: $radius-md;
 
   .table {
     border-collapse: separate;
@@ -2408,6 +2425,21 @@
     top: 0;
     z-index: 2;
   }
+}
+
+.requestEventsTableFooter {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  padding: 14px $spacing-lg $spacing-lg;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-primary) 86%, transparent),
+      var(--bg-primary) 42%
+    );
+  box-shadow: 0 -12px 24px color-mix(in srgb, var(--bg-primary) 88%, transparent);
 }
 
 

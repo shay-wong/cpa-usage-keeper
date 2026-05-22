@@ -84,7 +84,7 @@ func TestUsageMonitoringReturnsResolvedPayload(t *testing.T) {
 			Models: []service.UsageMonitoringFailureModelStat{{Model: "claude-sonnet", Success: 1, Failure: 1, Total: 2, SuccessRate: 50, LastTimestamp: &requestTime, RecentRequests: []service.UsageMonitoringRecentRequest{{Timestamp: requestTime, Failed: true}}}},
 		}},
 		RequestLogs: []service.UsageMonitoringRequestLog{{
-			ID: 42, Timestamp: requestTime, Model: "claude-sonnet", Source: "sk-provider-key", AuthIndex: "2", Failed: true, LatencyMS: 321, InputTokens: 30, OutputTokens: 9, ReasoningTokens: 2, CachedTokens: 1, TotalTokens: 42,
+			ID: 42, Timestamp: requestTime, Model: "claude-sonnet", ReasoningEffort: "xhigh", Source: "sk-provider-key", AuthIndex: "2", Failed: true, LatencyMS: 321, InputTokens: 30, OutputTokens: 9, ReasoningTokens: 2, CachedTokens: 1, TotalTokens: 42,
 		}},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{ID: 2, Name: "OpenAI Mirror", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: "sk-provider-key", Type: "openai", Provider: "OpenAI Mirror"}}}})
@@ -109,7 +109,7 @@ func TestUsageMonitoringReturnsResolvedPayload(t *testing.T) {
 	if !contains(body, `"source_type":"openai"`) || !contains(body, `"source_key":"provider:2"`) {
 		t.Fatalf("expected resolved source metadata, got %s", body)
 	}
-	if !contains(body, `"request_logs":[{"id":42`) || !contains(body, `"latency_ms":321`) || !contains(body, `"total_tokens":42`) {
+	if !contains(body, `"request_logs":[{"id":42`) || !contains(body, `"latency_ms":321`) || !contains(body, `"reasoning_effort":"xhigh"`) || !contains(body, `"total_tokens":42`) {
 		t.Fatalf("expected request log fields, got %s", body)
 	}
 	if provider.monitoringCalls != 1 {

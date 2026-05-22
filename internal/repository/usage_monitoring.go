@@ -575,6 +575,7 @@ func mapUsageMonitoringEventRecords(events []entities.UsageEvent) []dto.UsageEve
 			Timestamp:       event.Timestamp.UTC(),
 			APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
 			Model:           strings.TrimSpace(event.Model),
+			ReasoningEffort: strings.TrimSpace(event.ReasoningEffort),
 			AuthType:        strings.TrimSpace(event.AuthType),
 			Provider:        strings.TrimSpace(event.Provider),
 			Source:          strings.TrimSpace(event.Source),
