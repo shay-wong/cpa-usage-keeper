@@ -318,6 +318,13 @@ func (s *usageService) fetchAndCacheUsageRequestDetail(ctx context.Context, requ
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return entities.UsageRequestDetail{}, false, err
 	}
+	settings, err := repository.GetDatabaseCleanupSettings(s.db)
+	if err != nil {
+		return entities.UsageRequestDetail{}, false, err
+	}
+	if !settings.RecordRequestDetails {
+		return entities.UsageRequestDetail{}, false, ErrUsageEventRequestUnavailable
+	}
 	if s.requestLogFetcher == nil {
 		return entities.UsageRequestDetail{}, false, ErrUsageEventRequestUpstream
 	}

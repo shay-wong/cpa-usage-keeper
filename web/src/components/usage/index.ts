@@ -4,6 +4,7 @@ export { ChartLineSelector } from './ChartLineSelector';
 export { AnalysisPanel } from './analysis';
 export { ApiKeySettingsCard } from './ApiKeySettingsCard';
 export { DatabaseCleanupSettingsCard } from './DatabaseCleanupSettingsCard';
+export { StorageSettingsCard } from './StorageSettingsCard';
 export { PriceSettingsCard } from './PriceSettingsCard';
 export { AiProviderCredentialsSection, AuthFileCredentialsSection, useCredentialsTabData } from './credentials';
 export { RequestEventsDetailsCard } from './RequestEventsDetailsCard';

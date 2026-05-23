@@ -1,12 +1,101 @@
 export interface DatabaseCleanupSettingsResponse {
+  record_request_details: boolean
+  cleanup_request_logs: boolean
+  cleanup_usage_logs: boolean
   request_log_retention_days: number
+  usage_log_retention_days: number
   max_database_size_mb: number
+  backup_request_logs: boolean
+  backup_usage_logs: boolean
+  backup_usage_identities: boolean
+  backup_api_keys: boolean
+  backup_redis_inbox: boolean
+  backup_model_prices: boolean
+  backup_hour: number
+  backup_minute: number
+  max_backup_count: number
   current_database_size_bytes?: number
 }
 
 export interface UpdateDatabaseCleanupSettingsRequest {
+  record_request_details: boolean
+  cleanup_request_logs: boolean
+  cleanup_usage_logs: boolean
   request_log_retention_days: number
+  usage_log_retention_days: number
   max_database_size_mb: number
+  backup_request_logs: boolean
+  backup_usage_logs: boolean
+  backup_usage_identities: boolean
+  backup_api_keys: boolean
+  backup_redis_inbox: boolean
+  backup_model_prices: boolean
+  backup_hour: number
+  backup_minute: number
+  max_backup_count: number
+}
+
+export interface StorageDomainInfo {
+  Key?: string
+  key?: string
+  Label?: string
+  label?: string
+  Description?: string
+  description?: string
+  TableNames?: string[]
+  table_names?: string[]
+  Rows?: number
+  rows?: number
+  SizeBytes?: number
+  size_bytes?: number
+}
+
+export interface BackupFileInfo {
+  ID?: string
+  id?: string
+  Path?: string
+  path?: string
+  FileName?: string
+  file_name?: string
+  SizeBytes?: number
+  size_bytes?: number
+  CreatedAt?: string
+  created_at?: string
+}
+
+export interface StorageInfoResponse {
+  Settings?: UpdateDatabaseCleanupSettingsRequest
+  settings?: UpdateDatabaseCleanupSettingsRequest
+  CurrentDatabaseSizeBytes?: number
+  current_database_size_bytes?: number
+  BackupTotalSizeBytes?: number
+  backup_total_size_bytes?: number
+  BackupCount?: number
+  backup_count?: number
+  Domains?: StorageDomainInfo[]
+  domains?: StorageDomainInfo[]
+  Backups?: BackupFileInfo[]
+  backups?: BackupFileInfo[]
+}
+
+export interface CreateBackupRequest {
+  request_logs: boolean
+  usage_logs: boolean
+  usage_identities: boolean
+  api_keys: boolean
+  redis_inbox: boolean
+  model_prices: boolean
+}
+
+export interface RestoreBackupRequest {
+  id: string
+  request_logs: boolean
+  usage_logs: boolean
+  usage_identities: boolean
+  api_keys: boolean
+  redis_inbox: boolean
+  model_prices: boolean
+  skip_safety_backup: boolean
 }
 
 export type AuthRole = 'admin' | 'api_key_viewer'

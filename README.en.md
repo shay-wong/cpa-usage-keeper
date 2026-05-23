@@ -238,7 +238,7 @@ For first-time deployments, start with "Minimum required" and "Web access and re
 | `LOG_LEVEL` | No | `info` | Log level |
 | `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
 | `LOG_RETENTION_DAYS` | No | `7` | Log retention days; `0` disables cleanup |
-| `BACKUP_ENABLED` | No | `true` | Enable SQLite database backups |
+| `BACKUP_ENABLED` | No | `false` | Enable SQLite database backups |
 | `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
 | `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
 
@@ -254,6 +254,7 @@ Usually, HTTPS should be terminated at nginx, Caddy, or another reverse proxy. S
 
 Security and data notes:
 
+- The Storage tab shows database and backup usage, configures request-log/usage-log cleanup scopes, backup scopes, backup time, maximum backup count, and restores backups by data scope.
 - SQLite database backups store original data from the application database, and backup files are not encrypted.
 - Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but raw database values are unchanged.
 - For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.

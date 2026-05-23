@@ -141,7 +141,7 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, err
 	}
 
-	backupEnabled, err := getBool("BACKUP_ENABLED", true)
+	backupEnabled, err := getBool("BACKUP_ENABLED", false)
 	if err != nil {
 		return nil, err
 	}

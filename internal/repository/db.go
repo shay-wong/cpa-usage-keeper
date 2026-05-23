@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"cpa-usage-keeper/internal/repository/dto"
 	"fmt"
 	"os"
@@ -153,10 +154,10 @@ func InsertUsageEvents(db *gorm.DB, events []entities.UsageEvent) (int, int, err
 // CleanupStorage 是每日维护任务的统一仓储清理入口：先清 Redis inbox，再清 Overview health 细粒度统计，最后执行 VACUUM。
 // VACUUM 必须在删除完成后单独执行，任何一步失败都会停止后续步骤并把已完成部分的结果返回给上层日志。
 func CleanupStorage(db *gorm.DB, now time.Time) (dto.StorageCleanupResult, error) {
-	return CleanupStorageWithSettings(db, now, dto.DatabaseCleanupSettingsInput{}, "")
+	return CleanupStorageWithSettings(context.Background(), db, now, dto.DatabaseCleanupSettingsInput{}, "")
 }
 
-func CleanupStorageWithSettings(db *gorm.DB, now time.Time, settings dto.DatabaseCleanupSettingsInput, sqlitePath string) (dto.StorageCleanupResult, error) {
+func CleanupStorageWithSettings(ctx context.Context, db *gorm.DB, now time.Time, settings dto.DatabaseCleanupSettingsInput, sqlitePath string) (dto.StorageCleanupResult, error) {
 	redisResult, err := CleanupRedisUsageInbox(db, now)
 	if err != nil {
 		return dto.StorageCleanupResult{RedisInbox: redisResult}, err
@@ -165,15 +166,19 @@ func CleanupStorageWithSettings(db *gorm.DB, now time.Time, settings dto.Databas
 	if err != nil {
 		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult}, err
 	}
+	usageEventResult, err := CleanupUsageEvents(ctx, db, settings, now, sqlitePath)
+	if err != nil {
+		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult, UsageEvent: usageEventResult}, err
+	}
 	// Health stats 只服务最近窗口展示，过期数据在每日维护中清掉，避免表无限增长。
 	if err := CleanupUsageOverviewHealthStats(db, now); err != nil {
-		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult}, err
+		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult, UsageEvent: usageEventResult}, err
 	}
 	// SQLite 删除不会立即缩小文件，维护窗口最后统一 VACUUM。
 	if err := db.Exec("VACUUM").Error; err != nil {
-		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult}, err
+		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult, UsageEvent: usageEventResult}, err
 	}
-	return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult}, nil
+	return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult, UsageEvent: usageEventResult}, nil
 }
 
 // Vacuum 提供单独的 SQLite 收缩入口，供需要只做文件整理的调用方使用。

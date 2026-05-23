@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchDatabaseCleanupSettings, fetchKeyOverview, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestDetail, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, refreshUsageQuotas, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from './api';
+import { appPath, createStorageBackup, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchDatabaseCleanupSettings, fetchKeyOverview, fetchStorageInfo, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestDetail, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, refreshUsageQuotas, restoreStorageBackup, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -476,19 +476,32 @@ describe('fetchUsageEvents', () => {
 
   it('loads and updates database cleanup settings', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const nextSettings = {
+      record_request_details: true,
+      cleanup_request_logs: true,
+      cleanup_usage_logs: false,
+      request_log_retention_days: 7,
+      usage_log_retention_days: 0,
+      max_database_size_mb: 256,
+      backup_request_logs: false,
+      backup_usage_logs: true,
+      backup_hour: 4,
+      backup_minute: 0,
+      max_backup_count: 7,
+    };
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ request_log_retention_days: 30, max_database_size_mb: 512, current_database_size_bytes: 3145728 }),
+        json: async () => ({ ...nextSettings, request_log_retention_days: 30, max_database_size_mb: 512, current_database_size_bytes: 3145728 }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ request_log_retention_days: 7, max_database_size_mb: 256, current_database_size_bytes: 3145728 }),
+        json: async () => ({ ...nextSettings, current_database_size_bytes: 3145728 }),
       } as Response);
     const signal = new AbortController().signal;
 
     const loaded = await fetchDatabaseCleanupSettings(signal);
-    const updated = await updateDatabaseCleanupSettings({ request_log_retention_days: 7, max_database_size_mb: 256 });
+    const updated = await updateDatabaseCleanupSettings(nextSettings);
 
     const [loadUrl, loadInit] = fetchMock.mock.calls[0];
     const [updateUrl, updateInit] = fetchMock.mock.calls[1];
@@ -501,7 +514,63 @@ describe('fetchUsageEvents', () => {
     expect(new URL(String(updateUrl), 'http://localhost').pathname).toBe('/api/v1/settings/database');
     expect(updateInit).toMatchObject({ credentials: 'include', method: 'PUT' });
     expect(updateInit?.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(updateInit?.body).toBe(JSON.stringify({ request_log_retention_days: 7, max_database_size_mb: 256 }));
+    expect(updateInit?.body).toBe(JSON.stringify(nextSettings));
+  });
+
+  it('loads storage info and posts backup operations', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          settings: {
+            record_request_details: true,
+            cleanup_request_logs: true,
+            cleanup_usage_logs: false,
+            request_log_retention_days: 0,
+            usage_log_retention_days: 0,
+            max_database_size_mb: 0,
+            backup_request_logs: false,
+            backup_usage_logs: true,
+            backup_usage_identities: true,
+            backup_api_keys: true,
+            backup_redis_inbox: false,
+            backup_model_prices: true,
+            backup_hour: 4,
+            backup_minute: 0,
+            max_backup_count: 7,
+          },
+          current_database_size_bytes: 1024,
+          backup_total_size_bytes: 2048,
+          backup_count: 1,
+          domains: [{ key: 'usage_logs', label: 'Usage Logs', rows: 3, size_bytes: 4096, table_names: ['usage_events'] }],
+          backups: [{ id: '2026-05-24/database_20260524_040000', file_name: 'database_20260524_040000.db', size_bytes: 2048 }],
+        }),
+      } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response);
+    const signal = new AbortController().signal;
+
+    const info = await fetchStorageInfo(signal);
+    await createStorageBackup({ request_logs: false, usage_logs: true, usage_identities: true, api_keys: true, redis_inbox: false, model_prices: true });
+    await restoreStorageBackup({ id: '2026-05-24/database_20260524_040000', request_logs: false, usage_logs: true, usage_identities: true, api_keys: true, redis_inbox: false, model_prices: true, skip_safety_backup: false });
+
+    const [infoUrl, infoInit] = fetchMock.mock.calls[0];
+    const [backupUrl, backupInit] = fetchMock.mock.calls[1];
+    const [restoreUrl, restoreInit] = fetchMock.mock.calls[2];
+
+    expect(info.current_database_size_bytes).toBe(1024);
+    expect(info.backup_total_size_bytes).toBe(2048);
+    expect(new URL(String(infoUrl), 'http://localhost').pathname).toBe('/api/v1/settings/storage');
+    expect(infoInit).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(new URL(String(backupUrl), 'http://localhost').pathname).toBe('/api/v1/settings/storage/backups');
+    expect(backupInit).toMatchObject({ credentials: 'include', method: 'POST' });
+    expect(backupInit?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(backupInit?.body).toBe(JSON.stringify({ request_logs: false, usage_logs: true, usage_identities: true, api_keys: true, redis_inbox: false, model_prices: true }));
+    expect(new URL(String(restoreUrl), 'http://localhost').pathname).toBe('/api/v1/settings/storage/restore');
+    expect(restoreInit).toMatchObject({ credentials: 'include', method: 'POST' });
+    expect(restoreInit?.headers).toEqual({ 'Content-Type': 'application/json' });
+    expect(restoreInit?.body).toBe(JSON.stringify({ id: '2026-05-24/database_20260524_040000', request_logs: false, usage_logs: true, usage_identities: true, api_keys: true, redis_inbox: false, model_prices: true, skip_safety_backup: false }));
   });
 
   it('loads update check status from the protected endpoint', async () => {

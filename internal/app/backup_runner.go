@@ -9,15 +9,22 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/backup"
+	"cpa-usage-keeper/internal/service"
 	"github.com/sirupsen/logrus"
 )
 
 type DatabaseBackupWriter interface {
 	WriteDatabase(context.Context, time.Time) (string, error)
+	WriteDatabaseWithOptions(context.Context, time.Time, backup.Options) (string, error)
 }
 
 type DatabaseBackupCleaner interface {
 	Cleanup(retentionDays int, now time.Time) (int, error)
+	CleanupByMaxCount(maxCount int) (int, error)
+}
+
+type DatabaseBackupSettingsProvider interface {
+	GetDatabaseCleanupSettings(context.Context) (service.DatabaseCleanupSettingsSnapshot, error)
 }
 
 type DatabaseBackupHistory interface {
@@ -38,12 +45,20 @@ func (s *databaseBackupStore) WriteDatabase(ctx context.Context, backupAt time.T
 	return s.writer.WriteDatabase(ctx, s.db, backupAt)
 }
 
+func (s *databaseBackupStore) WriteDatabaseWithOptions(ctx context.Context, backupAt time.Time, options backup.Options) (string, error) {
+	return s.writer.WriteDatabaseWithOptions(ctx, s.db, backupAt, options)
+}
+
 func (s *databaseBackupStore) Cleanup(retentionDays int, now time.Time) (int, error) {
 	return s.writer.Cleanup(retentionDays, now)
 }
 
+func (s *databaseBackupStore) CleanupByMaxCount(maxCount int) (int, error) {
+	return backup.CleanupByMaxCount(s.dir, maxCount)
+}
+
 func (s *databaseBackupStore) LastBackupAt() (time.Time, bool, error) {
-	files, err := backup.ListFiles(s.dir)
+	files, err := backup.ListCleanupEligibleFiles(s.dir)
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -64,6 +79,7 @@ type DatabaseBackupRunner struct {
 	writer        DatabaseBackupWriter
 	cleaner       DatabaseBackupCleaner
 	history       DatabaseBackupHistory
+	settings      DatabaseBackupSettingsProvider
 	interval      time.Duration
 	retentionDays int
 	lastBackupAt  time.Time
@@ -78,11 +94,16 @@ type DatabaseBackupRunner struct {
 }
 
 func NewDatabaseBackupRunner(writer DatabaseBackupWriter, cleaner DatabaseBackupCleaner, interval time.Duration, retentionDays int) *DatabaseBackupRunner {
+	return NewDatabaseBackupRunnerWithSettings(writer, cleaner, nil, interval, retentionDays)
+}
+
+func NewDatabaseBackupRunnerWithSettings(writer DatabaseBackupWriter, cleaner DatabaseBackupCleaner, settings DatabaseBackupSettingsProvider, interval time.Duration, retentionDays int) *DatabaseBackupRunner {
 	history, _ := writer.(DatabaseBackupHistory)
 	return &DatabaseBackupRunner{
 		writer:        writer,
 		cleaner:       cleaner,
 		history:       history,
+		settings:      settings,
 		interval:      interval,
 		retentionDays: retentionDays,
 		retryDelay:    15 * time.Minute,
@@ -101,7 +122,7 @@ func (r *DatabaseBackupRunner) Run(ctx context.Context) error {
 
 	for {
 		now := r.now()
-		delay := r.nextDelay(now)
+		delay := r.nextDelay(ctx, now)
 		if delay < 0 {
 			delay = 0
 		}
@@ -109,7 +130,15 @@ func (r *DatabaseBackupRunner) Run(ctx context.Context) error {
 			return nil
 		}
 		backupAt := r.now()
-		if _, err := r.writer.WriteDatabase(ctx, backupAt); err != nil {
+		settings := r.currentSettings(ctx)
+		if _, err := r.writer.WriteDatabaseWithOptions(ctx, backupAt, backup.Options{
+			RequestLogs:     settings.Settings.BackupRequestLogs,
+			UsageLogs:       settings.Settings.BackupUsageLogs,
+			UsageIdentities: settings.Settings.BackupUsageIdentities,
+			APIKeys:         settings.Settings.BackupAPIKeys,
+			RedisInbox:      settings.Settings.BackupRedisInbox,
+			ModelPrices:     settings.Settings.BackupModelPrices,
+		}); err != nil {
 			logrus.WithError(err).Error("database backup failed")
 			r.retryAttempts++
 			r.pendingRetry = r.retryAttempts <= 3
@@ -118,16 +147,17 @@ func (r *DatabaseBackupRunner) Run(ctx context.Context) error {
 			r.retryAttempts = 0
 			r.pendingRetry = false
 		}
-		r.cleanup(backupAt)
+		r.cleanup(backupAt, settings.Settings.MaxBackupCount)
 	}
 }
 
-func (r *DatabaseBackupRunner) nextDelay(now time.Time) time.Duration {
+func (r *DatabaseBackupRunner) nextDelay(ctx context.Context, now time.Time) time.Duration {
 	if r.pendingRetry {
 		return r.retryDelay
 	}
+	settings := r.currentSettings(ctx)
 	if r.usesDailySchedule() {
-		return r.nextDailyDelay(now)
+		return r.nextDailyDelay(now, settings.Settings.BackupHour, settings.Settings.BackupMinute)
 	}
 	lastBackupAt, ok := r.lastBackupAtFromHistory()
 	if !ok {
@@ -136,21 +166,53 @@ func (r *DatabaseBackupRunner) nextDelay(now time.Time) time.Duration {
 	return lastBackupAt.Add(r.interval).Sub(now)
 }
 
-func (r *DatabaseBackupRunner) cleanup(now time.Time) {
-	if r.cleaner == nil || r.retentionDays <= 0 {
+func (r *DatabaseBackupRunner) cleanup(now time.Time, maxBackupCount int) {
+	if r.cleaner == nil {
 		return
 	}
-	if _, err := r.cleaner.Cleanup(r.retentionDays, now); err != nil {
-		logrus.WithError(err).Error("database backup cleanup failed")
+	if r.retentionDays > 0 {
+		if _, err := r.cleaner.Cleanup(r.retentionDays, now); err != nil {
+			logrus.WithError(err).Error("database backup cleanup failed")
+		}
+	}
+	if maxBackupCount > 0 {
+		if _, err := r.cleaner.CleanupByMaxCount(maxBackupCount); err != nil {
+			logrus.WithError(err).Error("database backup max count cleanup failed")
+		}
 	}
 }
 
-func (r *DatabaseBackupRunner) nextDailyDelay(now time.Time) time.Duration {
+func (r *DatabaseBackupRunner) currentSettings(ctx context.Context) service.DatabaseCleanupSettingsSnapshot {
+	settings := service.DatabaseCleanupSettingsSnapshot{}
+	settings.Settings.BackupUsageLogs = true
+	settings.Settings.BackupUsageIdentities = true
+	settings.Settings.BackupAPIKeys = true
+	settings.Settings.BackupModelPrices = true
+	settings.Settings.BackupHour = 4
+	settings.Settings.MaxBackupCount = 1
+	if r.settings == nil {
+		return settings
+	}
+	snapshot, err := r.settings.GetDatabaseCleanupSettings(ctx)
+	if err != nil {
+		logrus.WithError(err).Error("load database backup settings failed")
+		return settings
+	}
+	if snapshot.Settings.BackupHour < 0 || snapshot.Settings.BackupHour > 23 {
+		snapshot.Settings.BackupHour = 4
+	}
+	if snapshot.Settings.BackupMinute < 0 || snapshot.Settings.BackupMinute > 59 {
+		snapshot.Settings.BackupMinute = 0
+	}
+	return snapshot
+}
+
+func (r *DatabaseBackupRunner) nextDailyDelay(now time.Time, hour int, minute int) time.Duration {
 	localNow := now.In(time.Local)
-	nextBackupAt := nextDailyBackupAt(localNow)
+	nextBackupAt := nextDailyBackupAtAt(localNow, hour, minute)
 	if lastBackupAt, ok := r.lastBackupAtFromHistory(); ok {
 		lastLocalBackup := lastBackupAt.In(time.Local)
-		lastBackupDay := time.Date(lastLocalBackup.Year(), lastLocalBackup.Month(), lastLocalBackup.Day(), 4, 0, 0, 0, time.Local)
+		lastBackupDay := time.Date(lastLocalBackup.Year(), lastLocalBackup.Month(), lastLocalBackup.Day(), hour, minute, 0, 0, time.Local)
 		candidate := lastBackupDay.AddDate(0, 0, r.dailyScheduleDays())
 		if localNow.Before(candidate) {
 			nextBackupAt = candidate
@@ -181,8 +243,12 @@ func (r *DatabaseBackupRunner) lastBackupAtFromHistory() (time.Time, bool) {
 }
 
 func nextDailyBackupAt(now time.Time) time.Time {
+	return nextDailyBackupAtAt(now, 4, 0)
+}
+
+func nextDailyBackupAtAt(now time.Time, hour int, minute int) time.Time {
 	localNow := now.In(time.Local)
-	backupAt := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 4, 0, 0, 0, time.Local)
+	backupAt := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), hour, minute, 0, 0, time.Local)
 	if !localNow.Before(backupAt) {
 		backupAt = backupAt.AddDate(0, 0, 1)
 	}

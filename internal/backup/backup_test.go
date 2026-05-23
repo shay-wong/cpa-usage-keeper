@@ -226,6 +226,119 @@ func TestCleanupIgnoresMissingDirectory(t *testing.T) {
 	}
 }
 
+func TestApplyBackupOptionsFiltersUnselectedStorageDomains(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "backup.db")
+	db := openTestSQLiteDB(t, path)
+	createStorageDomainTables(t, db)
+	defer db.Close()
+
+	if err := applyBackupOptions(path, Options{APIKeys: true, RedisInbox: true, ModelPrices: true}); err != nil {
+		t.Fatalf("applyBackupOptions returned error: %v", err)
+	}
+
+	expectedRows := map[string]int64{
+		"usage_request_details":                  0,
+		"usage_events":                           0,
+		"usage_overview_hourly_stats":            0,
+		"usage_overview_daily_stats":             0,
+		"usage_overview_health_stats":            0,
+		"usage_overview_aggregation_checkpoints": 0,
+		"usage_identities":                       0,
+		"cpa_api_keys":                           1,
+		"redis_usage_inboxes":                    1,
+		"model_price_settings":                   1,
+	}
+	for table, expected := range expectedRows {
+		if got := storageTableCount(t, db, table); got != expected {
+			t.Fatalf("expected %s row count %d, got %d", table, expected, got)
+		}
+	}
+}
+
+func TestCleanupByMaxCountSkipsRestoreSafetyBackups(t *testing.T) {
+	root := t.TempDir()
+	dayDir := filepath.Join(root, "2026-05-24")
+	if err := os.MkdirAll(dayDir, 0o700); err != nil {
+		t.Fatalf("create day dir: %v", err)
+	}
+	oldRegular := filepath.Join(dayDir, "database_20260524T010000.db")
+	newRegular := filepath.Join(dayDir, "database_20260524T020000.db")
+	safety := filepath.Join(dayDir, "restore_safety_20260524T015000.db")
+	for _, path := range []string{oldRegular, newRegular, safety} {
+		if err := os.WriteFile(path, []byte("db"), 0o600); err != nil {
+			t.Fatalf("write backup %s: %v", path, err)
+		}
+	}
+
+	removed, err := CleanupByMaxCount(root, 1)
+	if err != nil {
+		t.Fatalf("CleanupByMaxCount returned error: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("expected one regular backup removed, got %d", removed)
+	}
+	if _, err := os.Stat(oldRegular); !os.IsNotExist(err) {
+		t.Fatalf("expected old regular backup removed, stat err %v", err)
+	}
+	for _, path := range []string{newRegular, safety} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected backup %s to remain: %v", path, err)
+		}
+	}
+}
+
+func createStorageDomainTables(t *testing.T, db *sql.DB) {
+	t.Helper()
+	statTables := []string{
+		"usage_request_details",
+		"usage_events",
+		"usage_overview_hourly_stats",
+		"usage_overview_daily_stats",
+		"usage_overview_health_stats",
+		"usage_overview_aggregation_checkpoints",
+		"cpa_api_keys",
+		"redis_usage_inboxes",
+		"model_price_settings",
+	}
+	for _, table := range statTables {
+		if _, err := db.Exec(`CREATE TABLE ` + table + ` (id INTEGER PRIMARY KEY)`); err != nil {
+			t.Fatalf("create %s: %v", table, err)
+		}
+		if _, err := db.Exec(`INSERT INTO ` + table + ` (id) VALUES (1)`); err != nil {
+			t.Fatalf("insert %s: %v", table, err)
+		}
+	}
+	if _, err := db.Exec(`CREATE TABLE usage_identities (
+		id INTEGER PRIMARY KEY,
+		total_requests INTEGER,
+		success_count INTEGER,
+		failure_count INTEGER,
+		input_tokens INTEGER,
+		output_tokens INTEGER,
+		reasoning_tokens INTEGER,
+		cached_tokens INTEGER,
+		total_tokens INTEGER,
+		last_aggregated_usage_event_id INTEGER,
+		first_used_at TEXT,
+		last_used_at TEXT,
+		stats_updated_at TEXT
+	)`); err != nil {
+		t.Fatalf("create usage_identities: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO usage_identities (id, total_requests) VALUES (1, 1)`); err != nil {
+		t.Fatalf("insert usage_identities: %v", err)
+	}
+}
+
+func storageTableCount(t *testing.T, db *sql.DB, table string) int64 {
+	t.Helper()
+	var count int64
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+		t.Fatalf("count %s: %v", table, err)
+	}
+	return count
+}
+
 func openTestSQLiteDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite3", path)

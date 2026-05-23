@@ -238,7 +238,7 @@ cp .env.example .env
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
 | `LOG_RETENTION_DAYS` | 否 | `7` | 日志保留天数；`0` 表示不自动清理 |
-| `BACKUP_ENABLED` | 否 | `true` | 是否启用 SQLite 数据库备份 |
+| `BACKUP_ENABLED` | 否 | `false` | 是否启用 SQLite 数据库备份 |
 | `BACKUP_INTERVAL` | 否 | `24h` | 数据库备份间隔 |
 | `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
 
@@ -254,6 +254,7 @@ cp .env.example .env
 
 安全与数据说明：
 
+- 存储页可查看数据库和备份占用，配置请求日志/用量日志清理范围、备份范围、备份时间、最大备份数，并按数据范围恢复备份。
 - SQLite 数据库备份会保存应用数据库中的原始数据，备份文件不做加密。
 - 面向浏览器的 API 会对 key-like source/lookup 字段做脱敏或稳定公开标识映射，但不会修改数据库原始值。
 - 公开部署建议开启 `AUTH_ENABLED=true`，并在反向代理层配置 HTTPS。

@@ -40,6 +40,8 @@ const (
 	migrationUsageOverviewRollupDimensions          = "20260518_usage_overview_rollup_dimensions"
 	migrationCreateDatabaseCleanupSettings          = "20260518_create_database_cleanup_settings"
 	migrationAddUsageEventReasoningEffort           = "20260519_add_usage_event_reasoning_effort"
+	migrationExtendDatabaseCleanupSettings          = "20260523_extend_database_cleanup_settings"
+	migrationExtendDatabaseCleanupBackupDomains     = "20260524_extend_database_cleanup_backup_domains"
 )
 
 type schemaMigration struct {
@@ -124,6 +126,8 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationUsageOverviewRollupDimensions, run: usageOverviewRollupDimensionsMigration, disableTransaction: true},
 		{version: migrationCreateDatabaseCleanupSettings, run: createDatabaseCleanupSettingsMigration},
 		{version: migrationAddUsageEventReasoningEffort, run: addUsageEventReasoningEffortMigration},
+		{version: migrationExtendDatabaseCleanupSettings, run: extendDatabaseCleanupSettingsMigration},
+		{version: migrationExtendDatabaseCleanupBackupDomains, run: extendDatabaseCleanupBackupDomainsMigration},
 	}
 }
 

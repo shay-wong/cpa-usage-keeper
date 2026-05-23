@@ -93,6 +93,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		IdleInterval: cfg.RedisQueueIdleInterval,
 		ErrorBackoff: cfg.RedisQueueErrorBackoff,
 	})
+	databaseSettingsService := service.NewDatabaseSettingsServiceWithBackupDir(db, cfg.SQLitePath, cfg.BackupDir)
 	var backupMaintenance *DatabaseBackupRunner
 	if cfg.BackupEnabled {
 		sqlDB, err := db.DB()
@@ -102,14 +103,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			return nil, err
 		}
 		backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
-		backupMaintenance = NewDatabaseBackupRunner(backupStore, backupStore, cfg.BackupInterval, cfg.BackupRetentionDays)
+		backupMaintenance = NewDatabaseBackupRunnerWithSettings(backupStore, backupStore, databaseSettingsService, cfg.BackupInterval, cfg.BackupRetentionDays)
 	}
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	usageService := service.NewUsageServiceWithRequestLogFetcher(db, cpaClient)
 	usageIdentityService := service.NewUsageIdentityService(db)
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
-	databaseSettingsService := service.NewDatabaseSettingsService(db, cfg.SQLitePath)
 	cpaPublicURL := cfg.CPAPublicURL
 	if cpaPublicURL == "" {
 		cpaPublicURL = cfg.CPABaseURL

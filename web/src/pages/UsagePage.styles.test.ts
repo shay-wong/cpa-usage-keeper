@@ -67,9 +67,9 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toContain("tab_analysis: 'API & Models'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 与模型'")
     expect(i18nSource).not.toContain("tab_analysis: 'API 與模型'")
-    expect(usagePageSource).toContain("const BASE_USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'settings'] as const")
+    expect(usagePageSource).toContain("const BASE_USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'storage', 'settings'] as const")
     expect(usagePageSource).toContain('const USAGE_TAB_OPTIONS = withDevUsageTabs(BASE_USAGE_TAB_OPTIONS)')
-    expect(usagePageDevTabsSource).toContain("const DEV_USAGE_TAB_ORDER = ['overview', DEV_USAGE_TAB_VALUE, 'analysis', 'events', 'credentials', 'settings'] as const")
+    expect(usagePageDevTabsSource).toContain("const DEV_USAGE_TAB_ORDER = ['overview', DEV_USAGE_TAB_VALUE, 'analysis', 'events', 'credentials', 'storage', 'settings'] as const")
   })
 
   it('keeps Sign out as the rightmost header action after Check Updates', () => {

@@ -102,8 +102,8 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.CPAPublicURL != "" {
 		t.Fatalf("expected default CPA public URL to be empty, got %q", cfg.CPAPublicURL)
 	}
-	if !cfg.BackupEnabled {
-		t.Fatal("expected backup to be enabled by default")
+	if cfg.BackupEnabled {
+		t.Fatal("expected backup to be disabled by default")
 	}
 	if cfg.WorkDir != filepath.Join(".", "data") {
 		t.Fatalf("expected default work dir ./data, got %s", cfg.WorkDir)

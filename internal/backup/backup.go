@@ -14,6 +14,33 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
+const (
+	// databaseBackupFilePrefix 标记普通自动/手动备份，按最大备份数纳入清理计数。
+	databaseBackupFilePrefix = "database_"
+	// restoreSafetyBackupFilePrefix 标记恢复前安全备份，避免最大备份数清理误删回滚点。
+	restoreSafetyBackupFilePrefix = "restore_safety_"
+)
+
+type Options struct {
+	RequestLogs     bool
+	UsageLogs       bool
+	UsageIdentities bool
+	APIKeys         bool
+	RedisInbox      bool
+	ModelPrices     bool
+}
+
+func (options Options) withDefaults() Options {
+	if !options.anyDomainEnabled() {
+		return Options{RequestLogs: true, UsageLogs: true, UsageIdentities: true, APIKeys: true, RedisInbox: true, ModelPrices: true}
+	}
+	return options
+}
+
+func (options Options) anyDomainEnabled() bool {
+	return options.RequestLogs || options.UsageLogs || options.UsageIdentities || options.APIKeys || options.RedisInbox || options.ModelPrices
+}
+
 type Writer struct {
 	dir string
 }
@@ -23,6 +50,19 @@ func NewWriter(dir string) *Writer {
 }
 
 func (w *Writer) WriteDatabase(ctx context.Context, db *sql.DB, backupAt time.Time) (string, error) {
+	return w.writeDatabaseWithPrefix(ctx, db, backupAt, Options{RequestLogs: true, UsageLogs: true, UsageIdentities: true, APIKeys: true, RedisInbox: true, ModelPrices: true}, databaseBackupFilePrefix)
+}
+
+func (w *Writer) WriteDatabaseWithOptions(ctx context.Context, db *sql.DB, backupAt time.Time, options Options) (string, error) {
+	return w.writeDatabaseWithPrefix(ctx, db, backupAt, options, databaseBackupFilePrefix)
+}
+
+// WriteRestoreSafetyBackup 创建恢复前回滚点，文件名避开最大备份数清理范围。
+func (w *Writer) WriteRestoreSafetyBackup(ctx context.Context, db *sql.DB, backupAt time.Time) (string, error) {
+	return w.writeDatabaseWithPrefix(ctx, db, backupAt, Options{RequestLogs: true, UsageLogs: true, UsageIdentities: true, APIKeys: true, RedisInbox: true, ModelPrices: true}, restoreSafetyBackupFilePrefix)
+}
+
+func (w *Writer) writeDatabaseWithPrefix(ctx context.Context, db *sql.DB, backupAt time.Time, options Options, filePrefix string) (string, error) {
 	if w == nil {
 		return "", fmt.Errorf("backup writer is nil")
 	}
@@ -32,6 +72,7 @@ func (w *Writer) WriteDatabase(ctx context.Context, db *sql.DB, backupAt time.Ti
 	if db == nil {
 		return "", fmt.Errorf("database is required")
 	}
+	options = options.withDefaults()
 
 	stamp := backupAt.In(time.Local)
 	if stamp.IsZero() {
@@ -45,11 +86,15 @@ func (w *Writer) WriteDatabase(ctx context.Context, db *sql.DB, backupAt time.Ti
 		return "", fmt.Errorf("restrict backup directory permissions: %w", err)
 	}
 
-	fileName := fmt.Sprintf("database_%s.db", stamp.Format("20060102T150405.000000000"))
+	fileName := fmt.Sprintf("%s%s.db", filePrefix, stamp.Format("20060102T150405.000000000"))
 	fullPath := filepath.Join(dayDir, fileName)
 	tempPath := fullPath + ".tmp"
 	_ = os.Remove(tempPath)
 	if err := copySQLiteDatabase(ctx, db, tempPath); err != nil {
+		_ = os.Remove(tempPath)
+		return "", err
+	}
+	if err := applyBackupOptions(tempPath, options); err != nil {
 		_ = os.Remove(tempPath)
 		return "", err
 	}
@@ -119,6 +164,73 @@ func copySQLiteDatabase(ctx context.Context, sourceDB *sql.DB, destPath string) 
 	})
 }
 
+func applyBackupOptions(path string, options Options) error {
+	backupDB, err := sql.Open("sqlite3", path)
+	if err != nil {
+		return fmt.Errorf("open backup database for filtering: %w", err)
+	}
+	defer backupDB.Close()
+	if !options.RequestLogs {
+		if _, err := backupDB.Exec(`DELETE FROM usage_request_details`); err != nil {
+			return fmt.Errorf("remove request logs from backup: %w", err)
+		}
+	}
+	if !options.UsageLogs {
+		for _, table := range []string{
+			"usage_events",
+			"usage_overview_hourly_stats",
+			"usage_overview_daily_stats",
+			"usage_overview_health_stats",
+			"usage_overview_aggregation_checkpoints",
+		} {
+			if _, err := backupDB.Exec(`DELETE FROM ` + table); err != nil {
+				return fmt.Errorf("remove usage logs from backup: %w", err)
+			}
+		}
+		if _, err := backupDB.Exec(`
+			UPDATE usage_identities
+			SET total_requests = 0,
+				success_count = 0,
+				failure_count = 0,
+				input_tokens = 0,
+				output_tokens = 0,
+				reasoning_tokens = 0,
+				cached_tokens = 0,
+				total_tokens = 0,
+				last_aggregated_usage_event_id = 0,
+				first_used_at = NULL,
+				last_used_at = NULL,
+				stats_updated_at = NULL
+		`); err != nil {
+			return fmt.Errorf("reset usage identity stats in backup: %w", err)
+		}
+	}
+	if !options.UsageIdentities {
+		if _, err := backupDB.Exec(`DELETE FROM usage_identities`); err != nil {
+			return fmt.Errorf("remove usage identities from backup: %w", err)
+		}
+	}
+	if !options.APIKeys {
+		if _, err := backupDB.Exec(`DELETE FROM cpa_api_keys`); err != nil {
+			return fmt.Errorf("remove API keys from backup: %w", err)
+		}
+	}
+	if !options.RedisInbox {
+		if _, err := backupDB.Exec(`DELETE FROM redis_usage_inboxes`); err != nil {
+			return fmt.Errorf("remove Redis inbox from backup: %w", err)
+		}
+	}
+	if !options.ModelPrices {
+		if _, err := backupDB.Exec(`DELETE FROM model_price_settings`); err != nil {
+			return fmt.Errorf("remove model prices from backup: %w", err)
+		}
+	}
+	if _, err := backupDB.Exec(`VACUUM`); err != nil {
+		return fmt.Errorf("compact filtered backup: %w", err)
+	}
+	return nil
+}
+
 func (w *Writer) Cleanup(retentionDays int, now time.Time) (int, error) {
 	if w == nil {
 		return 0, fmt.Errorf("backup writer is nil")
@@ -161,6 +273,97 @@ func Cleanup(dir string, retentionDays int, now time.Time) (int, error) {
 	}
 
 	return removed, nil
+}
+
+func CleanupByMaxCount(dir string, maxCount int) (int, error) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" || maxCount <= 0 {
+		return 0, nil
+	}
+	files, err := ListCleanupEligibleFiles(dir)
+	if err != nil {
+		return 0, err
+	}
+	if len(files) <= maxCount {
+		return 0, nil
+	}
+	removed := 0
+	for _, file := range files[:len(files)-maxCount] {
+		if err := os.Remove(file); err != nil {
+			return removed, fmt.Errorf("remove overflow backup file %s: %w", filepath.Base(file), err)
+		}
+		removed++
+	}
+	if err := removeEmptyBackupDirectories(dir); err != nil {
+		return removed, err
+	}
+	return removed, nil
+}
+
+// ListCleanupEligibleFiles 只返回普通备份，恢复安全备份不参与自动数量清理。
+func ListCleanupEligibleFiles(dir string) ([]string, error) {
+	files, err := ListFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]string, 0, len(files))
+	for _, file := range files {
+		if strings.HasPrefix(filepath.Base(file), databaseBackupFilePrefix) {
+			items = append(items, file)
+		}
+	}
+	return items, nil
+}
+
+func DirectorySize(dir string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(strings.TrimSpace(dir), func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return total, nil
+}
+
+func removeEmptyBackupDirectories(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read backup directory for empty cleanup: %w", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		children, err := os.ReadDir(path)
+		if err != nil {
+			return fmt.Errorf("read backup day directory %s: %w", entry.Name(), err)
+		}
+		if len(children) == 0 {
+			if err := os.Remove(path); err != nil {
+				return fmt.Errorf("remove empty backup day directory %s: %w", entry.Name(), err)
+			}
+		}
+	}
+	return nil
 }
 
 func ListFiles(dir string) ([]string, error) {

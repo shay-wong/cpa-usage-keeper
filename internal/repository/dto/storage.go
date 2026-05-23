@@ -4,4 +4,5 @@ package dto
 type StorageCleanupResult struct {
 	RedisInbox         RedisUsageInboxCleanupResult
 	UsageRequestDetail UsageRequestDetailCleanupResult
+	UsageEvent         UsageEventCleanupResult
 }

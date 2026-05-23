@@ -258,6 +258,7 @@ describe('UsagePage active tab auto-refresh guard', () => {
   it('keeps Overview auto-refresh enabled and does not auto-refresh other tabs', () => {
     expect(shouldAutoRefreshUsageTab({ activeTab: 'overview', eventsPage: 2 })).toBe(true);
     expect(shouldAutoRefreshUsageTab({ activeTab: 'analysis', eventsPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'storage', eventsPage: 1 })).toBe(false);
     expect(shouldAutoRefreshUsageTab({ activeTab: 'settings', eventsPage: 1 })).toBe(false);
   });
 });
@@ -326,6 +327,7 @@ for (const [tab, expected] of [
   ['analysis', true],
   ['events', true],
   ['credentials', false],
+  ['storage', false],
   ['settings', false],
 ] as const) {
   it(`returns ${expected} for ${tab} range controls visibility`, () => {
@@ -338,6 +340,7 @@ for (const [tab, expected] of [
   ['analysis', true],
   ['events', true],
   ['credentials', false],
+  ['storage', false],
   ['settings', false],
 ] as const) {
   it(`returns ${expected} for ${tab} API Key filter visibility`, () => {
@@ -500,6 +503,7 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_events',
       'translated:usage_stats.tab_credentials',
+      'translated:usage_stats.tab_storage',
       'translated:usage_stats.tab_settings',
     ]);
   });

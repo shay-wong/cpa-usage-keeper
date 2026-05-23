@@ -14,8 +14,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchDatabaseCleanupSettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from '@/lib/api';
-import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, DatabaseCleanupSettingsResponse, StatusResponse, UsageEvent, UsageSourceFilterOption, UpdateDatabaseCleanupSettingsRequest } from '@/lib/types';
+import { ApiError, createStorageBackup, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchStorageInfo, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, restoreStorageBackup, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from '@/lib/api';
+import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, CreateBackupRequest, RestoreBackupRequest, StorageInfoResponse, StatusResponse, UsageEvent, UsageSourceFilterOption, UpdateDatabaseCleanupSettingsRequest } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Button } from '@/components/ui/Button';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -30,7 +30,7 @@ import {
   ChartLineSelector,
   AnalysisPanel,
   ApiKeySettingsCard,
-  DatabaseCleanupSettingsCard,
+  StorageSettingsCard,
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
@@ -103,7 +103,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const BASE_USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'settings'] as const;
+const BASE_USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'storage', 'settings'] as const;
 const USAGE_TAB_OPTIONS = withDevUsageTabs(BASE_USAGE_TAB_OPTIONS);
 export type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
@@ -113,6 +113,7 @@ const USAGE_TAB_LABEL_KEYS: Record<BaseUsageTab, string> = {
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   credentials: 'usage_stats.tab_credentials',
+  storage: 'usage_stats.tab_storage',
   settings: 'usage_stats.tab_settings',
 };
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
@@ -139,7 +140,7 @@ const shouldUseCurrentHostForCPALink = (hostname: string) => {
   return !normalizedHostname.includes('.') && !normalizedHostname.includes(':');
 };
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'storage' && tab !== 'credentials';
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
@@ -603,11 +604,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [apiKeySettingsError, setApiKeySettingsError] = useState('');
   const [apiKeySettingsSavingId, setApiKeySettingsSavingId] = useState<string | null>(null);
   const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
-  const [databaseCleanupSettings, setDatabaseCleanupSettings] = useState<DatabaseCleanupSettingsResponse | null>(null);
-  const [databaseCleanupSettingsLoading, setDatabaseCleanupSettingsLoading] = useState(false);
-  const [databaseCleanupSettingsSaving, setDatabaseCleanupSettingsSaving] = useState(false);
-  const [databaseCleanupSettingsError, setDatabaseCleanupSettingsError] = useState('');
-  const databaseCleanupSettingsRequestControllerRef = useRef<AbortController | null>(null);
+  const [storageSettingsSaving, setStorageSettingsSaving] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<StorageInfoResponse | null>(null);
+  const [storageInfoLoading, setStorageInfoLoading] = useState(false);
+  const [storageInfoActionLoading, setStorageInfoActionLoading] = useState(false);
+  const [storageInfoError, setStorageInfoError] = useState('');
+  const storageInfoRequestControllerRef = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
@@ -787,19 +789,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired]);
 
-  const loadDatabaseCleanupSettings = useCallback(async () => {
-    databaseCleanupSettingsRequestControllerRef.current?.abort();
+  const loadStorageInfo = useCallback(async () => {
+    storageInfoRequestControllerRef.current?.abort();
     const controller = new AbortController();
-    databaseCleanupSettingsRequestControllerRef.current = controller;
+    storageInfoRequestControllerRef.current = controller;
 
-    setDatabaseCleanupSettingsLoading(true);
-    setDatabaseCleanupSettingsError('');
+    setStorageInfoLoading(true);
+    setStorageInfoError('');
     try {
-      const response = await fetchDatabaseCleanupSettings(controller.signal);
-      if (databaseCleanupSettingsRequestControllerRef.current !== controller) {
+      const response = await fetchStorageInfo(controller.signal);
+      if (storageInfoRequestControllerRef.current !== controller) {
         return;
       }
-      setDatabaseCleanupSettings(response);
+      setStorageInfo(response);
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -808,31 +810,65 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         onAuthRequired?.();
         return;
       }
-      setDatabaseCleanupSettingsError(error instanceof Error ? error.message : 'Failed to load database cleanup settings');
+      setStorageInfoError(error instanceof Error ? error.message : 'Failed to load storage info');
     } finally {
-      if (databaseCleanupSettingsRequestControllerRef.current === controller) {
-        setDatabaseCleanupSettingsLoading(false);
-        databaseCleanupSettingsRequestControllerRef.current = null;
+      if (storageInfoRequestControllerRef.current === controller) {
+        setStorageInfoLoading(false);
+        storageInfoRequestControllerRef.current = null;
       }
     }
   }, [onAuthRequired]);
 
-  const handleSaveDatabaseCleanupSettings = useCallback(async (settings: UpdateDatabaseCleanupSettingsRequest) => {
-    setDatabaseCleanupSettingsSaving(true);
-    setDatabaseCleanupSettingsError('');
+  const handleSaveStorageSettings = useCallback(async (settings: UpdateDatabaseCleanupSettingsRequest) => {
+    setStorageSettingsSaving(true);
+    setStorageInfoError('');
     try {
-      const updated = await updateDatabaseCleanupSettings(settings);
-      setDatabaseCleanupSettings(updated);
+      await updateDatabaseCleanupSettings(settings);
+      await loadStorageInfo();
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
-      setDatabaseCleanupSettingsError(error instanceof Error ? error.message : 'Failed to update database cleanup settings');
+      setStorageInfoError(error instanceof Error ? error.message : 'Failed to update storage settings');
     } finally {
-      setDatabaseCleanupSettingsSaving(false);
+      setStorageSettingsSaving(false);
     }
-  }, [onAuthRequired]);
+  }, [loadStorageInfo, onAuthRequired]);
+
+  const handleCreateStorageBackup = useCallback(async (request: CreateBackupRequest) => {
+    setStorageInfoActionLoading(true);
+    setStorageInfoError('');
+    try {
+      await createStorageBackup(request);
+      await loadStorageInfo();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setStorageInfoError(error instanceof Error ? error.message : 'Failed to create storage backup');
+    } finally {
+      setStorageInfoActionLoading(false);
+    }
+  }, [loadStorageInfo, onAuthRequired]);
+
+  const handleRestoreStorageBackup = useCallback(async (request: RestoreBackupRequest) => {
+    setStorageInfoActionLoading(true);
+    setStorageInfoError('');
+    try {
+      await restoreStorageBackup(request);
+      await loadStorageInfo();
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      setStorageInfoError(error instanceof Error ? error.message : 'Failed to restore storage backup');
+    } finally {
+      setStorageInfoActionLoading(false);
+    }
+  }, [loadStorageInfo, onAuthRequired]);
 
   const loadAnalysis = useCallback(async () => {
     const queryWindow = buildUsageRangeQuery({ range: timeRange, customStart: customTimeRange.start, customEnd: customTimeRange.end });
@@ -1169,12 +1205,16 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await loadAnalysis();
       return;
     }
+    if (activeTab === 'storage') {
+      await loadStorageInfo();
+      return;
+    }
     if (activeTab === 'settings') {
-      await Promise.all([loadApiKeySettings(), loadDatabaseCleanupSettings(), loadPricing()]);
+      await Promise.all([loadApiKeySettings(), loadPricing()]);
       return;
     }
     await loadUsage();
-  }, [activeTab, loadAnalysis, loadApiKeySettings, loadDatabaseCleanupSettings, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials, refreshMonitoring]);
+  }, [activeTab, loadAnalysis, loadApiKeySettings, loadEventFilterOptions, loadEvents, loadPricing, loadStorageInfo, loadUsage, refreshCredentials, refreshMonitoring]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -1332,21 +1372,29 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (activeTab !== 'settings') {
       apiKeySettingsRequestControllerRef.current?.abort();
       apiKeySettingsRequestControllerRef.current = null;
-      databaseCleanupSettingsRequestControllerRef.current?.abort();
-      databaseCleanupSettingsRequestControllerRef.current = null;
       setApiKeySettingsLoading(false);
-      setDatabaseCleanupSettingsLoading(false);
       return;
     }
     void loadApiKeySettings();
-    void loadDatabaseCleanupSettings();
     return () => {
       apiKeySettingsRequestControllerRef.current?.abort();
       apiKeySettingsRequestControllerRef.current = null;
-      databaseCleanupSettingsRequestControllerRef.current?.abort();
-      databaseCleanupSettingsRequestControllerRef.current = null;
     };
-  }, [activeTab, loadApiKeySettings, loadDatabaseCleanupSettings]);
+  }, [activeTab, loadApiKeySettings]);
+
+  useEffect(() => {
+    if (activeTab !== 'storage') {
+      storageInfoRequestControllerRef.current?.abort();
+      storageInfoRequestControllerRef.current = null;
+      setStorageInfoLoading(false);
+      return;
+    }
+    void loadStorageInfo();
+    return () => {
+      storageInfoRequestControllerRef.current?.abort();
+      storageInfoRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadStorageInfo]);
 
   useEffect(() => {
     const next = sanitizeRequestEventFilters(
@@ -1772,8 +1820,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
             {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
             {activeTab === 'settings' && apiKeySettingsError && <div className={styles.errorBox}>{apiKeySettingsError}</div>}
-            {activeTab === 'settings' && databaseCleanupSettingsError && <div className={styles.errorBox}>{databaseCleanupSettingsError}</div>}
-            {!(activeTab === 'overview' ? error : activeTab === 'settings' ? (pricingError || apiKeySettingsError || databaseCleanupSettingsError) : '') && displayStatusError && <div className={styles.errorBox}>{displayStatusError}</div>}
+            {activeTab === 'storage' && storageInfoError && <div className={styles.errorBox}>{storageInfoError}</div>}
+            {!(activeTab === 'overview' ? error : activeTab === 'settings' ? (pricingError || apiKeySettingsError) : activeTab === 'storage' ? storageInfoError : '') && displayStatusError && <div className={styles.errorBox}>{displayStatusError}</div>}
 
             {activeTab === 'overview' && (
               <>
@@ -1925,14 +1973,23 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </>
             )}
 
+            {activeTab === 'storage' && (
+              <div className={styles.settingsSections}>
+                <StorageSettingsCard
+                  key={JSON.stringify(storageInfo?.settings ?? storageInfo?.Settings ?? null)}
+                  info={storageInfo}
+                  loading={storageInfoLoading}
+                  saving={storageSettingsSaving}
+                  actionLoading={storageInfoActionLoading}
+                  onSave={handleSaveStorageSettings}
+                  onCreateBackup={handleCreateStorageBackup}
+                  onRestoreBackup={handleRestoreStorageBackup}
+                />
+              </div>
+            )}
+
             {activeTab === 'settings' && (
               <div className={styles.settingsSections}>
-                <DatabaseCleanupSettingsCard
-                  settings={databaseCleanupSettings}
-                  loading={databaseCleanupSettingsLoading}
-                  saving={databaseCleanupSettingsSaving}
-                  onSave={handleSaveDatabaseCleanupSettings}
-                />
                 <ApiKeySettingsCard
                   apiKeys={apiKeySettings}
                   loading={apiKeySettingsLoading}
