@@ -3,6 +3,8 @@ package app
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +64,53 @@ func TestNewWithConfigBuildsRedisDrainAndRouter(t *testing.T) {
 	}
 	if app.MetadataSync == nil {
 		t.Fatal("expected metadata sync runner to be initialized")
+	}
+}
+
+func TestNewWithConfigExposesCPABaseURLWhenPublicURLUnset(t *testing.T) {
+	cfg := testAppConfig(t)
+	cfg.CPAPublicURL = ""
+	cfg.CPABaseURL = "http://cli-proxy-api:8317"
+	app, err := NewWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	defer app.Close()
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	app.Router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	if body := resp.Body.String(); !strings.Contains(body, `"cpa_public_url":"http://cli-proxy-api:8317"`) {
+		t.Fatalf("expected CPA base URL fallback in status response, got %s", body)
+	}
+}
+
+func TestNewWithConfigExposesConfiguredCPAPublicURL(t *testing.T) {
+	cfg := testAppConfig(t)
+	cfg.CPAPublicURL = "https://cpa.public.example.com/"
+	app, err := NewWithConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	defer app.Close()
+
+	resp := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	app.Router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, `"cpa_public_url":"https://cpa.public.example.com/"`) {
+		t.Fatalf("expected CPA public URL in status response, got %s", body)
+	}
+	if strings.Contains(body, "cpa_management_url") {
+		t.Fatalf("expected status response to use cpa_public_url instead of cpa_management_url, got %s", body)
 	}
 }
 

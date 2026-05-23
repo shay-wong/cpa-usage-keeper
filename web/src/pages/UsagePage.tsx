@@ -124,15 +124,11 @@ const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 // 与 sticky toolbar 的 CSS top 保持一致，用于计算 header 被下一层 toolbar 顶出的距离。
 const STICKY_TOOLBAR_TOP_PX = 16;
 const STICKY_TOOLBAR_PUSH_GAP_PX = 18;
+const CPA_MANAGEMENT_PAGE = 'management.html';
+const ABSOLUTE_HTTP_URL_PATTERN = /^https?:\/\//i;
+const EXPLICIT_URL_SCHEME_PATTERN = /^[a-z][a-z\d+.-]*:/i;
+const BARE_HOST_WITH_PORT_PATTERN = /^[a-z0-9.-]+:\d+(?:[/?#]|$)/i;
 const BROWSER_LOCAL_CPA_HOSTS = new Set(['cli-proxy-api', 'localhost', '127.0.0.1', '0.0.0.0', '::1']);
-
-interface BackToCPALinkLocation {
-  hostname: string;
-}
-
-const getCurrentBackToCPALinkLocation = (): BackToCPALinkLocation | undefined => (
-  typeof window === 'undefined' ? undefined : window.location
-);
 
 const normalizeCPALinkHostname = (hostname: string) => hostname.trim().replace(/^\[|\]$/g, '').toLowerCase();
 
@@ -149,21 +145,58 @@ export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls
 
 export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
 
+const getBrowserOrigin = () => (typeof window === 'undefined' ? '' : window.location.origin);
+
+const getProtocolForBareHost = (currentOrigin: string) => {
+  try {
+    return new URL(currentOrigin).protocol;
+  } catch {
+    return typeof window === 'undefined' ? 'https:' : window.location.protocol;
+  }
+};
+
+const getBrowserHostname = (currentOrigin: string) => {
+  try {
+    return new URL(currentOrigin).hostname;
+  } catch {
+    return typeof window === 'undefined' ? '' : window.location.hostname;
+  }
+};
+
+const prepareCPAPublicURL = (rawURL: string, currentOrigin: string) => {
+  const trimmed = rawURL.trim();
+  if (!trimmed) return '';
+  if (ABSOLUTE_HTTP_URL_PATTERN.test(trimmed) || trimmed.startsWith('//') || trimmed.startsWith('/')) {
+    return trimmed;
+  }
+  if (EXPLICIT_URL_SCHEME_PATTERN.test(trimmed) && !BARE_HOST_WITH_PORT_PATTERN.test(trimmed)) {
+    return '';
+  }
+  return `${getProtocolForBareHost(currentOrigin)}//${trimmed}`;
+};
+
 export const getBackToCPALinkURL = (
-  status: Pick<StatusResponse, 'cpa_management_url'> | null,
-  currentLocation: BackToCPALinkLocation | undefined = getCurrentBackToCPALinkLocation()
+  status: Pick<StatusResponse, 'cpa_public_url'> | null,
+  currentOrigin = getBrowserOrigin(),
 ) => {
-  const rawURL = status?.cpa_management_url?.trim();
-  if (!rawURL) return '';
+  const preparedURL = prepareCPAPublicURL(status?.cpa_public_url ?? currentOrigin, currentOrigin);
+  if (!preparedURL) return '';
 
   try {
-    const url = new URL(rawURL);
-    if (currentLocation?.hostname && shouldUseCurrentHostForCPALink(url.hostname)) {
-      url.hostname = currentLocation.hostname;
+    const parsedURL = currentOrigin ? new URL(preparedURL, currentOrigin) : new URL(preparedURL);
+    const browserHostname = getBrowserHostname(currentOrigin);
+    if (browserHostname && shouldUseCurrentHostForCPALink(parsedURL.hostname)) {
+      parsedURL.hostname = browserHostname;
     }
-    return url.toString();
+    if (!parsedURL.pathname.endsWith(`/${CPA_MANAGEMENT_PAGE}`)) {
+      const basePath = parsedURL.pathname.replace(/\/+$/, '');
+      parsedURL.pathname = basePath ? `${basePath}/${CPA_MANAGEMENT_PAGE}` : `/${CPA_MANAGEMENT_PAGE}`;
+      parsedURL.search = '';
+      parsedURL.hash = '';
+    }
+    return parsedURL.toString();
   } catch {
-    return rawURL;
+    return '';
   }
 };
 
