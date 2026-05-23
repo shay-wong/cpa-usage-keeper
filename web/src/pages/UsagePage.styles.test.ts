@@ -507,12 +507,16 @@ describe('UsagePage toolbar styles', () => {
   it('aligns Request Event Log pagination with credential pagination height', () => {
     expect(usagePageStyles).toMatch(/\.requestEventsCard:global\(\.card\)\s*\{[\s\S]*?padding-bottom:\s*0;/)
     expect(requestEventsSource).toContain('className={styles.requestEventsCard}')
-    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?--usage-pagination-bar-height:\s*48px;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?--usage-pagination-bar-height:\s*58px;/)
     expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?flex:\s*0 0 var\(--usage-pagination-bar-height\);/)
     expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?min-height:\s*var\(--usage-pagination-bar-height\);/)
     expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?box-sizing:\s*border-box;/)
     expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?align-items:\s*center;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?padding:\s*0 #\{\$spacing-lg\};/)
+    expect(usagePageStyles).toMatch(/\.requestEventsPaginationFooter\s*\{[\s\S]*?padding:\s*8px #\{\$spacing-lg\};/)
+    expect(usagePageStyles).toMatch(/\.requestEventsPaginationControls\s*\{[\s\S]*?gap:\s*10px;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsPageSizeControl\s*\{[\s\S]*?margin-left:\s*10px;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsPageSizeControl\s*\{[\s\S]*?select\s*\{[\s\S]*?appearance:\s*none;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsPageSizeControl\s*\{[\s\S]*?&::after\s*\{[\s\S]*?mask:\s*url\("data:image\/svg\+xml/)
     expect(requestEventsSource).toContain('footer={(')
   })
 
