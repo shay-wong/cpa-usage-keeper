@@ -145,7 +145,17 @@ export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && 
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
-export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
+export const shouldShowVersionBadge = (status: Pick<StatusResponse, 'version'> | null) => Boolean(status?.version?.trim());
+
+export const shouldAutoCheckForUpdate = (
+  status: Pick<StatusResponse, 'version' | 'updateCheckEnabled'> | null,
+  lastCheckedVersion: string | null,
+) => {
+  const version = status?.version?.trim();
+  return status?.updateCheckEnabled === true && Boolean(version) && version !== lastCheckedVersion;
+};
+
+export const shouldShowVersionBadgeDot = (hasNewVersion: boolean) => hasNewVersion;
 
 const getBrowserOrigin = () => (typeof window === 'undefined' ? '' : window.location.origin);
 
@@ -245,6 +255,13 @@ export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptio
 };
 
 export const getOverviewDisplayLoading = ({ loading, hasUsage }: { loading: boolean; hasUsage: boolean }) => loading && !hasUsage;
+
+export const applySavedStorageSettings = (current: StorageInfoResponse | null, settings: UpdateDatabaseCleanupSettingsRequest): StorageInfoResponse => ({
+  ...(current ?? {}),
+  settings,
+});
+
+export const getStorageSettingsCardKey = (settings: UpdateDatabaseCleanupSettingsRequest | null | undefined, revision: number) => `${revision}:${JSON.stringify(settings ?? null)}`;
 
 export const scheduleOverviewAutoRefresh = ({
   enabled,
@@ -607,6 +624,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
   const [storageSettingsSaving, setStorageSettingsSaving] = useState(false);
   const [storageInfo, setStorageInfo] = useState<StorageInfoResponse | null>(null);
+  const [storageInfoRevision, setStorageInfoRevision] = useState(0);
   const [storageInfoLoading, setStorageInfoLoading] = useState(false);
   const [storageInfoActionLoading, setStorageInfoActionLoading] = useState(false);
   const [storageInfoError, setStorageInfoError] = useState('');
@@ -617,6 +635,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
   const [updateCheckNotice, setUpdateCheckNotice] = useState<{ kind: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [hasNewVersion, setHasNewVersion] = useState(false);
+  const [lastAutoCheckedVersion, setLastAutoCheckedVersion] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const updateCheckNoticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [customRangeError, setCustomRangeError] = useState('');
@@ -677,6 +696,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     return styles.updateCheckToastInfo;
   })() : '';
   const cpaManagementURL = useMemo(() => getBackToCPALinkURL(status), [status]);
+  const versionBadgeLabel = status?.version?.trim() ?? '';
+  const versionBadgeHasDot = shouldShowVersionBadgeDot(hasNewVersion);
 
   const resolvedRangeStartMs = toTimestampMs(overviewUsage?.range_start);
   const resolvedRangeEndMs = toTimestampMs(overviewUsage?.range_end);
@@ -825,7 +846,9 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     setStorageSettingsSaving(true);
     setStorageOperationNotice(null);
     try {
-      await updateDatabaseCleanupSettings(settings);
+      const savedSettings = await updateDatabaseCleanupSettings(settings);
+      setStorageInfo((current) => applySavedStorageSettings(current, savedSettings));
+      setStorageInfoRevision((current) => current + 1);
       await loadStorageInfo();
       setStorageOperationNotice({
         scope,
@@ -1047,10 +1070,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [apiKeyOptions, selectedApiKeyId]);
 
   useEffect(() => {
-    if (!shouldShowUpdateCheckButton(status)) {
+    if (status?.updateCheckEnabled !== true) {
       setHasNewVersion(false);
     }
-  }, [status]);
+  }, [status?.updateCheckEnabled, status?.version]);
 
   useEffect(() => () => {
     if (updateCheckNoticeTimerRef.current !== null) {
@@ -1312,13 +1335,16 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired]);
 
-  const handleUpdateCheck = useCallback(async () => {
+  const handleUpdateCheck = useCallback(async (trigger: 'manual' | 'auto' = 'manual') => {
+    const shouldNotifyLatest = trigger === 'manual';
     setUpdateCheckLoading(true);
     try {
       const result = await fetchUpdateCheck();
       if (!result.canCompare) {
         setHasNewVersion(false);
-        showUpdateCheckNotice('info', t('usage_stats.update_check_dev_build'));
+        if (shouldNotifyLatest) {
+          showUpdateCheckNotice('info', t('usage_stats.update_check_dev_build'));
+        }
         return;
       }
       if (result.updateAvailable) {
@@ -1327,18 +1353,33 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         return;
       }
       setHasNewVersion(false);
-      showUpdateCheckNotice('info', t('usage_stats.update_check_latest'));
+      if (shouldNotifyLatest) {
+        showUpdateCheckNotice('info', t('usage_stats.update_check_latest'));
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
       setHasNewVersion(false);
-      showUpdateCheckNotice('error', t('usage_stats.update_check_failed'));
+      if (shouldNotifyLatest) {
+        showUpdateCheckNotice('error', t('usage_stats.update_check_failed'));
+      }
     } finally {
       setUpdateCheckLoading(false);
     }
   }, [onAuthRequired, showUpdateCheckNotice, t]);
+
+  const statusVersion = status?.version?.trim() ?? '';
+  const isUpdateCheckEnabled = status?.updateCheckEnabled === true;
+
+  useEffect(() => {
+    if (!statusVersion || !shouldAutoCheckForUpdate({ version: statusVersion, updateCheckEnabled: isUpdateCheckEnabled }, lastAutoCheckedVersion)) {
+      return;
+    }
+    setLastAutoCheckedVersion(statusVersion);
+    void handleUpdateCheck('auto');
+  }, [handleUpdateCheck, isUpdateCheckEnabled, lastAutoCheckedVersion, statusVersion]);
 
   useEffect(() => scheduleOverviewAutoRefresh({
     enabled: autoRefreshEnabled,
@@ -1553,25 +1594,26 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 );
               })}
             </div>
-            {shouldShowUpdateCheckButton(status) && (
+            {shouldShowVersionBadge(status) && (
               <div className={styles.updateCheckSwitcher} role="group" aria-label={t('usage_stats.check_updates')}>
                 <button
                   type="button"
-                  className={`${styles.updateCheckPill} ${styles.updateCheckPillActive} ${updateCheckLoading ? styles.updateCheckPillLoading : ''}`.trim()}
+                  className={`${styles.updateCheckPill} ${styles.updateCheckPillActive} ${versionBadgeHasDot ? styles.updateCheckPillUpdate : ''} ${updateCheckLoading ? styles.updateCheckPillLoading : ''}`.trim()}
                   onClick={() => void handleUpdateCheck()}
                   disabled={updateCheckLoading}
                   aria-busy={updateCheckLoading}
-                  aria-pressed={hasNewVersion}
+                  aria-pressed={versionBadgeHasDot}
+                  title={t('usage_stats.check_updates')}
                 >
                   {updateCheckLoading ? (
                     <span className={styles.updateCheckPillInner}>
                       <LoadingSpinner size={12} className={styles.updateCheckSpinner} />
-                      <span>{t('common.loading')}</span>
+                      <span>{versionBadgeLabel}</span>
                     </span>
                   ) : (
                     <span className={styles.updateCheckPillInner}>
-                      <span>{t('usage_stats.check_updates')}</span>
-                      {hasNewVersion && <span className={styles.updateCheckDot} aria-hidden="true" />}
+                      <span className={styles.updateCheckVersionLabel}>{versionBadgeLabel}</span>
+                      {versionBadgeHasDot && <span className={styles.updateCheckDot} aria-hidden="true" />}
                     </span>
                   )}
                 </button>
@@ -1988,7 +2030,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             {activeTab === 'storage' && (
               <div className={styles.settingsSections}>
                 <StorageSettingsCard
-                  key={JSON.stringify(storageInfo?.settings ?? storageInfo?.Settings ?? null)}
+                  key={getStorageSettingsCardKey(storageInfo?.settings ?? storageInfo?.Settings ?? null, storageInfoRevision)}
                   info={storageInfo}
                   loading={storageInfoLoading}
                   saving={storageSettingsSaving}

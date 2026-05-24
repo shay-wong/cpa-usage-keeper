@@ -237,12 +237,25 @@
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
 }
 
+.updateCheckPillUpdate {
+  color: color-mix(in srgb, var(--text-primary) 84%, #{$warning-color});
+  box-shadow:
+    0 8px 20px rgba($warning-color, 0.14),
+    0 0 0 1px rgba($warning-color, 0.22) inset;
+}
+
 .updateCheckPillInner,
 .signOutPillInner,
 .refreshPillInner {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+}
+
+.updateCheckVersionLabel {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .updateCheckSpinner,
