@@ -35,7 +35,25 @@ func (s *databaseSettingsStub) UpdateDatabaseCleanupSettings(_ context.Context, 
 }
 
 func (s *databaseSettingsStub) GetStorageInfo(context.Context) (servicedto.StorageInfo, error) {
-	return servicedto.StorageInfo{}, s.err
+	backupSizeBytes := int64(1024)
+	return servicedto.StorageInfo{
+		Settings: servicedto.UpdateDatabaseCleanupSettingsInput{
+			RecordRequestDetails: true,
+			CleanupRequestLogs:   true,
+			BackupUsageLogs:      true,
+			BackupHour:           4,
+			MaxBackupCount:       1,
+		},
+		CurrentDatabaseSizeBytes: s.currentDatabaseSizeBytes,
+		BackupTotalSizeBytes:     backupSizeBytes,
+		BackupCount:              1,
+		Domains: []servicedto.StorageDomainInfo{
+			{Key: "usage_logs", Label: "用量日志", Description: "usage events", TableNames: []string{"usage_events"}, Rows: 2, SizeBytes: 512},
+		},
+		Backups: []servicedto.BackupFileInfo{
+			{ID: "2026-05-24/database.db", FileName: "database.db", SizeBytes: 1024, CreatedAt: "2026-05-24T04:00:00+08:00"},
+		},
+	}, s.err
 }
 
 func (s *databaseSettingsStub) CreateBackup(_ context.Context, input servicedto.CreateBackupInput) (servicedto.BackupOperationResult, error) {
@@ -78,6 +96,24 @@ func TestUpdateDatabaseSettingsRoute(t *testing.T) {
 	}
 	if provider.lastUpdate == nil || provider.lastUpdate.RequestLogRetentionDays != 7 || provider.lastUpdate.MaxDatabaseSizeMB != 256 {
 		t.Fatalf("expected update payload to be passed through, got %+v", provider.lastUpdate)
+	}
+}
+
+func TestStorageInfoRouteReturnsSnakeCaseData(t *testing.T) {
+	sizeBytes := int64(4096)
+	provider := &databaseSettingsStub{currentDatabaseSizeBytes: &sizeBytes}
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{DatabaseSettings: provider})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/settings/storage", nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK || !contains(body, `"settings"`) || !contains(body, `"max_backup_count":1`) || !contains(body, `"backup_hour":4`) || !contains(body, `"current_database_size_bytes":4096`) {
+		t.Fatalf("unexpected storage info response: %d %s", resp.Code, body)
+	}
+	if !contains(body, `"table_names":["usage_events"]`) || !contains(body, `"file_name":"database.db"`) || contains(body, `"Settings"`) || contains(body, `"MaxBackupCount"`) {
+		t.Fatalf("expected snake_case storage info response, got %s", body)
 	}
 }
 

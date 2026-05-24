@@ -60,6 +60,29 @@ func TestUpsertDatabaseCleanupSettingsCreatesAndUpdatesSingleRow(t *testing.T) {
 	}
 }
 
+func TestUpsertDatabaseCleanupSettingsPersistsExplicitZeroValuesOnCreate(t *testing.T) {
+	db := openSettingsTestDatabase(t)
+
+	created, err := UpsertDatabaseCleanupSettings(db, dto.DatabaseCleanupSettingsInput{
+		RecordRequestDetails:  false,
+		CleanupRequestLogs:    false,
+		BackupUsageLogs:       false,
+		BackupUsageIdentities: false,
+		BackupAPIKeys:         false,
+		BackupModelPrices:     false,
+		MaxBackupCount:        0,
+	})
+	if err != nil {
+		t.Fatalf("create database cleanup settings with zero values: %v", err)
+	}
+	if created.RecordRequestDetails || created.CleanupRequestLogs || created.BackupUsageLogs || created.BackupUsageIdentities || created.BackupAPIKeys || created.BackupModelPrices {
+		t.Fatalf("expected explicit false values to persist on create, got %+v", created)
+	}
+	if created.MaxBackupCount != 0 {
+		t.Fatalf("expected explicit max backup count 0 to persist on create, got %+v", created)
+	}
+}
+
 func TestGetStorageDomainStatsIncludesConfigAndCacheDomains(t *testing.T) {
 	db := openSettingsTestDatabase(t)
 	now := time.Date(2026, 5, 24, 1, 0, 0, 0, time.UTC)

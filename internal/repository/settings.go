@@ -12,7 +12,6 @@ import (
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const (
@@ -73,27 +72,66 @@ func UpsertDatabaseCleanupSettings(db *gorm.DB, input dto.DatabaseCleanupSetting
 		BackupMinute:            input.BackupMinute,
 		MaxBackupCount:          input.MaxBackupCount,
 	}
-	if err := db.Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "id"}},
-		DoUpdates: clause.AssignmentColumns([]string{
-			"record_request_details",
-			"cleanup_request_logs",
-			"cleanup_usage_logs",
-			"request_log_retention_days",
-			"usage_log_retention_days",
-			"max_database_size_mb",
-			"backup_request_logs",
-			"backup_usage_logs",
-			"backup_usage_identities",
-			"backup_api_keys",
-			"backup_redis_inbox",
-			"backup_model_prices",
-			"backup_hour",
-			"backup_minute",
-			"max_backup_count",
-			"updated_at",
-		}),
-	}).Create(&settings).Error; err != nil {
+	now := timeutil.FormatStorageTime(time.Now())
+	// GORM default tag 首次插入会把 false/0 交给数据库默认值，这里必须显式写入所有用户值。
+	if err := db.Exec(`
+		INSERT INTO database_cleanup_settings (
+			id,
+			record_request_details,
+			cleanup_request_logs,
+			cleanup_usage_logs,
+			request_log_retention_days,
+			usage_log_retention_days,
+			max_database_size_mb,
+			backup_request_logs,
+			backup_usage_logs,
+			backup_usage_identities,
+			backup_api_keys,
+			backup_redis_inbox,
+			backup_model_prices,
+			backup_hour,
+			backup_minute,
+			max_backup_count,
+			created_at,
+			updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			record_request_details = excluded.record_request_details,
+			cleanup_request_logs = excluded.cleanup_request_logs,
+			cleanup_usage_logs = excluded.cleanup_usage_logs,
+			request_log_retention_days = excluded.request_log_retention_days,
+			usage_log_retention_days = excluded.usage_log_retention_days,
+			max_database_size_mb = excluded.max_database_size_mb,
+			backup_request_logs = excluded.backup_request_logs,
+			backup_usage_logs = excluded.backup_usage_logs,
+			backup_usage_identities = excluded.backup_usage_identities,
+			backup_api_keys = excluded.backup_api_keys,
+			backup_redis_inbox = excluded.backup_redis_inbox,
+			backup_model_prices = excluded.backup_model_prices,
+			backup_hour = excluded.backup_hour,
+			backup_minute = excluded.backup_minute,
+			max_backup_count = excluded.max_backup_count,
+			updated_at = excluded.updated_at
+	`,
+		databaseCleanupSettingsSingletonID,
+		settings.RecordRequestDetails,
+		settings.CleanupRequestLogs,
+		settings.CleanupUsageLogs,
+		settings.RequestLogRetentionDays,
+		settings.UsageLogRetentionDays,
+		settings.MaxDatabaseSizeMB,
+		settings.BackupRequestLogs,
+		settings.BackupUsageLogs,
+		settings.BackupUsageIdentities,
+		settings.BackupAPIKeys,
+		settings.BackupRedisInbox,
+		settings.BackupModelPrices,
+		settings.BackupHour,
+		settings.BackupMinute,
+		settings.MaxBackupCount,
+		now,
+		now,
+	).Error; err != nil {
 		return entities.DatabaseCleanupSettings{}, fmt.Errorf("upsert database cleanup settings: %w", err)
 	}
 	return GetDatabaseCleanupSettings(db)
