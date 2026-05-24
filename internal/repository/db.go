@@ -4,6 +4,7 @@ import (
 	"context"
 	"cpa-usage-keeper/internal/repository/dto"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,50 +14,120 @@ import (
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/migration"
 	"cpa-usage-keeper/internal/timeutil"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
-// OpenDatabase 统一创建 GORM SQLite 连接，并按新库/旧库分支执行初始化或迁移。
+// OpenDatabase 统一创建 GORM 连接，并按配置选择 SQLite 或 PostgreSQL 主库。
 func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
+	driver := strings.TrimSpace(cfg.DatabaseDriver)
+	if driver == "" {
+		driver = config.DatabaseDriverSQLite
+	}
+	switch driver {
+	case config.DatabaseDriverSQLite:
+		return openSQLiteDatabase(cfg)
+	case config.DatabaseDriverPostgres:
+		return openPostgresDatabase(cfg)
+	default:
+		return nil, fmt.Errorf("unsupported database driver %q", driver)
+	}
+}
+
+func openSQLiteDatabase(cfg config.Config) (*gorm.DB, error) {
 	// 先判断物理文件是否存在，后续用它区分全新数据库和需要跑迁移的旧库。
 	databaseExists, err := sqliteDatabaseFileExists(cfg.SQLitePath)
 	if err != nil {
 		return nil, err
 	}
-	// SQLite DSN 统一补齐 busy_timeout/foreign_keys，调用方只需要传项目配置里的路径。
-	dsn := sqliteDSN(cfg.SQLitePath)
-	// GORM 自动时间也先落到项目 TZ，再由 storageTime serializer 输出统一字符串。
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }})
+	db, err := openGormDatabase(sqlite.Open(sqliteDSN(cfg.SQLitePath)), cfg.SQLitePath)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite database %s: %w", filepath.Clean(cfg.SQLitePath), err)
+		return nil, err
 	}
+	if err := configureSQLiteDatabase(db); err != nil {
+		return nil, err
+	}
+	return initializeDatabaseSchema(db, databaseExists)
+}
 
+func openPostgresDatabase(cfg config.Config) (*gorm.DB, error) {
+	if strings.TrimSpace(cfg.DatabaseURL) == "" {
+		return nil, fmt.Errorf("postgres database URL is required")
+	}
+	db, err := openGormDatabase(postgres.Open(cfg.DatabaseURL), cfg.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := configurePostgresDatabase(db); err != nil {
+		return nil, err
+	}
+	hasTables, err := databaseHasTables(db)
+	if err != nil {
+		return nil, err
+	}
+	return initializeDatabaseSchema(db, hasTables)
+}
+
+func openGormDatabase(dialector gorm.Dialector, source string) (*gorm.DB, error) {
+	db, err := gorm.Open(dialector, &gorm.Config{NowFunc: func() time.Time { return timeutil.NormalizeStorageTime(time.Now()) }})
+	if err != nil {
+		return nil, fmt.Errorf("open database %s: %w", sanitizeDatabaseSource(source), err)
+	}
+	return db, nil
+}
+
+func sanitizeDatabaseSource(source string) string {
+	trimmed := strings.TrimSpace(source)
+	if parsed, err := url.Parse(trimmed); err == nil && parsed.Scheme != "" {
+		return parsed.Redacted()
+	}
+	return filepath.Clean(trimmed)
+}
+
+func configureSQLiteDatabase(db *gorm.DB) error {
 	// SQLite 写入仍是单 writer，连接池限制成单连接，避免同进程多个连接互相抢写锁。
 	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, fmt.Errorf("configure sqlite database: %w", err)
+		return fmt.Errorf("configure sqlite database: %w", err)
 	}
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
 
 	// WAL 让读写并发更友好，但 writer 之间仍串行；这里配合 busy_timeout 等待短暂锁竞争。
 	if err := db.Exec("PRAGMA journal_mode=WAL").Error; err != nil {
-		return nil, fmt.Errorf("enable sqlite WAL: %w", err)
+		return fmt.Errorf("enable sqlite WAL: %w", err)
 	}
 	if err := db.Exec("PRAGMA busy_timeout=5000").Error; err != nil {
-		return nil, fmt.Errorf("set sqlite busy timeout: %w", err)
+		return fmt.Errorf("set sqlite busy timeout: %w", err)
 	}
 	if err := db.Exec("PRAGMA foreign_keys=ON").Error; err != nil {
-		return nil, fmt.Errorf("enable sqlite foreign keys: %w", err)
+		return fmt.Errorf("enable sqlite foreign keys: %w", err)
 	}
+	return nil
+}
 
-	// 空文件和新文件都按新库处理，直接 AutoMigrate 到当前 schema 后标记历史迁移已完成。
-	hasTables, err := sqliteDatabaseHasTables(db)
+func configurePostgresDatabase(db *gorm.DB) error {
+	sqlDB, err := db.DB()
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("configure postgres database: %w", err)
 	}
-	if !databaseExists || !hasTables {
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(5)
+	return nil
+}
+
+func initializeDatabaseSchema(db *gorm.DB, databaseExists bool) (*gorm.DB, error) {
+	// 空库直接 AutoMigrate 到当前 schema 后标记历史迁移已完成。
+	hasTables := databaseExists
+	if databaseExists {
+		var err error
+		hasTables, err = databaseHasTables(db)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if !hasTables {
 		if err := db.AutoMigrate(entities.All()...); err != nil {
 			return nil, fmt.Errorf("auto migrate fresh database: %w", err)
 		}
@@ -70,7 +141,6 @@ func OpenDatabase(cfg config.Config) (*gorm.DB, error) {
 	if err := migration.Run(db); err != nil {
 		return nil, fmt.Errorf("run schema migrations: %w", err)
 	}
-
 	return db, nil
 }
 
@@ -103,12 +173,21 @@ func sqliteDatabaseFileExists(path string) (bool, error) {
 	return false, fmt.Errorf("check sqlite database %s: %w", filepath.Clean(trimmed), err)
 }
 
-// sqliteDatabaseHasTables 用业务表数量判断文件是否已经初始化过。
-func sqliteDatabaseHasTables(db *gorm.DB) (bool, error) {
+// databaseHasTables 用业务表数量判断数据库是否已经初始化过。
+func databaseHasTables(db *gorm.DB) (bool, error) {
 	var count int64
-	// sqlite_% 是 SQLite 内部表，不能用来判断项目 schema 是否存在。
-	if err := db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").Scan(&count).Error; err != nil {
-		return false, fmt.Errorf("check sqlite database tables: %w", err)
+	switch db.Dialector.Name() {
+	case config.DatabaseDriverSQLite:
+		// sqlite_% 是 SQLite 内部表，不能用来判断项目 schema 是否存在。
+		if err := db.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").Scan(&count).Error; err != nil {
+			return false, fmt.Errorf("check sqlite database tables: %w", err)
+		}
+	case config.DatabaseDriverPostgres:
+		if err := db.Raw("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'").Scan(&count).Error; err != nil {
+			return false, fmt.Errorf("check postgres database tables: %w", err)
+		}
+	default:
+		return false, fmt.Errorf("unsupported database driver %q", db.Dialector.Name())
 	}
 	return count > 0, nil
 }
@@ -151,8 +230,7 @@ func InsertUsageEvents(db *gorm.DB, events []entities.UsageEvent) (int, int, err
 	return inserted, 0, nil
 }
 
-// CleanupStorage 是每日维护任务的统一仓储清理入口：先清 Redis inbox，再清 Overview health 细粒度统计，最后执行 VACUUM。
-// VACUUM 必须在删除完成后单独执行，任何一步失败都会停止后续步骤并把已完成部分的结果返回给上层日志。
+// CleanupStorage 是每日维护任务的统一仓储清理入口：清 Redis inbox、清理请求/用量日志，并删除过期 Overview health 细粒度统计。
 func CleanupStorage(db *gorm.DB, now time.Time) (dto.StorageCleanupResult, error) {
 	return CleanupStorageWithSettings(context.Background(), db, now, dto.DatabaseCleanupSettingsInput{}, "")
 }
@@ -174,10 +252,6 @@ func CleanupStorageWithSettings(ctx context.Context, db *gorm.DB, now time.Time,
 	if err := CleanupUsageOverviewHealthStats(db, now); err != nil {
 		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult, UsageEvent: usageEventResult}, err
 	}
-	// SQLite 删除不会立即缩小文件，维护窗口最后统一 VACUUM。
-	if err := db.Exec("VACUUM").Error; err != nil {
-		return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult, UsageEvent: usageEventResult}, err
-	}
 	return dto.StorageCleanupResult{RedisInbox: redisResult, UsageRequestDetail: requestDetailResult, UsageEvent: usageEventResult}, nil
 }
 
@@ -185,6 +259,9 @@ func CleanupStorageWithSettings(ctx context.Context, db *gorm.DB, now time.Time,
 func Vacuum(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("database is nil")
+	}
+	if db.Dialector.Name() != config.DatabaseDriverSQLite {
+		return nil
 	}
 	return db.Exec("VACUUM").Error
 }

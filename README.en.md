@@ -4,7 +4,7 @@
 
 CPA Usage Keeper is a standalone CPA usage persistence and dashboard service.
 
-It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) as the backend CPA data source and adds persistent storage and statistical analysis capabilities on top of CPA. The service consumes events from the CPA Redis usage queue into SQLite, periodically pulls CPA metadata, exposes aggregation APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API statistics.
+It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) as the backend CPA data source and adds persistent storage and statistical analysis capabilities on top of CPA. The service consumes events from the CPA Redis usage queue into PostgreSQL or SQLite, periodically pulls CPA metadata, exposes aggregation APIs, and serves a built-in web dashboard for usage, pricing, request health, and model/API statistics.
 
 <p float="left">
   <img src="https://images.bitskyline.com/i/2026/05/govoah.png" width="49%" />
@@ -17,14 +17,14 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 
 ## Features
 
-- Persist CPA usage data to SQLite
+- Persist CPA usage data to PostgreSQL, with SQLite single-file mode kept for compatibility
 - Dashboard for request volume, tokens, cost, cache hit rate, success rate, and latency
 - Filter usage details by time range, model, API Key, and source
 - Analysis page for token trends, model/API Key/AI Provider composition, and hourly heatmaps
 - Standalone API Key usage page for querying usage by CPA API Key
 - Credentials page for Auth File and AI Provider usage, with credential quota lookup and refresh
 - Maintain model prices for cost estimation and reporting
-- Optional password login protection, SQLite backups, Docker/Docker Compose, and systemd deployment
+- Optional password login protection, PostgreSQL Docker/Docker Compose setup, SQLite-compatible backups, and systemd deployment
 
 ## Quick Start
 
@@ -42,47 +42,49 @@ For public deployments, enable `AUTH_ENABLED=true` and configure `LOGIN_PASSWORD
 
 ### Docker Compose (Recommended)
 
-The repository includes a minimal `docker-compose.example.yml` example for running CPA and CPA Usage Keeper together:
+The repository includes a minimal `docker-compose.example.yml` example for running PostgreSQL and CPA Usage Keeper together; if CPA also runs in Docker, add the CPA service to the same Compose network:
 
 ```yaml
 services:
-  cli-proxy-api:
-    image: eceasy/cli-proxy-api:latest
-    container_name: cli-proxy-api
-    restart: unless-stopped
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cpa_usage_keeper}
+      POSTGRES_USER: ${POSTGRES_USER:-keeper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "8317:8317"
-      - "1455:1455"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - ./cpa/config.yaml:/CLIProxyAPI/config.yaml
-      - ./cpa/auths:/root/.cli-proxy-api
-      - ./cpa/logs:/CLIProxyAPI/logs
-    networks:
-      - cpa-network
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   cpa-usage-keeper:
     image: ghcr.io/shay-wong/cpa-usage-keeper:latest
-    container_name: cpa-usage-keeper
-    restart: unless-stopped
-    depends_on:
-      - cli-proxy-api
     ports:
       - "8080:8080"
     environment:
-      TZ: Asia/Shanghai # Sets the container timezone; log timestamps use this timezone.
-      CPA_BASE_URL: http://cli-proxy-api:8317
-      CPA_MANAGEMENT_KEY: replace-with-your-management-key
-      REDIS_QUEUE_ADDR: cli-proxy-api:8317
-      AUTH_ENABLED: true
-      LOGIN_PASSWORD: replace-with-your-login-password
+      CPA_BASE_URL: ${CPA_BASE_URL}
+      CPA_MANAGEMENT_KEY: ${CPA_MANAGEMENT_KEY}
+      DATABASE_DRIVER: ${DATABASE_DRIVER:-postgres}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      LOGIN_PASSWORD: ${LOGIN_PASSWORD:-}
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
-      - ./keeper:/data
-    networks:
-      - cpa-network
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
-networks:
-  cpa-network:
-    driver: bridge
+volumes:
+  postgres-data:
 ```
 
 Start:
@@ -97,7 +99,7 @@ Stop:
 docker compose down
 ```
 
-CPA files are stored under `./cpa`, and CPA Usage Keeper data is stored under `./keeper`.
+PostgreSQL data is stored in the Docker named volume `postgres-data`, and Keeper logs are written to `./data`. The example binds PostgreSQL to host `127.0.0.1:5432`, so tools such as TablePlus or psql on macOS can inspect the live DB with database `cpa_usage_keeper`, user `keeper`, and the `POSTGRES_PASSWORD` from `.env`.
 
 ### Docker (CPA Already Runs On The Host)
 
@@ -234,13 +236,15 @@ For first-time deployments, start with "Minimum required" and "Web access and re
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `WORK_DIR` | No | `./data` | Application work directory; database, logs, and backups default to `app.db`, `logs/`, and `backups/` under it |
+| `DATABASE_DRIVER` | No | `sqlite` | Primary database driver. PostgreSQL is recommended; set `postgres`. When `DATABASE_URL` is set and the driver is empty, Keeper defaults to PostgreSQL |
+| `DATABASE_URL` | Required in PostgreSQL mode | - | PostgreSQL connection string; Docker Compose usually uses the `postgres` service name. Leave empty for SQLite mode |
+| `WORK_DIR` | No | `./data` | Application work directory; logs and sqlite-mode database/backups are stored here. PostgreSQL data lives in the PostgreSQL instance or Docker volume |
 | `LOG_LEVEL` | No | `info` | Log level |
 | `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
 | `LOG_RETENTION_DAYS` | No | `7` | Log retention days; `0` disables cleanup |
-| `BACKUP_ENABLED` | No | `false` | Enable SQLite database backups |
-| `BACKUP_INTERVAL` | No | `24h` | Database backup interval |
-| `BACKUP_RETENTION_DAYS` | No | `7` | Backup retention days |
+| `BACKUP_ENABLED` | No | `false` | Enable SQLite file backups; use PostgreSQL-native backup tools in PostgreSQL mode |
+| `BACKUP_INTERVAL` | No | `24h` | SQLite file backup interval |
+| `BACKUP_RETENTION_DAYS` | No | `7` | SQLite file backup retention days |
 
 ### Built-In HTTPS
 
@@ -254,8 +258,8 @@ Usually, HTTPS should be terminated at nginx, Caddy, or another reverse proxy. S
 
 Security and data notes:
 
-- The Storage tab shows database and backup usage, configures request-log/usage-log cleanup scopes, backup scopes, backup time, maximum backup count, and restores backups by data scope.
-- SQLite database backups store original data from the application database, and backup files are not encrypted.
+- The Storage tab shows database and backup usage, configures request-log/usage-log cleanup scopes, SQLite backup scopes, backup time, maximum backup count, and restores SQLite backups by data scope.
+- SQLite file backups store original data from the application database, and backup files are not encrypted. PostgreSQL mode does not enable the built-in SQLite file backup/restore path; use `pg_dump`, managed database snapshots, or PostgreSQL volume-level backups instead.
 - Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but raw database values are unchanged.
 - For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.
 - Login sessions are stored in process memory and become invalid after restart.
@@ -289,7 +293,7 @@ cmd/server/              Application entrypoint
 internal/api/            HTTP routes and handlers
 internal/app/            App wiring and startup
 internal/auth/           In-memory session auth
-internal/backup/         SQLite database backup management
+internal/backup/         SQLite-compatible file backup management
 internal/benchmark/      Aggregation benchmark helpers
 internal/config/         Environment config loading
 internal/cpa/            CPA client and types
@@ -299,7 +303,7 @@ internal/logging/        Logging setup and retention
 internal/poller/         Background queue consumption and metadata sync
 internal/quota/          Quota cache, refresh, and query services
 internal/redact/         Browser-facing field redaction
-internal/repository/     SQLite access and aggregations
+internal/repository/     Database access, migrations, and aggregations
 internal/service/        Usage, pricing, and identity services
 internal/timeutil/       Project timezone and time helpers
 internal/updatecheck/    GitHub Release update checks

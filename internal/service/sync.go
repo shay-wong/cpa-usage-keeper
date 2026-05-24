@@ -73,6 +73,10 @@ type SyncService struct {
 // NewSyncService 按生产配置组装 CPA metadata client、request log fetcher 和 Redis queue client。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	client := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
+	sqlitePath := cfg.SQLitePath
+	if cfg.DatabaseDriver == config.DatabaseDriverPostgres {
+		sqlitePath = ""
+	}
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL:           cfg.CPABaseURL,
 		Client:            client,
@@ -88,7 +92,7 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 			TLSSkipVerify: cfg.TLSSkipVerify,
 		}),
 		RedisQueueKey: cfg.RedisQueueKey,
-		SQLitePath:    cfg.SQLitePath,
+		SQLitePath:    sqlitePath,
 	})
 }
 

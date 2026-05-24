@@ -163,7 +163,7 @@ func CleanupUsageRequestDetails(db *gorm.DB, settings dto.DatabaseCleanupSetting
 		}
 		result.RetentionDeleted = deleted
 	}
-	if settings.MaxDatabaseSizeMB > 0 && strings.TrimSpace(sqlitePath) != "" {
+	if settings.MaxDatabaseSizeMB > 0 {
 		deleted, err := cleanupUsageRequestDetailsByDatabaseSize(db, settings.MaxDatabaseSizeMB, sqlitePath)
 		if err != nil {
 			return result, err
@@ -189,7 +189,7 @@ func CleanupUsageEvents(ctx context.Context, db *gorm.DB, settings dto.DatabaseC
 		}
 		result.RetentionDeleted = deleted
 	}
-	if settings.MaxDatabaseSizeMB > 0 && strings.TrimSpace(sqlitePath) != "" {
+	if settings.MaxDatabaseSizeMB > 0 {
 		deleted, err := cleanupUsageEventsByDatabaseSize(db, settings.MaxDatabaseSizeMB, sqlitePath)
 		if err != nil {
 			return result, err
@@ -231,7 +231,7 @@ func cleanupUsageEventsByDatabaseSize(db *gorm.DB, maxDatabaseSizeMB int, sqlite
 	maxBytes := int64(maxDatabaseSizeMB) * 1024 * 1024
 	var deleted int64
 	for iteration := 0; iteration < databaseSizeCleanupMaxIterations; iteration++ {
-		sizeBytes, ok, err := sqliteDatabaseSizeBytes(sqlitePath)
+		sizeBytes, ok, err := GetDatabaseSizeBytes(db, sqlitePath)
 		if err != nil || !ok {
 			return deleted, err
 		}
@@ -346,7 +346,7 @@ func cleanupUsageRequestDetailsByDatabaseSize(db *gorm.DB, maxDatabaseSizeMB int
 	maxBytes := int64(maxDatabaseSizeMB) * 1024 * 1024
 	var deleted int64
 	for iteration := 0; iteration < databaseSizeCleanupMaxIterations; iteration++ {
-		sizeBytes, ok, err := sqliteDatabaseSizeBytes(sqlitePath)
+		sizeBytes, ok, err := GetDatabaseSizeBytes(db, sqlitePath)
 		if err != nil || !ok {
 			return deleted, err
 		}
@@ -367,6 +367,25 @@ func cleanupUsageRequestDetailsByDatabaseSize(db *gorm.DB, maxDatabaseSizeMB int
 		}
 	}
 	return deleted, fmt.Errorf("usage request detail size cleanup reached iteration limit")
+}
+
+// GetDatabaseSizeBytes 返回当前数据库大小；SQLite 走文件大小，PostgreSQL 走 pg_database_size。
+func GetDatabaseSizeBytes(db *gorm.DB, sqlitePath string) (int64, bool, error) {
+	if db == nil {
+		return 0, false, fmt.Errorf("database is nil")
+	}
+	switch db.Dialector.Name() {
+	case "sqlite":
+		return sqliteDatabaseSizeBytes(sqlitePath)
+	case "postgres":
+		var sizeBytes int64
+		if err := db.Raw("SELECT pg_database_size(current_database())").Scan(&sizeBytes).Error; err != nil {
+			return 0, false, fmt.Errorf("get postgres database size: %w", err)
+		}
+		return sizeBytes, true, nil
+	default:
+		return 0, false, fmt.Errorf("unsupported database driver %q", db.Dialector.Name())
+	}
 }
 
 // GetSQLiteDatabaseSizeBytes 返回当前 SQLite 文件大小；内存库或无路径时 ok=false。

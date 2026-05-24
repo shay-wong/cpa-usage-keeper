@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
@@ -300,16 +301,20 @@ func ListUsageMonitoringHourlyModelStatsWithFilter(ctx context.Context, db *gorm
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
+	hourExpression, err := usageMonitoringHourlyBucketExpression(db)
+	if err != nil {
+		return nil, err
+	}
 	query := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
 	query = query.Select(strings.Join([]string{
-		"strftime('%Y-%m-%dT%H:00:00Z', timestamp) AS hour",
+		hourExpression + " AS hour",
 		"COALESCE(TRIM(model), '') AS model",
 		"COUNT(*) AS requests",
 		"SUM(total_tokens) AS tokens",
 		"SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS success_count",
 		"SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS failure_count",
 	}, ", "))
-	query = query.Group("strftime('%Y-%m-%dT%H:00:00Z', timestamp), COALESCE(TRIM(model), '')")
+	query = query.Group(hourExpression + ", COALESCE(TRIM(model), '')")
 	query = query.Order("hour ASC, requests DESC, model ASC")
 
 	var rows []UsageMonitoringHourlyModelStatRecord
@@ -317,6 +322,17 @@ func ListUsageMonitoringHourlyModelStatsWithFilter(ctx context.Context, db *gorm
 		return nil, fmt.Errorf("load usage monitoring hourly model stats: %w", err)
 	}
 	return rows, nil
+}
+
+func usageMonitoringHourlyBucketExpression(db *gorm.DB) (string, error) {
+	switch db.Dialector.Name() {
+	case config.DatabaseDriverSQLite:
+		return "strftime('%Y-%m-%dT%H:00:00Z', timestamp)", nil
+	case config.DatabaseDriverPostgres:
+		return `to_char(date_trunc('hour', timestamp::timestamptz AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:00:00"Z"')`, nil
+	default:
+		return "", fmt.Errorf("unsupported database driver %q", db.Dialector.Name())
+	}
 }
 
 func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter) ([]UsageMonitoringChannelStatRecord, []UsageMonitoringChannelModelStatRecord, error) {

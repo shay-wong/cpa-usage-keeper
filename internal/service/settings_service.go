@@ -111,7 +111,7 @@ func (s *databaseSettingsService) GetStorageInfo(context.Context) (servicedto.St
 		Domains:              mapStorageDomains(domains),
 		Backups:              backups,
 	}
-	if sizeBytes, ok, err := repository.GetSQLiteDatabaseSizeBytes(s.sqlitePath); err != nil {
+	if sizeBytes, ok, err := repository.GetDatabaseSizeBytes(s.db, s.sqlitePath); err != nil {
 		return servicedto.StorageInfo{}, err
 	} else if ok {
 		info.CurrentDatabaseSizeBytes = &sizeBytes
@@ -119,7 +119,14 @@ func (s *databaseSettingsService) GetStorageInfo(context.Context) (servicedto.St
 	return info, nil
 }
 
+func (s *databaseSettingsService) sqliteFileBackupsSupported() bool {
+	return s != nil && s.db != nil && s.db.Dialector.Name() == "sqlite"
+}
+
 func (s *databaseSettingsService) CreateBackup(ctx context.Context, input servicedto.CreateBackupInput) (servicedto.BackupOperationResult, error) {
+	if !s.sqliteFileBackupsSupported() {
+		return servicedto.BackupOperationResult{}, fmt.Errorf("sqlite file backups are only available when DATABASE_DRIVER=sqlite")
+	}
 	if s.sqlDBErr != nil {
 		return servicedto.BackupOperationResult{}, fmt.Errorf("load sql database handle: %w", s.sqlDBErr)
 	}
@@ -191,6 +198,9 @@ func (s *databaseSettingsService) createRestoreSafetyBackup(ctx context.Context)
 }
 
 func (s *databaseSettingsService) RestoreBackup(ctx context.Context, input servicedto.RestoreBackupInput) (servicedto.RestoreOperationResult, error) {
+	if !s.sqliteFileBackupsSupported() {
+		return servicedto.RestoreOperationResult{}, fmt.Errorf("sqlite file restore is only available when DATABASE_DRIVER=sqlite")
+	}
 	path, err := s.backupPathByID(input.ID)
 	if err != nil {
 		return servicedto.RestoreOperationResult{}, err

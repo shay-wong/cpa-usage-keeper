@@ -95,7 +95,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	})
 	databaseSettingsService := service.NewDatabaseSettingsServiceWithBackupDir(db, cfg.SQLitePath, cfg.BackupDir)
 	var backupMaintenance *DatabaseBackupRunner
-	if cfg.BackupEnabled {
+	if cfg.BackupEnabled && db.Dialector.Name() == config.DatabaseDriverSQLite {
 		sqlDB, err := db.DB()
 		if err != nil {
 			_ = closeGormDB(db)

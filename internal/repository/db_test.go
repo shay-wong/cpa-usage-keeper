@@ -16,6 +16,38 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestSanitizeDatabaseSourceRedactsURLCredentials(t *testing.T) {
+	source := sanitizeDatabaseSource("postgres://keeper:secret-password@postgres:5432/cpa_usage_keeper?sslmode=prefer")
+	if strings.Contains(source, "secret-password") {
+		t.Fatalf("expected sanitized source to redact password, got %q", source)
+	}
+	if !strings.Contains(source, "xxxxx") || !strings.Contains(source, "postgres:5432") {
+		t.Fatalf("expected sanitized source to keep safe URL context, got %q", source)
+	}
+}
+
+func TestOpenDatabaseRejectsUnsupportedDriver(t *testing.T) {
+	_, err := OpenDatabase(config.Config{DatabaseDriver: "mysql", DatabaseURL: "mysql://keeper"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported database driver") {
+		t.Fatalf("expected unsupported database driver error, got %v", err)
+	}
+}
+
+func TestOpenDatabaseDefaultsSQLiteWhenDriverEmpty(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "app.db")
+	db, err := OpenDatabase(config.Config{SQLitePath: dbPath})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	if db.Dialector.Name() != "sqlite" {
+		t.Fatalf("expected sqlite dialector, got %s", db.Dialector.Name())
+	}
+	if !db.Migrator().HasTable("usage_events") {
+		t.Fatal("expected usage_events table to exist")
+	}
+}
+
 func TestOpenDatabaseAutoMigratesCoreTables(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "app.db")
 	cfg := config.Config{

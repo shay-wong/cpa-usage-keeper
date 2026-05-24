@@ -4,7 +4,7 @@
 
 `CPA Usage Keeper` 是一个独立的 CPA 用量持久化与可视化服务。
 
-它依赖 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会从 CPA Redis usage 队列消费事件并写入 SQLite，定时拉取 CPA metadata，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
+它依赖 [CLIProxyAPI（CPA）](https://github.com/router-for-me/CLIProxyAPI) 作为后端 CPA 数据来源，目标是在 CPA 之上补充持久化存储与统计分析能力。服务会从 CPA Redis usage 队列消费事件并写入 PostgreSQL 或 SQLite，定时拉取 CPA metadata，暴露聚合 API，并提供内置 Web Dashboard 用于查看 usage、pricing、request health 和 model/API 维度的统计信息。
 
 <p float="left">
   <img src="https://images.bitskyline.com/i/2026/05/govoah.png" width="49%" />
@@ -17,14 +17,14 @@
 
 ## 功能特性
 
-- 持久保存 CPA usage 数据到 SQLite
+- 持久保存 CPA usage 数据到 PostgreSQL，兼容 SQLite 单文件模式
 - Dashboard 查看请求量、Token、成本、缓存命中率、成功率和延迟
 - 支持按时间范围、模型、API Key 和来源筛选用量明细
 - 分析页面提供 Token 趋势、模型/API Key/AI Provider 构成和时段热力图
 - API Key 独立查询页，可按 CPA API Key 查看专属用量
 - 凭证页面展示 Auth File 与 AI Provider 使用情况，支持凭证限额查询与刷新
 - 可维护模型价格，用于成本估算和统计展示
-- 可选密码登录保护、SQLite 备份、Docker/Docker Compose 和 systemd 部署
+- 可选密码登录保护、PostgreSQL Docker/Docker Compose、SQLite 兼容备份和 systemd 部署
 
 ## 快速开始
 
@@ -42,47 +42,49 @@
 
 ### Docker Compose（推荐）
 
-仓库提供了一个最简 `docker-compose.example.yml` 示例，用于同时部署 CPA 和 CPA Usage Keeper：
+仓库提供了一个最简 `docker-compose.example.yml` 示例，用于同时部署 PostgreSQL 和 CPA Usage Keeper；如果 CPA 也需要容器化，可把 CPA 服务加入同一个 Compose 网络：
 
 ```yaml
 services:
-  cli-proxy-api:
-    image: eceasy/cli-proxy-api:latest
-    container_name: cli-proxy-api
-    restart: unless-stopped
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cpa_usage_keeper}
+      POSTGRES_USER: ${POSTGRES_USER:-keeper}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "8317:8317"
-      - "1455:1455"
+      - "127.0.0.1:5432:5432"
     volumes:
-      - ./cpa/config.yaml:/CLIProxyAPI/config.yaml
-      - ./cpa/auths:/root/.cli-proxy-api
-      - ./cpa/logs:/CLIProxyAPI/logs
-    networks:
-      - cpa-network
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   cpa-usage-keeper:
     image: ghcr.io/shay-wong/cpa-usage-keeper:latest
-    container_name: cpa-usage-keeper
-    restart: unless-stopped
-    depends_on:
-      - cli-proxy-api
     ports:
       - "8080:8080"
     environment:
-      TZ: Asia/Shanghai # 设置容器时区，日志时间会按该时区显示。
-      CPA_BASE_URL: http://cli-proxy-api:8317
-      CPA_MANAGEMENT_KEY: replace-with-your-management-key
-      REDIS_QUEUE_ADDR: cli-proxy-api:8317
-      AUTH_ENABLED: true
-      LOGIN_PASSWORD: replace-with-your-login-password
+      CPA_BASE_URL: ${CPA_BASE_URL}
+      CPA_MANAGEMENT_KEY: ${CPA_MANAGEMENT_KEY}
+      DATABASE_DRIVER: ${DATABASE_DRIVER:-postgres}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      AUTH_ENABLED: ${AUTH_ENABLED:-false}
+      LOGIN_PASSWORD: ${LOGIN_PASSWORD:-}
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
-      - ./keeper:/data
-    networks:
-      - cpa-network
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
 
-networks:
-  cpa-network:
-    driver: bridge
+volumes:
+  postgres-data:
 ```
 
 启动：
@@ -97,7 +99,7 @@ docker compose up -d
 docker compose down
 ```
 
-CPA 文件放在 `./cpa`，CPA Usage Keeper 数据放在 `./keeper`。
+PostgreSQL 数据保存在 Docker named volume `postgres-data` 中，Keeper 日志写入 `./data`。示例把 PostgreSQL 端口绑定到宿主机 `127.0.0.1:5432`，可在 macOS 上用 TablePlus、psql 等工具连接 live DB：数据库 `cpa_usage_keeper`，用户 `keeper`，密码使用 `.env` 中的 `POSTGRES_PASSWORD`。
 
 ### Docker（CPA 已在宿主机运行）
 
@@ -234,13 +236,15 @@ cp .env.example .env
 
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `WORK_DIR` | 否 | `./data` | 应用工作目录；数据库、日志和备份默认分别写入 `app.db`、`logs/`、`backups/` |
+| `DATABASE_DRIVER` | 否 | `sqlite` | 主数据库类型；推荐 PostgreSQL，设为 `postgres`；设置 `DATABASE_URL` 且未显式设置 driver 时默认使用 PostgreSQL |
+| `DATABASE_URL` | PostgreSQL 模式必填 | - | PostgreSQL 连接串；Docker Compose 中通常使用 `postgres` 服务名，SQLite 模式留空 |
+| `WORK_DIR` | 否 | `./data` | 应用工作目录；日志和 SQLite 兼容模式下的数据库/备份默认写入这里，PostgreSQL 数据保存在 PostgreSQL 实例或 Docker volume 中 |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
 | `LOG_RETENTION_DAYS` | 否 | `7` | 日志保留天数；`0` 表示不自动清理 |
-| `BACKUP_ENABLED` | 否 | `false` | 是否启用 SQLite 数据库备份 |
-| `BACKUP_INTERVAL` | 否 | `24h` | 数据库备份间隔 |
-| `BACKUP_RETENTION_DAYS` | 否 | `7` | 备份保留天数 |
+| `BACKUP_ENABLED` | 否 | `false` | 是否启用 SQLite 文件备份；PostgreSQL 模式请使用 PostgreSQL 自身的备份工具 |
+| `BACKUP_INTERVAL` | 否 | `24h` | SQLite 文件备份间隔 |
+| `BACKUP_RETENTION_DAYS` | 否 | `7` | SQLite 文件备份保留天数 |
 
 ### 内置 HTTPS
 
@@ -254,8 +258,8 @@ cp .env.example .env
 
 安全与数据说明：
 
-- 存储页可查看数据库和备份占用，配置请求日志/用量日志清理范围、备份范围、备份时间、最大备份数，并按数据范围恢复备份。
-- SQLite 数据库备份会保存应用数据库中的原始数据，备份文件不做加密。
+- 存储页可查看数据库和备份占用，配置请求日志/用量日志清理范围、SQLite 备份范围、备份时间、最大备份数，并按数据范围恢复 SQLite 备份。
+- SQLite 文件备份会保存应用数据库中的原始数据，备份文件不做加密；PostgreSQL 模式不会启用内置 SQLite 文件备份/恢复，请使用 `pg_dump`、托管数据库快照或 PostgreSQL volume 级备份。
 - 面向浏览器的 API 会对 key-like source/lookup 字段做脱敏或稳定公开标识映射，但不会修改数据库原始值。
 - 公开部署建议开启 `AUTH_ENABLED=true`，并在反向代理层配置 HTTPS。
 - 登录 session 存在服务进程内存中，服务重启后已登录 session 会失效。
@@ -289,7 +293,7 @@ cmd/server/              应用入口
 internal/api/            HTTP 路由与处理器
 internal/app/            应用装配与启动
 internal/auth/           内存 session 鉴权
-internal/backup/         SQLite 数据库备份管理
+internal/backup/         SQLite 兼容模式的文件备份管理
 internal/benchmark/      聚合性能基准测试辅助
 internal/config/         环境配置加载
 internal/cpa/            CPA 客户端与类型定义
@@ -299,7 +303,7 @@ internal/logging/        日志初始化与保留策略
 internal/poller/         后台队列消费与 metadata 同步
 internal/quota/          quota 缓存、刷新与查询服务
 internal/redact/         前端展示字段脱敏
-internal/repository/     SQLite 访问与聚合逻辑
+internal/repository/     数据库访问、迁移与聚合逻辑
 internal/service/        usage、pricing 与身份数据服务
 internal/timeutil/       项目时区与时间工具
 internal/updatecheck/    GitHub Release 更新检查

@@ -13,7 +13,7 @@ import (
 var configEnvKeys = []string{
 	"APP_PORT", "APP_BASE_PATH", "CPA_PUBLIC_URL", "WORK_DIR", "CPA_BASE_URL", "CPA_MANAGEMENT_KEY", "POLL_INTERVAL",
 	"USAGE_SYNC_MODE", "REDIS_QUEUE_ADDR", "REDIS_QUEUE_TLS", "REDIS_QUEUE_BATCH_SIZE", "REDIS_QUEUE_IDLE_INTERVAL",
-	"SQLITE_PATH", "BACKUP_ENABLED", "BACKUP_DIR", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
+	"SQLITE_PATH", "DATABASE_DRIVER", "DATABASE_URL", "BACKUP_ENABLED", "BACKUP_DIR", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
 	"REQUEST_TIMEOUT", "LOG_LEVEL", "LOG_FILE_ENABLED", "LOG_DIR", "LOG_RETENTION_DAYS",
 	"AUTH_ENABLED", "LOGIN_PASSWORD", "AUTH_SESSION_TTL", "TZ", "TLS_SKIP_VERIFY",
 }
@@ -120,8 +120,11 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.RequestTimeout != 30*time.Second {
 		t.Fatalf("expected default request timeout 30s, got %s", cfg.RequestTimeout)
 	}
-	if cfg.SQLitePath != filepath.Join("data", "app.db") {
-		t.Fatalf("expected default sqlite path data/app.db, got %s", cfg.SQLitePath)
+	if cfg.DatabaseDriver != "sqlite" {
+		t.Fatalf("expected default database driver sqlite, got %s", cfg.DatabaseDriver)
+	}
+	if cfg.DatabaseURL != "" {
+		t.Fatalf("expected default database URL to be empty, got %q", cfg.DatabaseURL)
 	}
 	if cfg.AuthEnabled {
 		t.Fatal("expected auth to be disabled by default")
@@ -373,6 +376,35 @@ func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
 			t.Fatalf("expected LOGIN_PASSWORD required error, got %v", err)
 		}
 	})
+}
+
+func TestLoadFromEnvParsesDatabaseDriverOverride(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "https://cpa.example.com")
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("DATABASE_DRIVER", "postgres")
+	t.Setenv("DATABASE_URL", "postgres://keeper:secret@127.0.0.1:5432/keeper?sslmode=disable")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+	if cfg.DatabaseDriver != "postgres" {
+		t.Fatalf("expected database driver postgres, got %q", cfg.DatabaseDriver)
+	}
+	if cfg.DatabaseURL != "postgres://keeper:secret@127.0.0.1:5432/keeper?sslmode=disable" {
+		t.Fatalf("expected database URL override, got %q", cfg.DatabaseURL)
+	}
+}
+
+func TestLoadFromEnvRejectsUnsupportedDatabaseDriver(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "https://cpa.example.com")
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("DATABASE_DRIVER", "mysql")
+
+	_, err := LoadFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "unsupported DATABASE_DRIVER") {
+		t.Fatalf("expected unsupported DATABASE_DRIVER error, got %v", err)
+	}
 }
 
 func TestLoadFromEnvIgnoresRemovedLegacySyncEnvVars(t *testing.T) {
