@@ -6,12 +6,21 @@ import { Input } from '@/components/ui/Input';
 import type { BackupFileInfo, CreateBackupRequest, RestoreBackupRequest, StorageInfoResponse, UpdateDatabaseCleanupSettingsRequest } from '@/lib/types';
 import styles from '@/pages/UsagePage.module.scss';
 
+type StorageOperationScope = 'cleanup' | 'backup' | 'restore';
+
+export interface StorageOperationNotice {
+  scope: StorageOperationScope;
+  kind: 'success' | 'error';
+  message: string;
+}
+
 interface StorageSettingsCardProps {
   info: StorageInfoResponse | null;
   loading?: boolean;
   saving?: boolean;
   actionLoading?: boolean;
-  onSave: (settings: UpdateDatabaseCleanupSettingsRequest) => void | Promise<void>;
+  notice?: StorageOperationNotice | null;
+  onSave: (settings: UpdateDatabaseCleanupSettingsRequest, scope: Exclude<StorageOperationScope, 'restore'>) => void | Promise<void>;
   onCreateBackup: (request: CreateBackupRequest) => void | Promise<void>;
   onRestoreBackup: (request: RestoreBackupRequest) => void | Promise<void>;
 }
@@ -206,11 +215,17 @@ function tableList(tables: string[], label: string) {
   );
 }
 
-export function StorageSettingsCard({ info, loading = false, saving = false, actionLoading = false, onSave, onCreateBackup, onRestoreBackup }: StorageSettingsCardProps) {
+function StorageNotice({ notice, scope }: { notice: StorageOperationNotice | null; scope: StorageOperationScope }) {
+  if (!notice || notice.scope !== scope) return null;
+  const className = notice.kind === 'success' ? styles.successBox : styles.errorBox;
+  return <div className={className}>{notice.message}</div>;
+}
+
+export function StorageSettingsCard({ info, loading = false, saving = false, actionLoading = false, notice = null, onSave, onCreateBackup, onRestoreBackup }: StorageSettingsCardProps) {
   const { t } = useTranslation();
   const settings = info?.settings ?? info?.Settings ?? defaultSettings;
   const [draft, setDraft] = useState(() => createDraft(settings));
-  const [formError, setFormError] = useState('');
+  const [formError, setFormError] = useState<StorageOperationNotice | null>(null);
 
   const domains = info?.domains ?? info?.Domains ?? [];
   const backups = useMemo(() => (info?.backups ?? info?.Backups ?? []).map(normalizeBackup), [info]);
@@ -218,6 +233,7 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
   const backupTotalSizeBytes = info?.backup_total_size_bytes ?? info?.BackupTotalSizeBytes;
   const backupCount = info?.backup_count ?? info?.BackupCount ?? backups.length;
   const busy = saving || actionLoading;
+  const moduleNotice = (scope: StorageOperationScope) => (formError?.scope === scope ? formError : notice);
 
   const setDraftValue = <K extends keyof StorageSettingsDraft>(key: K, value: StorageSettingsDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -235,22 +251,21 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
     }));
   };
 
-  const handleSave = () => {
+  const buildSettingsRequest = (scope: Exclude<StorageOperationScope, 'restore'>) => {
     const nextRequestLogRetentionDays = parseNonNegativeInteger(draft.requestLogRetentionDays);
     const nextUsageLogRetentionDays = parseNonNegativeInteger(draft.usageLogRetentionDays);
     const nextMaxDatabaseSizeMB = parseNonNegativeInteger(draft.maxDatabaseSizeMB);
     const nextBackupTime = parseBackupTime(draft.backupTime);
     const nextMaxBackupCount = parseNonNegativeInteger(draft.maxBackupCount);
     if ([nextRequestLogRetentionDays, nextUsageLogRetentionDays, nextMaxDatabaseSizeMB, nextMaxBackupCount].some((value) => value === null)) {
-      setFormError(t('usage_stats.storage_error_non_negative_integer'));
-      return;
+      setFormError({ scope, kind: 'error', message: t('usage_stats.storage_error_non_negative_integer') });
+      return null;
     }
     if (!nextBackupTime) {
-      setFormError(t('usage_stats.storage_error_backup_time'));
-      return;
+      setFormError({ scope, kind: 'error', message: t('usage_stats.storage_error_backup_time') });
+      return null;
     }
-    setFormError('');
-    void onSave({
+    return {
       record_request_details: draft.recordRequestDetails,
       cleanup_request_logs: draft.cleanupRequestLogs,
       cleanup_usage_logs: draft.cleanupUsageLogs,
@@ -266,31 +281,38 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
       backup_hour: nextBackupTime.hour,
       backup_minute: nextBackupTime.minute,
       max_backup_count: nextMaxBackupCount ?? 0,
-    });
+    };
+  };
+
+  const handleSave = (scope: Exclude<StorageOperationScope, 'restore'>) => {
+    const request = buildSettingsRequest(scope);
+    if (!request) return;
+    setFormError(null);
+    void onSave(request, scope);
   };
 
   const handleCreateBackup = () => {
     if (!domainValuesSelected(draft.backupDomains)) {
-      setFormError(t('usage_stats.storage_error_backup_domain'));
+      setFormError({ scope: 'backup', kind: 'error', message: t('usage_stats.storage_error_backup_domain') });
       return;
     }
-    setFormError('');
+    setFormError(null);
     void onCreateBackup(draft.backupDomains);
   };
 
   const handleRestore = () => {
     if (!draft.restoreBackupId) {
-      setFormError(t('usage_stats.storage_error_restore_backup'));
+      setFormError({ scope: 'restore', kind: 'error', message: t('usage_stats.storage_error_restore_backup') });
       return;
     }
     if (!domainValuesSelected(draft.restoreDomains)) {
-      setFormError(t('usage_stats.storage_error_restore_domain'));
+      setFormError({ scope: 'restore', kind: 'error', message: t('usage_stats.storage_error_restore_domain') });
       return;
     }
     if (draft.skipSafetyBackup && typeof window !== 'undefined' && !window.confirm(t('usage_stats.storage_restore_skip_confirm'))) {
       return;
     }
-    setFormError('');
+    setFormError(null);
     void onRestoreBackup({ id: draft.restoreBackupId, ...draft.restoreDomains, skip_safety_backup: draft.skipSafetyBackup });
   };
 
@@ -344,6 +366,10 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
             <label className={styles.databaseCleanupSettingsField}><span>{t('usage_stats.storage_usage_log_retention_label')}</span><Input type="number" min="0" step="1" value={draft.usageLogRetentionDays} onChange={(event) => setDraftValue('usageLogRetentionDays', event.target.value)} className={styles.usagePillControl} disabled={saving} /><small>{t('usage_stats.storage_usage_log_retention_hint')}</small></label>
             <label className={styles.databaseCleanupSettingsField}><span>{t('usage_stats.storage_max_database_size_label')}</span><Input type="number" min="0" step="1" value={draft.maxDatabaseSizeMB} onChange={(event) => setDraftValue('maxDatabaseSizeMB', event.target.value)} className={styles.usagePillControl} disabled={saving} /><small>{t('usage_stats.storage_max_database_size_hint')}</small></label>
           </div>
+          <StorageNotice notice={moduleNotice('cleanup')} scope="cleanup" />
+          <div className={styles.databaseCleanupSettingsActions}>
+            <Button variant="primary" className={styles.usagePillAction} onClick={() => handleSave('cleanup')} disabled={saving}>{saving ? t('usage_stats.database_cleanup_saving') : t('usage_stats.storage_save_cleanup_settings')}</Button>
+          </div>
         </div>
       </Card>
 
@@ -356,6 +382,11 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
           <div className={styles.databaseCleanupSettingsGrid}>
             <label className={styles.databaseCleanupSettingsField}><span>{t('usage_stats.storage_max_backup_count_label')}</span><Input type="number" min="0" step="1" value={draft.maxBackupCount} onChange={(event) => setDraftValue('maxBackupCount', event.target.value)} className={styles.usagePillControl} disabled={saving} /><small>{t('usage_stats.storage_max_backup_count_hint')}</small></label>
             <label className={styles.databaseCleanupSettingsField}><span>{t('usage_stats.storage_backup_time_label')}</span><Input type="time" step="60" value={draft.backupTime} onChange={(event) => setDraftValue('backupTime', event.target.value)} className={styles.usagePillControl} disabled={saving} /><small>{t('usage_stats.storage_backup_time_hint')}</small></label>
+          </div>
+          <StorageNotice notice={moduleNotice('backup')} scope="backup" />
+          <div className={styles.databaseCleanupSettingsActions}>
+            <Button variant="primary" className={styles.usagePillAction} onClick={() => handleSave('backup')} disabled={busy}>{saving ? t('usage_stats.database_cleanup_saving') : t('usage_stats.storage_save_backup_settings')}</Button>
+            <Button variant="secondary" className={styles.usagePillAction} onClick={handleCreateBackup} disabled={actionLoading}>{actionLoading ? t('usage_stats.storage_action_running') : t('usage_stats.storage_create_backup')}</Button>
           </div>
         </div>
       </Card>
@@ -379,15 +410,12 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
             <StorageSwitch label={t('usage_stats.storage_skip_safety_backup_label')} hint={t('usage_stats.storage_skip_safety_backup_hint')} checked={draft.skipSafetyBackup} disabled={actionLoading} onChange={(checked) => setDraftValue('skipSafetyBackup', checked)} />
           </div>
           <StorageDomainSwitches values={draft.restoreDomains} disabled={actionLoading} onChange={setRestoreDomain} />
+          <StorageNotice notice={moduleNotice('restore')} scope="restore" />
+          <div className={styles.databaseCleanupSettingsActions}>
+            <Button variant="primary" className={styles.usagePillAction} onClick={handleRestore} disabled={actionLoading}>{actionLoading ? t('usage_stats.storage_action_running') : t('usage_stats.storage_restore_selected')}</Button>
+          </div>
         </div>
       </Card>
-
-      {formError && <div className={styles.errorBox}>{formError}</div>}
-      <div className={styles.databaseCleanupSettingsActions}>
-        <Button variant="primary" className={styles.usagePillAction} onClick={handleSave} disabled={busy}>{saving ? t('usage_stats.database_cleanup_saving') : t('usage_stats.storage_save_settings')}</Button>
-        <Button variant="secondary" className={styles.usagePillAction} onClick={handleCreateBackup} disabled={actionLoading}>{actionLoading ? t('usage_stats.storage_action_running') : t('usage_stats.storage_create_backup')}</Button>
-        <Button variant="secondary" className={styles.usagePillAction} onClick={handleRestore} disabled={actionLoading}>{actionLoading ? t('usage_stats.storage_action_running') : t('usage_stats.storage_restore_selected')}</Button>
-      </div>
     </div>
   );
 }

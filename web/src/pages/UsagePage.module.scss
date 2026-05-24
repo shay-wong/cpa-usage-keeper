@@ -1059,6 +1059,15 @@
   font-size: 12px;
 }
 
+.successBox {
+  padding: 10px;
+  background-color: color-mix(in srgb, var(--success-color) 12%, transparent);
+  border: 1px solid var(--success-color);
+  border-radius: $radius-sm;
+  color: var(--success-color);
+  font-size: 12px;
+}
+
 .hint {
   color: var(--text-secondary);
   font-size: 12px;

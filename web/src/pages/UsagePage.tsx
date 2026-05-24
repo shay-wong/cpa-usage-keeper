@@ -31,6 +31,7 @@ import {
   AnalysisPanel,
   ApiKeySettingsCard,
   StorageSettingsCard,
+  type StorageOperationNotice,
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
@@ -609,6 +610,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [storageInfoLoading, setStorageInfoLoading] = useState(false);
   const [storageInfoActionLoading, setStorageInfoActionLoading] = useState(false);
   const [storageInfoError, setStorageInfoError] = useState('');
+  const [storageOperationNotice, setStorageOperationNotice] = useState<StorageOperationNotice | null>(null);
   const storageInfoRequestControllerRef = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
@@ -819,56 +821,66 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired]);
 
-  const handleSaveStorageSettings = useCallback(async (settings: UpdateDatabaseCleanupSettingsRequest) => {
+  const handleSaveStorageSettings = useCallback(async (settings: UpdateDatabaseCleanupSettingsRequest, scope: Exclude<StorageOperationNotice['scope'], 'restore'>) => {
     setStorageSettingsSaving(true);
-    setStorageInfoError('');
+    setStorageOperationNotice(null);
     try {
       await updateDatabaseCleanupSettings(settings);
       await loadStorageInfo();
+      setStorageOperationNotice({
+        scope,
+        kind: 'success',
+        message: scope === 'backup' ? t('usage_stats.storage_backup_settings_saved') : t('usage_stats.storage_cleanup_settings_saved'),
+      });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
-      setStorageInfoError(error instanceof Error ? error.message : 'Failed to update storage settings');
+      const message = error instanceof Error ? error.message : t('usage_stats.storage_settings_save_failed');
+      setStorageOperationNotice({ scope, kind: 'error', message });
     } finally {
       setStorageSettingsSaving(false);
     }
-  }, [loadStorageInfo, onAuthRequired]);
+  }, [loadStorageInfo, onAuthRequired, t]);
 
   const handleCreateStorageBackup = useCallback(async (request: CreateBackupRequest) => {
     setStorageInfoActionLoading(true);
-    setStorageInfoError('');
+    setStorageOperationNotice(null);
     try {
       await createStorageBackup(request);
       await loadStorageInfo();
+      setStorageOperationNotice({ scope: 'backup', kind: 'success', message: t('usage_stats.storage_backup_created') });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
-      setStorageInfoError(error instanceof Error ? error.message : 'Failed to create storage backup');
+      const message = error instanceof Error ? error.message : t('usage_stats.storage_backup_create_failed');
+      setStorageOperationNotice({ scope: 'backup', kind: 'error', message });
     } finally {
       setStorageInfoActionLoading(false);
     }
-  }, [loadStorageInfo, onAuthRequired]);
+  }, [loadStorageInfo, onAuthRequired, t]);
 
   const handleRestoreStorageBackup = useCallback(async (request: RestoreBackupRequest) => {
     setStorageInfoActionLoading(true);
-    setStorageInfoError('');
+    setStorageOperationNotice(null);
     try {
       await restoreStorageBackup(request);
       await loadStorageInfo();
+      setStorageOperationNotice({ scope: 'restore', kind: 'success', message: t('usage_stats.storage_backup_restored') });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
-      setStorageInfoError(error instanceof Error ? error.message : 'Failed to restore storage backup');
+      const message = error instanceof Error ? error.message : t('usage_stats.storage_backup_restore_failed');
+      setStorageOperationNotice({ scope: 'restore', kind: 'error', message });
     } finally {
       setStorageInfoActionLoading(false);
     }
-  }, [loadStorageInfo, onAuthRequired]);
+  }, [loadStorageInfo, onAuthRequired, t]);
 
   const loadAnalysis = useCallback(async () => {
     const queryWindow = buildUsageRangeQuery({ range: timeRange, customStart: customTimeRange.start, customEnd: customTimeRange.end });
@@ -1981,6 +1993,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   loading={storageInfoLoading}
                   saving={storageSettingsSaving}
                   actionLoading={storageInfoActionLoading}
+                  notice={storageOperationNotice}
                   onSave={handleSaveStorageSettings}
                   onCreateBackup={handleCreateStorageBackup}
                   onRestoreBackup={handleRestoreStorageBackup}
