@@ -130,7 +130,7 @@ func listRecentMonitoringSourceRequests(ctx context.Context, db *gorm.DB, filter
 	if len(targets) == 0 {
 		return []UsageMonitoringRecentRequestRecord{}, nil
 	}
-	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(targets)
+	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(db, targets)
 	filterSQL, filterArgs := usageMonitoringRecentRequestFilterSQL(filter)
 	query := fmt.Sprintf(`
 WITH targets(target_index, source, auth_index) AS (%s),
@@ -162,7 +162,7 @@ func listRecentMonitoringSourceModelRequests(ctx context.Context, db *gorm.DB, f
 	if len(targets) == 0 {
 		return []UsageMonitoringRecentRequestRecord{}, nil
 	}
-	targetSQL, targetArgs := buildUsageMonitoringSourceModelTargetSQL(targets)
+	targetSQL, targetArgs := buildUsageMonitoringSourceModelTargetSQL(db, targets)
 	filterSQL, filterArgs := usageMonitoringRecentRequestFilterSQL(filter)
 	query := fmt.Sprintf(`
 WITH targets(target_index, source, auth_index, model) AS (%s),
@@ -190,24 +190,38 @@ ORDER BY target_index ASC, timestamp DESC`, targetSQL, filterSQL)
 	return scanUsageMonitoringRecentRequests(ctx, db, query, args)
 }
 
-func buildUsageMonitoringSourceTargetSQL(targets []UsageMonitoringSourceTargetRecord) (string, []any) {
+func buildUsageMonitoringSourceTargetSQL(db *gorm.DB, targets []UsageMonitoringSourceTargetRecord) (string, []any) {
 	parts := make([]string, 0, len(targets))
 	args := make([]any, 0, len(targets)*3)
 	for index, target := range targets {
-		parts = append(parts, "SELECT ? AS target_index, ? AS source, ? AS auth_index")
+		parts = append(parts, usageMonitoringSourceTargetSelectSQL(db))
 		args = append(args, index, target.Source, target.AuthIndex)
 	}
 	return strings.Join(parts, " UNION ALL "), args
 }
 
-func buildUsageMonitoringSourceModelTargetSQL(targets []UsageMonitoringSourceModelTargetRecord) (string, []any) {
+func buildUsageMonitoringSourceModelTargetSQL(db *gorm.DB, targets []UsageMonitoringSourceModelTargetRecord) (string, []any) {
 	parts := make([]string, 0, len(targets))
 	args := make([]any, 0, len(targets)*4)
 	for index, target := range targets {
-		parts = append(parts, "SELECT ? AS target_index, ? AS source, ? AS auth_index, ? AS model")
+		parts = append(parts, usageMonitoringSourceModelTargetSelectSQL(db))
 		args = append(args, index, target.Source, target.AuthIndex, target.Model)
 	}
 	return strings.Join(parts, " UNION ALL "), args
+}
+
+func usageMonitoringSourceTargetSelectSQL(db *gorm.DB) string {
+	if db.Dialector.Name() == config.DatabaseDriverPostgres {
+		return "SELECT CAST(? AS integer) AS target_index, CAST(? AS text) AS source, CAST(? AS text) AS auth_index"
+	}
+	return "SELECT ? AS target_index, ? AS source, ? AS auth_index"
+}
+
+func usageMonitoringSourceModelTargetSelectSQL(db *gorm.DB) string {
+	if db.Dialector.Name() == config.DatabaseDriverPostgres {
+		return "SELECT CAST(? AS integer) AS target_index, CAST(? AS text) AS source, CAST(? AS text) AS auth_index, CAST(? AS text) AS model"
+	}
+	return "SELECT ? AS target_index, ? AS source, ? AS auth_index, ? AS model"
 }
 
 func usageMonitoringRecentRequestFilterSQL(filter dto.UsageQueryFilter) (string, []any) {
@@ -405,7 +419,7 @@ func listUsageMonitoringChannelModelStatsForChannels(ctx context.Context, db *go
 	if len(channels) == 0 {
 		return []UsageMonitoringChannelModelStatRecord{}, nil
 	}
-	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(channelRowsToSourceTargets(channels))
+	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(db, channelRowsToSourceTargets(channels))
 	filterSQL, filterArgs := usageMonitoringRecentRequestFilterSQL(filter)
 	query := fmt.Sprintf(`
 WITH targets(target_index, source, auth_index) AS (%s),
@@ -440,7 +454,7 @@ func listUsageMonitoringFailureModelStatsForFailures(ctx context.Context, db *go
 	if len(failures) == 0 {
 		return []UsageMonitoringFailureModelStatRecord{}, nil
 	}
-	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(failureRowsToSourceTargets(failures))
+	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(db, failureRowsToSourceTargets(failures))
 	filterSQL, filterArgs := usageMonitoringRecentRequestFilterSQL(filter)
 	query := fmt.Sprintf(`
 WITH targets(target_index, source, auth_index) AS (%s),

@@ -67,7 +67,7 @@ func TestOpenDatabasePostgresAutoMigratesCoreTables(t *testing.T) {
 	}
 }
 
-func TestUsageMonitoringHourlyStatsRunsOnPostgres(t *testing.T) {
+func TestUsageMonitoringStatsRunsOnPostgres(t *testing.T) {
 	databaseURL := strings.TrimSpace(os.Getenv("POSTGRES_TEST_DATABASE_URL"))
 	if databaseURL == "" {
 		t.Skip("set POSTGRES_TEST_DATABASE_URL to run PostgreSQL integration test")
@@ -76,21 +76,32 @@ func TestUsageMonitoringHourlyStatsRunsOnPostgres(t *testing.T) {
 
 	base := time.Date(2026, 5, 25, 9, 30, 0, 0, time.UTC)
 	if _, _, err := InsertUsageEvents(db, []entities.UsageEvent{
-		{EventKey: "pg-hour-a", Model: "claude-sonnet", Timestamp: base, TotalTokens: 10},
-		{EventKey: "pg-hour-b", Model: "claude-sonnet", Timestamp: base.Add(15 * time.Minute), Failed: true, TotalTokens: 20},
+		{EventKey: "pg-hour-a", Source: "source-a", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: base, TotalTokens: 10},
+		{EventKey: "pg-hour-b", Source: "source-a", AuthIndex: "auth-1", Model: "claude-sonnet", Timestamp: base.Add(15 * time.Minute), Failed: true, TotalTokens: 20},
 	}); err != nil {
 		t.Fatalf("InsertUsageEvents returned error: %v", err)
 	}
 
-	rows, err := ListUsageMonitoringHourlyModelStatsWithFilter(context.Background(), db, dto.UsageQueryFilter{})
+	hourlyRows, err := ListUsageMonitoringHourlyModelStatsWithFilter(context.Background(), db, dto.UsageQueryFilter{})
 	if err != nil {
 		t.Fatalf("ListUsageMonitoringHourlyModelStatsWithFilter returned error: %v", err)
 	}
-	if len(rows) != 1 || rows[0].Model != "claude-sonnet" || rows[0].Requests != 2 || rows[0].Tokens != 30 {
-		t.Fatalf("unexpected postgres hourly stats rows: %+v", rows)
+	if len(hourlyRows) != 1 || hourlyRows[0].Model != "claude-sonnet" || hourlyRows[0].Requests != 2 || hourlyRows[0].Tokens != 30 {
+		t.Fatalf("unexpected postgres hourly stats rows: %+v", hourlyRows)
 	}
-	if rows[0].Hour != "2026-05-25T09:00:00Z" {
-		t.Fatalf("expected UTC hour bucket, got %s", rows[0].Hour)
+	if hourlyRows[0].Hour != "2026-05-25T09:00:00Z" {
+		t.Fatalf("expected UTC hour bucket, got %s", hourlyRows[0].Hour)
+	}
+
+	channelRows, channelModelRows, err := ListUsageMonitoringChannelStatsWithFilter(context.Background(), db, dto.UsageQueryFilter{})
+	if err != nil {
+		t.Fatalf("ListUsageMonitoringChannelStatsWithFilter returned error: %v", err)
+	}
+	if len(channelRows) != 1 || len(channelModelRows) != 1 {
+		t.Fatalf("expected one channel and one model row, got channels=%+v models=%+v", channelRows, channelModelRows)
+	}
+	if channelModelRows[0].Model != "claude-sonnet" || channelModelRows[0].Requests != 2 || channelModelRows[0].Failed != 1 {
+		t.Fatalf("unexpected postgres channel model rows: %+v", channelModelRows)
 	}
 }
 
