@@ -73,4 +73,42 @@ describe('StorageSettingsCard', () => {
     expect(html).toContain('Restore selected backup');
     expect((html.match(/disabled=""/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
+
+  it('shows explicit backup progress while backup is running', () => {
+    const html = renderToStaticMarkup(
+      <StorageSettingsCard
+        info={storageInfo}
+        actionLoading
+        actionState="backup"
+        onSave={() => undefined}
+        onCreateBackup={() => undefined}
+        onRestoreBackup={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('Creating backup. Large PostgreSQL dumps may take several minutes; keep this page open.');
+    expect(html).toContain('Backing up...');
+    expect(html).toContain('role="status"');
+  });
+
+  it('disables retention day inputs until the matching cleanup switch is enabled', () => {
+    const html = renderToStaticMarkup(
+      <StorageSettingsCard
+        info={{
+          ...storageInfo,
+          settings: {
+            ...storageInfo.settings,
+            cleanup_request_logs: false,
+            cleanup_usage_logs: false,
+          },
+        }}
+        onSave={() => undefined}
+        onCreateBackup={() => undefined}
+        onRestoreBackup={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('Enable cleanup for this log type before setting retention days.');
+    expect((html.match(/type="number"[^>]*disabled=""/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
 });

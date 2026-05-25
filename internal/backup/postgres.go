@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+const (
+	// postgresDumpCompressionLevel 使用低压缩等级换取更快的页面手动备份速度。
+	postgresDumpCompressionLevel = "1"
+)
+
 type PostgresWriter struct {
 	dir         string
 	databaseURL string
@@ -89,16 +94,24 @@ func (w *PostgresWriter) writeDatabaseWithPrefix(ctx context.Context, backupAt t
 	return fullPath, nil
 }
 
-func (w *PostgresWriter) dumpDatabase(ctx context.Context, outputPath string, options Options) error {
-	connectionArgs, env, err := postgresConnectionArgs(w.databaseURL)
+func postgresDumpCommandArgs(databaseURL string, outputPath string, options Options) ([]string, []string, error) {
+	connectionArgs, env, err := postgresConnectionArgs(databaseURL)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	args := []string{"--format=custom", "--no-owner", "--no-privileges", "--file", outputPath}
+	args := []string{"--format=custom", "--compress=" + postgresDumpCompressionLevel, "--no-owner", "--no-privileges", "--file", outputPath}
 	for _, table := range postgresExcludedTableData(options) {
 		args = append(args, "--exclude-table-data", table)
 	}
 	args = append(args, connectionArgs...)
+	return args, env, nil
+}
+
+func (w *PostgresWriter) dumpDatabase(ctx context.Context, outputPath string, options Options) error {
+	args, env, err := postgresDumpCommandArgs(w.databaseURL, outputPath, options)
+	if err != nil {
+		return err
+	}
 	cmd := exec.CommandContext(ctx, "pg_dump", args...)
 	cmd.Env = append(os.Environ(), env...)
 	output, err := cmd.CombinedOutput()

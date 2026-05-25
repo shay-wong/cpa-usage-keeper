@@ -626,7 +626,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [storageInfo, setStorageInfo] = useState<StorageInfoResponse | null>(null);
   const [storageInfoRevision, setStorageInfoRevision] = useState(0);
   const [storageInfoLoading, setStorageInfoLoading] = useState(false);
-  const [storageInfoActionLoading, setStorageInfoActionLoading] = useState(false);
+  const [storageInfoActionState, setStorageInfoActionState] = useState<Exclude<StorageOperationNotice['scope'], 'cleanup'> | null>(null);
   const [storageInfoError, setStorageInfoError] = useState('');
   const [storageOperationNotice, setStorageOperationNotice] = useState<StorageOperationNotice | null>(null);
   const storageInfoRequestControllerRef = useRef<AbortController | null>(null);
@@ -868,7 +868,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [loadStorageInfo, onAuthRequired, t]);
 
   const handleCreateStorageBackup = useCallback(async (request: CreateBackupRequest) => {
-    setStorageInfoActionLoading(true);
+    setStorageInfoActionState('backup');
     setStorageOperationNotice(null);
     try {
       await createStorageBackup(request);
@@ -882,12 +882,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       const message = error instanceof Error ? error.message : t('usage_stats.storage_backup_create_failed');
       setStorageOperationNotice({ scope: 'backup', kind: 'error', message });
     } finally {
-      setStorageInfoActionLoading(false);
+      setStorageInfoActionState(null);
     }
   }, [loadStorageInfo, onAuthRequired, t]);
 
   const handleRestoreStorageBackup = useCallback(async (request: RestoreBackupRequest) => {
-    setStorageInfoActionLoading(true);
+    setStorageInfoActionState('restore');
     setStorageOperationNotice(null);
     try {
       await restoreStorageBackup(request);
@@ -901,7 +901,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       const message = error instanceof Error ? error.message : t('usage_stats.storage_backup_restore_failed');
       setStorageOperationNotice({ scope: 'restore', kind: 'error', message });
     } finally {
-      setStorageInfoActionLoading(false);
+      setStorageInfoActionState(null);
     }
   }, [loadStorageInfo, onAuthRequired, t]);
 
@@ -2034,7 +2034,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   info={storageInfo}
                   loading={storageInfoLoading}
                   saving={storageSettingsSaving}
-                  actionLoading={storageInfoActionLoading}
+                  actionLoading={storageInfoActionState !== null}
+                  actionState={storageInfoActionState}
                   notice={storageOperationNotice}
                   onSave={handleSaveStorageSettings}
                   onCreateBackup={handleCreateStorageBackup}

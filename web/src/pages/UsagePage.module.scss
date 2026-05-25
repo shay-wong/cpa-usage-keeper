@@ -2084,6 +2084,45 @@
   }
 }
 
+.storageProgress {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 36%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--primary-color) 9%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.storageProgressBar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+
+  span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 42%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+    animation: storageProgressSweep 1.15s ease-in-out infinite;
+  }
+}
+
+@keyframes storageProgressSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(240%);
+  }
+}
+
 .databaseCleanupSettingsActions {
   display: flex;
   justify-content: flex-end;

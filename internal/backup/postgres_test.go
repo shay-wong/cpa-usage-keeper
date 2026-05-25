@@ -7,6 +7,25 @@ import (
 	"testing"
 )
 
+func TestPostgresDumpCommandArgsUseFastCompressionAndRedactPassword(t *testing.T) {
+	args, env, err := postgresDumpCommandArgs("postgres://keeper:secret@postgres:5432/cpa_usage_keeper?sslmode=prefer", "/backups/database.dump", Options{UsageLogs: true})
+	if err != nil {
+		t.Fatalf("postgresDumpCommandArgs returned error: %v", err)
+	}
+	joinedArgs := strings.Join(args, " ")
+	if strings.Contains(joinedArgs, "secret") {
+		t.Fatalf("expected password to be removed from dump args, got %q", joinedArgs)
+	}
+	for _, required := range []string{"--format=custom", "--compress=1", "--file /backups/database.dump", "keeper@postgres:5432"} {
+		if !strings.Contains(joinedArgs, required) {
+			t.Fatalf("expected dump args to include %q, got %q", required, joinedArgs)
+		}
+	}
+	if len(env) != 1 || env[0] != "PGPASSWORD=secret" {
+		t.Fatalf("expected password passed through PGPASSWORD env, got %+v", env)
+	}
+}
+
 func TestPostgresConnectionArgsRedactsPasswordFromDatabaseArgument(t *testing.T) {
 	args, env, err := postgresConnectionArgs("postgres://keeper:secret@postgres:5432/cpa_usage_keeper?sslmode=prefer")
 	if err != nil {
