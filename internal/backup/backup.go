@@ -366,6 +366,11 @@ func removeEmptyBackupDirectories(dir string) error {
 	return nil
 }
 
+func isBackupFileName(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".db" || ext == ".dump"
+}
+
 func ListFiles(dir string) ([]string, error) {
 	var files []string
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -375,7 +380,7 @@ func ListFiles(dir string) ([]string, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if strings.EqualFold(filepath.Ext(d.Name()), ".db") {
+		if isBackupFileName(d.Name()) {
 			files = append(files, path)
 		}
 		return nil

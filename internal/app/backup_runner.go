@@ -58,7 +58,11 @@ func (s *databaseBackupStore) CleanupByMaxCount(maxCount int) (int, error) {
 }
 
 func (s *databaseBackupStore) LastBackupAt() (time.Time, bool, error) {
-	files, err := backup.ListCleanupEligibleFiles(s.dir)
+	return lastDatabaseBackupAt(s.dir)
+}
+
+func lastDatabaseBackupAt(dir string) (time.Time, bool, error) {
+	files, err := backup.ListCleanupEligibleFiles(dir)
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -73,6 +77,35 @@ func (s *databaseBackupStore) LastBackupAt() (time.Time, bool, error) {
 		}
 	}
 	return latest, !latest.IsZero(), nil
+}
+
+type postgresBackupStore struct {
+	dir    string
+	writer *backup.PostgresWriter
+}
+
+func newPostgresBackupStore(dir string, databaseURL string) *postgresBackupStore {
+	return &postgresBackupStore{dir: dir, writer: backup.NewPostgresWriter(dir, databaseURL)}
+}
+
+func (s *postgresBackupStore) WriteDatabase(ctx context.Context, backupAt time.Time) (string, error) {
+	return s.writer.WriteDatabase(ctx, backupAt)
+}
+
+func (s *postgresBackupStore) WriteDatabaseWithOptions(ctx context.Context, backupAt time.Time, options backup.Options) (string, error) {
+	return s.writer.WriteDatabaseWithOptions(ctx, backupAt, options)
+}
+
+func (s *postgresBackupStore) Cleanup(retentionDays int, now time.Time) (int, error) {
+	return backup.Cleanup(s.dir, retentionDays, now)
+}
+
+func (s *postgresBackupStore) CleanupByMaxCount(maxCount int) (int, error) {
+	return backup.CleanupByMaxCount(s.dir, maxCount)
+}
+
+func (s *postgresBackupStore) LastBackupAt() (time.Time, bool, error) {
+	return lastDatabaseBackupAt(s.dir)
 }
 
 type DatabaseBackupRunner struct {

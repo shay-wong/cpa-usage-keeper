@@ -200,8 +200,12 @@ func TestListFilesReturnsDatabaseBackups(t *testing.T) {
 		t.Fatalf("create day dir: %v", err)
 	}
 	databasePath := filepath.Join(dayDir, "database.db")
+	dumpPath := filepath.Join(dayDir, "database.dump")
 	if err := os.WriteFile(databasePath, []byte("db"), 0o600); err != nil {
 		t.Fatalf("write db backup: %v", err)
+	}
+	if err := os.WriteFile(dumpPath, []byte("dump"), 0o600); err != nil {
+		t.Fatalf("write dump backup: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dayDir, "snapshot.json"), []byte("json"), 0o600); err != nil {
 		t.Fatalf("write json backup: %v", err)
@@ -211,8 +215,8 @@ func TestListFilesReturnsDatabaseBackups(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListFiles returned error: %v", err)
 	}
-	if len(files) != 1 || files[0] != databasePath {
-		t.Fatalf("expected only database backup, got %+v", files)
+	if len(files) != 2 || files[0] != databasePath || files[1] != dumpPath {
+		t.Fatalf("expected database and dump backups, got %+v", files)
 	}
 }
 

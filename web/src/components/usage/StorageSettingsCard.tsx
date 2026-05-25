@@ -232,6 +232,7 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
   const currentDatabaseSizeBytes = info?.current_database_size_bytes ?? info?.CurrentDatabaseSizeBytes;
   const backupTotalSizeBytes = info?.backup_total_size_bytes ?? info?.BackupTotalSizeBytes;
   const backupCount = info?.backup_count ?? info?.BackupCount ?? backups.length;
+  const databaseBackupsSupported = info?.database_backups_supported ?? info?.DatabaseBackupsSupported ?? false;
   const busy = saving || actionLoading;
   const moduleNotice = (scope: StorageOperationScope) => (formError?.scope === scope ? formError : notice);
 
@@ -292,6 +293,10 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
   };
 
   const handleCreateBackup = () => {
+    if (!databaseBackupsSupported) {
+      setFormError({ scope: 'backup', kind: 'error', message: t('usage_stats.storage_backup_unavailable') });
+      return;
+    }
     if (!domainValuesSelected(draft.backupDomains)) {
       setFormError({ scope: 'backup', kind: 'error', message: t('usage_stats.storage_error_backup_domain') });
       return;
@@ -301,6 +306,10 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
   };
 
   const handleRestore = () => {
+    if (!databaseBackupsSupported) {
+      setFormError({ scope: 'restore', kind: 'error', message: t('usage_stats.storage_restore_unavailable') });
+      return;
+    }
     if (!draft.restoreBackupId) {
       setFormError({ scope: 'restore', kind: 'error', message: t('usage_stats.storage_error_restore_backup') });
       return;
@@ -378,15 +387,16 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
         className={`${styles.detailsFixedCard} ${styles.databaseCleanupSettingsCard}`}
       >
         <div className={styles.databaseCleanupSettingsBody}>
-          <StorageDomainSwitches values={draft.backupDomains} disabled={busy} onChange={setBackupDomain} />
+          <StorageDomainSwitches values={draft.backupDomains} disabled={busy || !databaseBackupsSupported} onChange={setBackupDomain} />
           <div className={styles.databaseCleanupSettingsGrid}>
             <label className={styles.databaseCleanupSettingsField}><span>{t('usage_stats.storage_max_backup_count_label')}</span><Input type="number" min="0" step="1" value={draft.maxBackupCount} onChange={(event) => setDraftValue('maxBackupCount', event.target.value)} className={styles.usagePillControl} disabled={saving} /><small>{t('usage_stats.storage_max_backup_count_hint')}</small></label>
             <label className={styles.databaseCleanupSettingsField}><span>{t('usage_stats.storage_backup_time_label')}</span><Input type="time" step="60" value={draft.backupTime} onChange={(event) => setDraftValue('backupTime', event.target.value)} className={styles.usagePillControl} disabled={saving} /><small>{t('usage_stats.storage_backup_time_hint')}</small></label>
           </div>
+          {!databaseBackupsSupported ? <div className={styles.hint}>{t('usage_stats.storage_backup_unavailable')}</div> : null}
           <StorageNotice notice={moduleNotice('backup')} scope="backup" />
           <div className={styles.databaseCleanupSettingsActions}>
             <Button variant="primary" className={styles.usagePillAction} onClick={() => handleSave('backup')} disabled={busy}>{saving ? t('usage_stats.database_cleanup_saving') : t('usage_stats.storage_save_backup_settings')}</Button>
-            <Button variant="secondary" className={styles.usagePillAction} onClick={handleCreateBackup} disabled={actionLoading}>{actionLoading ? t('usage_stats.storage_action_running') : t('usage_stats.storage_create_backup')}</Button>
+            <Button variant="secondary" className={styles.usagePillAction} onClick={handleCreateBackup} disabled={actionLoading || !databaseBackupsSupported}>{actionLoading ? t('usage_stats.storage_action_running') : t('usage_stats.storage_create_backup')}</Button>
           </div>
         </div>
       </Card>
@@ -400,19 +410,20 @@ export function StorageSettingsCard({ info, loading = false, saving = false, act
             <label className={styles.databaseCleanupSettingsField}>
               <span>{t('usage_stats.storage_restore_select_label')}</span>
               <span className={styles.storageSelectShell}>
-                <select value={draft.restoreBackupId} onChange={(event) => setDraftValue('restoreBackupId', event.target.value)} className={styles.storageSelectControl} disabled={actionLoading}>
+                <select value={draft.restoreBackupId} onChange={(event) => setDraftValue('restoreBackupId', event.target.value)} className={styles.storageSelectControl} disabled={actionLoading || !databaseBackupsSupported}>
                   <option value="">{t('usage_stats.storage_restore_select_placeholder')}</option>
                   {backups.map((backup) => <option key={backup.id} value={backup.id}>{backup.fileName} · {formatBytes(backup.sizeBytes)}</option>)}
                 </select>
               </span>
               <small>{draft.skipSafetyBackup ? t('usage_stats.storage_restore_skip_hint') : t('usage_stats.storage_restore_safe_hint')}</small>
             </label>
-            <StorageSwitch label={t('usage_stats.storage_skip_safety_backup_label')} hint={t('usage_stats.storage_skip_safety_backup_hint')} checked={draft.skipSafetyBackup} disabled={actionLoading} onChange={(checked) => setDraftValue('skipSafetyBackup', checked)} />
+            <StorageSwitch label={t('usage_stats.storage_skip_safety_backup_label')} hint={t('usage_stats.storage_skip_safety_backup_hint')} checked={draft.skipSafetyBackup} disabled={actionLoading || !databaseBackupsSupported} onChange={(checked) => setDraftValue('skipSafetyBackup', checked)} />
           </div>
-          <StorageDomainSwitches values={draft.restoreDomains} disabled={actionLoading} onChange={setRestoreDomain} />
+          <StorageDomainSwitches values={draft.restoreDomains} disabled={actionLoading || !databaseBackupsSupported} onChange={setRestoreDomain} />
+          {!databaseBackupsSupported ? <div className={styles.hint}>{t('usage_stats.storage_restore_unavailable')}</div> : null}
           <StorageNotice notice={moduleNotice('restore')} scope="restore" />
           <div className={styles.databaseCleanupSettingsActions}>
-            <Button variant="primary" className={styles.usagePillAction} onClick={handleRestore} disabled={actionLoading}>{actionLoading ? t('usage_stats.storage_action_running') : t('usage_stats.storage_restore_selected')}</Button>
+            <Button variant="primary" className={styles.usagePillAction} onClick={handleRestore} disabled={actionLoading || !databaseBackupsSupported}>{actionLoading ? t('usage_stats.storage_action_running') : t('usage_stats.storage_restore_selected')}</Button>
           </div>
         </div>
       </Card>

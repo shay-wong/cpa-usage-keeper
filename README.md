@@ -24,7 +24,7 @@
 - API Key 独立查询页，可按 CPA API Key 查看专属用量
 - 凭证页面展示 Auth File 与 AI Provider 使用情况，支持凭证限额查询与刷新
 - 可维护模型价格，用于成本估算和统计展示
-- 可选密码登录保护、PostgreSQL Docker/Docker Compose、SQLite 兼容备份和 systemd 部署
+- 可选密码登录保护、PostgreSQL Docker/Docker Compose、数据库备份恢复和 systemd 部署
 
 ## 快速开始
 
@@ -35,6 +35,7 @@
 - 第一次部署 CPA + Keeper：优先使用 [Docker Compose](#docker-compose推荐)。
 - CPA 已在宿主机运行：使用 [Docker](#dockercpa-已在宿主机运行)。
 - 不使用容器：使用 [Linux 二进制](#linux-二进制)。
+- 已有 SQLite 数据：如果继续使用 SQLite，无需迁移；如果要切到 PostgreSQL，先按 [从 SQLite 迁移到 PostgreSQL](#从-sqlite-迁移到-postgresql) 做一次性迁移，再切换配置。
 
 公网部署建议启用 `AUTH_ENABLED=true`，并配置 `LOGIN_PASSWORD` 保护数据。
 
@@ -100,6 +101,66 @@ docker compose down
 ```
 
 PostgreSQL 数据保存在 Docker named volume `postgres-data` 中，Keeper 日志写入 `./data`。示例把 PostgreSQL 端口绑定到宿主机 `127.0.0.1:5432`，可在 macOS 上用 TablePlus、psql 等工具连接 live DB：数据库 `cpa_usage_keeper`，用户 `keeper`，密码使用 `.env` 中的 `POSTGRES_PASSWORD`。
+
+### 从 SQLite 迁移到 PostgreSQL
+
+全新 PostgreSQL 部署会在首次启动时自动建表并标记迁移版本；但已有 SQLite 数据不会在切换 `DATABASE_DRIVER=postgres` 时自动导入。SQLite 模式仍然受支持，如果你选择继续使用 SQLite，保持 `DATABASE_DRIVER=sqlite` 或同时留空 `DATABASE_DRIVER` 和 `DATABASE_URL` 即可，不需要执行本节迁移。自动导入可能误迁损坏的 SQLite、覆盖已写入的 PostgreSQL 数据，或让回滚边界不清楚，所以要切到 PostgreSQL 的老用户需要按下面步骤手动做一次性迁移。
+
+1. 停止正在写入 SQLite 的 Keeper 服务，避免 `app.db-wal` 里还有未 checkpoint 的数据：
+
+```bash
+docker compose stop cpa-usage-keeper
+```
+
+如果不是 Docker Compose 部署，请用你当前的进程管理方式停止 Keeper。
+
+2. 备份 SQLite 数据库目录，至少保留 `app.db`、`app.db-wal` 和 `app.db-shm`：
+
+```bash
+cp -a /path/to/keeper-data /path/to/keeper-data.backup-before-postgres
+```
+
+3. 启动 PostgreSQL，并确认目标库为空。Docker Compose 部署可直接使用本 README 上面的 `postgres` 服务示例。
+
+4. 在有 Go 1.22+ 的机器上运行迁移工具。迁移命令从宿主机执行时，`DATABASE_URL` 通常要使用 PostgreSQL 暴露到宿主机的地址，例如 `127.0.0.1:5432`；Keeper 容器内运行时才使用 Compose 服务名 `postgres:5432`。
+
+```bash
+go run ./cmd/migrate-sqlite-to-postgres \
+  -sqlite /path/to/keeper-data/app.db \
+  -database-url 'postgres://keeper:replace-with-password@127.0.0.1:5432/cpa_usage_keeper?sslmode=disable'
+```
+
+默认情况下，迁移工具要求目标表为空；如果目标库里已经有失败迁移留下的数据，先确认要完全替换后再加 `-truncate`：
+
+```bash
+go run ./cmd/migrate-sqlite-to-postgres \
+  -sqlite /path/to/keeper-data/app.db \
+  -database-url 'postgres://keeper:replace-with-password@127.0.0.1:5432/cpa_usage_keeper?sslmode=disable' \
+  -truncate
+```
+
+5. 迁移成功后，把 Keeper 配置切到 PostgreSQL。Docker Compose 中的 `DATABASE_URL` 应使用容器网络地址：
+
+```env
+DATABASE_DRIVER=postgres
+DATABASE_URL=postgres://keeper:replace-with-password@postgres:5432/cpa_usage_keeper?sslmode=disable
+```
+
+6. 重启 Keeper 并验证服务和数据：
+
+```bash
+docker compose up -d cpa-usage-keeper
+curl -f http://127.0.0.1:8080/healthz
+```
+
+也可以对比迁移前后的核心表行数：
+
+```bash
+sqlite3 /path/to/keeper-data/app.db 'select count(*) from usage_events;'
+psql 'postgres://keeper:replace-with-password@127.0.0.1:5432/cpa_usage_keeper?sslmode=disable' -c 'select count(*) from usage_events;'
+```
+
+如果 SQLite 已损坏，先不要直接迁移 live `app.db`；请优先使用最近一次健康备份，或先用 SQLite 官方工具恢复到一个 `PRAGMA quick_check` 返回 `ok` 的临时库，再把临时库作为 `-sqlite` 输入。回滚时停止 Keeper，把配置切回 SQLite，并恢复第 2 步备份的数据目录。
 
 ### Docker（CPA 已在宿主机运行）
 
@@ -236,15 +297,15 @@ cp .env.example .env
 
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `DATABASE_DRIVER` | 否 | `sqlite` | 主数据库类型；推荐 PostgreSQL，设为 `postgres`；设置 `DATABASE_URL` 且未显式设置 driver 时默认使用 PostgreSQL |
+| `DATABASE_DRIVER` | 否 | `sqlite` | 主数据库类型；推荐 PostgreSQL，设为 `postgres`。继续使用 SQLite 时保持 `sqlite` 或同时留空 `DATABASE_DRIVER` 和 `DATABASE_URL`；设置 `DATABASE_URL` 且未显式设置 driver 时默认使用 PostgreSQL |
 | `DATABASE_URL` | PostgreSQL 模式必填 | - | PostgreSQL 连接串；Docker Compose 中通常使用 `postgres` 服务名，SQLite 模式留空 |
 | `WORK_DIR` | 否 | `./data` | 应用工作目录；日志和 SQLite 兼容模式下的数据库/备份默认写入这里，PostgreSQL 数据保存在 PostgreSQL 实例或 Docker volume 中 |
 | `LOG_LEVEL` | 否 | `info` | 日志级别 |
 | `LOG_FILE_ENABLED` | 否 | `true` | 是否写入持久化日志文件 |
 | `LOG_RETENTION_DAYS` | 否 | `7` | 日志保留天数；`0` 表示不自动清理 |
-| `BACKUP_ENABLED` | 否 | `false` | 是否启用 SQLite 文件备份；PostgreSQL 模式请使用 PostgreSQL 自身的备份工具 |
-| `BACKUP_INTERVAL` | 否 | `24h` | SQLite 文件备份间隔 |
-| `BACKUP_RETENTION_DAYS` | 否 | `7` | SQLite 文件备份保留天数 |
+| `BACKUP_ENABLED` | 否 | `false` | 是否启用内置数据库备份；SQLite 使用 `.db` 文件备份，PostgreSQL 使用 `pg_dump`/`pg_restore` 自定义格式备份 |
+| `BACKUP_INTERVAL` | 否 | `24h` | 自动数据库备份间隔 |
+| `BACKUP_RETENTION_DAYS` | 否 | `7` | 自动数据库备份保留天数 |
 
 ### 内置 HTTPS
 
@@ -258,8 +319,8 @@ cp .env.example .env
 
 安全与数据说明：
 
-- 存储页可查看数据库和备份占用，配置请求日志/用量日志清理范围、SQLite 备份范围、备份时间、最大备份数，并按数据范围恢复 SQLite 备份。
-- SQLite 文件备份会保存应用数据库中的原始数据，备份文件不做加密；PostgreSQL 模式不会启用内置 SQLite 文件备份/恢复，请使用 `pg_dump`、托管数据库快照或 PostgreSQL volume 级备份。
+- 存储页可查看数据库和备份占用，配置请求日志/用量日志清理范围、备份数据范围、备份时间、最大备份数，并按数据范围恢复备份。
+- 备份会保存应用数据库中的原始数据，备份文件不做加密；SQLite 模式生成 `.db` 文件，PostgreSQL 模式生成 `pg_dump -Fc` 的 `.dump` 文件，运行环境必须包含 `pg_dump`、`pg_restore` 和 `psql`。
 - 面向浏览器的 API 会对 key-like source/lookup 字段做脱敏或稳定公开标识映射，但不会修改数据库原始值。
 - 公开部署建议开启 `AUTH_ENABLED=true`，并在反向代理层配置 HTTPS。
 - 登录 session 存在服务进程内存中，服务重启后已登录 session 会失效。
@@ -293,7 +354,7 @@ cmd/server/              应用入口
 internal/api/            HTTP 路由与处理器
 internal/app/            应用装配与启动
 internal/auth/           内存 session 鉴权
-internal/backup/         SQLite 兼容模式的文件备份管理
+internal/backup/         SQLite/PostgreSQL 数据库备份恢复管理
 internal/benchmark/      聚合性能基准测试辅助
 internal/config/         环境配置加载
 internal/cpa/            CPA 客户端与类型定义

@@ -24,6 +24,8 @@ const storageInfo = {
   current_database_size_bytes: 3145728,
   backup_total_size_bytes: 1048576,
   backup_count: 1,
+  database_backups_supported: true,
+  sqlite_file_backups_supported: true,
   domains: [{ key: 'usage_logs', label: '用量日志', description: '用量事件和统计缓存。', rows: 3, size_bytes: 4096, table_names: ['usage_events'] }],
   backups: [{ id: '2026-05-24/database_20260524_040000', file_name: 'database_20260524_040000.db', size_bytes: 1048576 }],
 };
@@ -51,6 +53,24 @@ describe('StorageSettingsCard', () => {
     expect(html).toContain('Model prices');
     expect(html).toContain('Skip safety backup');
     expect(html).toContain('storageTableList');
-    expect(html).toContain('storageSelectControl');
+    expect(html).not.toContain('Database backups are not available for the current storage backend');
+    expect(html).not.toContain('Database restore is not available for the current storage backend');
+  });
+
+  it('disables database backup actions when unsupported by the backend', () => {
+    const html = renderToStaticMarkup(
+      <StorageSettingsCard
+        info={{ ...storageInfo, database_backups_supported: false }}
+        onSave={() => undefined}
+        onCreateBackup={() => undefined}
+        onRestoreBackup={() => undefined}
+      />,
+    );
+
+    expect(html).toContain('Database backups are not available for the current storage backend');
+    expect(html).toContain('Database restore is not available for the current storage backend');
+    expect(html).toContain('Back up now');
+    expect(html).toContain('Restore selected backup');
+    expect((html.match(/disabled=""/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 });

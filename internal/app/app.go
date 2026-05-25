@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
@@ -93,17 +95,27 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		IdleInterval: cfg.RedisQueueIdleInterval,
 		ErrorBackoff: cfg.RedisQueueErrorBackoff,
 	})
-	databaseSettingsService := service.NewDatabaseSettingsServiceWithBackupDir(db, cfg.SQLitePath, cfg.BackupDir)
+	databaseSettingsService := service.NewDatabaseSettingsServiceWithBackupDirAndDatabaseURL(db, cfg.SQLitePath, cfg.BackupDir, cfg.DatabaseURL)
 	var backupMaintenance *DatabaseBackupRunner
-	if cfg.BackupEnabled && db.Dialector.Name() == config.DatabaseDriverSQLite {
-		sqlDB, err := db.DB()
-		if err != nil {
-			_ = closeGormDB(db)
-			_ = logCloser.Close()
-			return nil, err
+	if cfg.BackupEnabled {
+		switch db.Dialector.Name() {
+		case config.DatabaseDriverSQLite:
+			sqlDB, err := db.DB()
+			if err != nil {
+				_ = closeGormDB(db)
+				_ = logCloser.Close()
+				return nil, err
+			}
+			backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
+			backupMaintenance = NewDatabaseBackupRunnerWithSettings(backupStore, backupStore, databaseSettingsService, cfg.BackupInterval, cfg.BackupRetentionDays)
+		case config.DatabaseDriverPostgres:
+			if strings.TrimSpace(cfg.DatabaseURL) != "" && backup.PostgresToolsAvailable() {
+				backupStore := newPostgresBackupStore(cfg.BackupDir, cfg.DatabaseURL)
+				backupMaintenance = NewDatabaseBackupRunnerWithSettings(backupStore, backupStore, databaseSettingsService, cfg.BackupInterval, cfg.BackupRetentionDays)
+			} else {
+				logrus.Warn("postgres database backup task disabled because pg_dump, pg_restore, or psql is unavailable")
+			}
 		}
-		backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
-		backupMaintenance = NewDatabaseBackupRunnerWithSettings(backupStore, backupStore, databaseSettingsService, cfg.BackupInterval, cfg.BackupRetentionDays)
 	}
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)

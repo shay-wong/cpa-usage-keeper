@@ -24,7 +24,7 @@ It relies on [CLIProxyAPI (CPA)](https://github.com/router-for-me/CLIProxyAPI) a
 - Standalone API Key usage page for querying usage by CPA API Key
 - Credentials page for Auth File and AI Provider usage, with credential quota lookup and refresh
 - Maintain model prices for cost estimation and reporting
-- Optional password login protection, PostgreSQL Docker/Docker Compose setup, SQLite-compatible backups, and systemd deployment
+- Optional password login protection, PostgreSQL Docker/Docker Compose setup, database backup/restore, and systemd deployment
 
 ## Quick Start
 
@@ -35,6 +35,7 @@ Recommended deployment path:
 - First-time CPA + Keeper deployment: use [Docker Compose](#docker-compose-recommended).
 - CPA already runs on the host: use [Docker](#docker-cpa-already-runs-on-the-host).
 - No containers: use the [Linux binary](#linux-binary).
+- Existing SQLite data: no migration is needed if you keep using SQLite; if you want to switch to PostgreSQL, run the one-time [SQLite to PostgreSQL migration](#migrate-from-sqlite-to-postgresql) before switching config.
 
 For public deployments, enable `AUTH_ENABLED=true` and configure `LOGIN_PASSWORD` to protect your data.
 
@@ -100,6 +101,66 @@ docker compose down
 ```
 
 PostgreSQL data is stored in the Docker named volume `postgres-data`, and Keeper logs are written to `./data`. The example binds PostgreSQL to host `127.0.0.1:5432`, so tools such as TablePlus or psql on macOS can inspect the live DB with database `cpa_usage_keeper`, user `keeper`, and the `POSTGRES_PASSWORD` from `.env`.
+
+### Migrate From SQLite To PostgreSQL
+
+New PostgreSQL deployments create the current schema and mark migrations automatically on first start. Existing SQLite data is not imported automatically when you switch to `DATABASE_DRIVER=postgres`. SQLite mode is still supported; if you choose to keep using SQLite, keep `DATABASE_DRIVER=sqlite` or leave both `DATABASE_DRIVER` and `DATABASE_URL` empty, and you do not need to run this migration. Automatic import could migrate a corrupted SQLite file, overwrite PostgreSQL rows that were already written, or make rollback unclear, so existing users who switch to PostgreSQL must run this one-time migration explicitly.
+
+1. Stop the Keeper service that is writing to SQLite, so `app.db-wal` has no pending writes:
+
+```bash
+docker compose stop cpa-usage-keeper
+```
+
+If you are not using Docker Compose, stop Keeper with your current process manager.
+
+2. Back up the SQLite data directory, keeping at least `app.db`, `app.db-wal`, and `app.db-shm`:
+
+```bash
+cp -a /path/to/keeper-data /path/to/keeper-data.backup-before-postgres
+```
+
+3. Start PostgreSQL and confirm the target database is empty. Docker Compose deployments can use the `postgres` service example above.
+
+4. Run the migration tool on a machine with Go 1.22+. When running the command from the host, `DATABASE_URL` usually points to the PostgreSQL host port, such as `127.0.0.1:5432`; use the Compose service name `postgres:5432` only from inside the Keeper container network.
+
+```bash
+go run ./cmd/migrate-sqlite-to-postgres \
+  -sqlite /path/to/keeper-data/app.db \
+  -database-url 'postgres://keeper:replace-with-password@127.0.0.1:5432/cpa_usage_keeper?sslmode=disable'
+```
+
+By default, the migration tool requires target tables to be empty. If a failed migration already wrote rows to the target database, confirm that you want to replace them completely before adding `-truncate`:
+
+```bash
+go run ./cmd/migrate-sqlite-to-postgres \
+  -sqlite /path/to/keeper-data/app.db \
+  -database-url 'postgres://keeper:replace-with-password@127.0.0.1:5432/cpa_usage_keeper?sslmode=disable' \
+  -truncate
+```
+
+5. After the migration succeeds, switch Keeper to PostgreSQL. In Docker Compose, `DATABASE_URL` should use the container network address:
+
+```env
+DATABASE_DRIVER=postgres
+DATABASE_URL=postgres://keeper:replace-with-password@postgres:5432/cpa_usage_keeper?sslmode=disable
+```
+
+6. Restart Keeper and verify the service and data:
+
+```bash
+docker compose up -d cpa-usage-keeper
+curl -f http://127.0.0.1:8080/healthz
+```
+
+You can also compare core table row counts before and after migration:
+
+```bash
+sqlite3 /path/to/keeper-data/app.db 'select count(*) from usage_events;'
+psql 'postgres://keeper:replace-with-password@127.0.0.1:5432/cpa_usage_keeper?sslmode=disable' -c 'select count(*) from usage_events;'
+```
+
+If SQLite is already corrupted, do not migrate the live `app.db` directly. Use the latest healthy backup first, or recover SQLite into a temporary database that returns `ok` from `PRAGMA quick_check`, then use that temporary database as the `-sqlite` input. To roll back, stop Keeper, switch the config back to SQLite, and restore the data directory backup from step 2.
 
 ### Docker (CPA Already Runs On The Host)
 
@@ -236,15 +297,15 @@ For first-time deployments, start with "Minimum required" and "Web access and re
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `DATABASE_DRIVER` | No | `sqlite` | Primary database driver. PostgreSQL is recommended; set `postgres`. When `DATABASE_URL` is set and the driver is empty, Keeper defaults to PostgreSQL |
+| `DATABASE_DRIVER` | No | `sqlite` | Primary database driver. PostgreSQL is recommended; set `postgres`. To keep using SQLite, keep `sqlite` or leave both `DATABASE_DRIVER` and `DATABASE_URL` empty. When `DATABASE_URL` is set and the driver is empty, Keeper defaults to PostgreSQL |
 | `DATABASE_URL` | Required in PostgreSQL mode | - | PostgreSQL connection string; Docker Compose usually uses the `postgres` service name. Leave empty for SQLite mode |
 | `WORK_DIR` | No | `./data` | Application work directory; logs and sqlite-mode database/backups are stored here. PostgreSQL data lives in the PostgreSQL instance or Docker volume |
 | `LOG_LEVEL` | No | `info` | Log level |
 | `LOG_FILE_ENABLED` | No | `true` | Write persistent log files |
 | `LOG_RETENTION_DAYS` | No | `7` | Log retention days; `0` disables cleanup |
-| `BACKUP_ENABLED` | No | `false` | Enable SQLite file backups; use PostgreSQL-native backup tools in PostgreSQL mode |
-| `BACKUP_INTERVAL` | No | `24h` | SQLite file backup interval |
-| `BACKUP_RETENTION_DAYS` | No | `7` | SQLite file backup retention days |
+| `BACKUP_ENABLED` | No | `false` | Enable built-in database backups; SQLite writes `.db` files and PostgreSQL writes `pg_dump`/`pg_restore` custom-format backups |
+| `BACKUP_INTERVAL` | No | `24h` | Automatic database backup interval |
+| `BACKUP_RETENTION_DAYS` | No | `7` | Automatic database backup retention days |
 
 ### Built-In HTTPS
 
@@ -258,8 +319,8 @@ Usually, HTTPS should be terminated at nginx, Caddy, or another reverse proxy. S
 
 Security and data notes:
 
-- The Storage tab shows database and backup usage, configures request-log/usage-log cleanup scopes, SQLite backup scopes, backup time, maximum backup count, and restores SQLite backups by data scope.
-- SQLite file backups store original data from the application database, and backup files are not encrypted. PostgreSQL mode does not enable the built-in SQLite file backup/restore path; use `pg_dump`, managed database snapshots, or PostgreSQL volume-level backups instead.
+- The Storage tab shows database and backup usage, configures request-log/usage-log cleanup scopes, backup data scopes, backup time, maximum backup count, and restores backups by data scope.
+- Backups store original data from the application database, and backup files are not encrypted. SQLite mode writes `.db` files; PostgreSQL mode writes `pg_dump -Fc` `.dump` files, so the runtime must include `pg_dump`, `pg_restore`, and `psql`.
 - Browser-facing APIs redact key-like source/lookup fields or map them to stable public identifiers, but raw database values are unchanged.
 - For public deployments, enable `AUTH_ENABLED=true` and terminate HTTPS at your reverse proxy.
 - Login sessions are stored in process memory and become invalid after restart.
@@ -293,7 +354,7 @@ cmd/server/              Application entrypoint
 internal/api/            HTTP routes and handlers
 internal/app/            App wiring and startup
 internal/auth/           In-memory session auth
-internal/backup/         SQLite-compatible file backup management
+internal/backup/         SQLite/PostgreSQL database backup and restore management
 internal/benchmark/      Aggregation benchmark helpers
 internal/config/         Environment config loading
 internal/cpa/            CPA client and types

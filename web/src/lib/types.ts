@@ -72,6 +72,10 @@ export interface StorageInfoResponse {
   backup_total_size_bytes?: number
   BackupCount?: number
   backup_count?: number
+  DatabaseBackupsSupported?: boolean
+  database_backups_supported?: boolean
+  SQLiteFileBackupsSupported?: boolean
+  sqlite_file_backups_supported?: boolean
   Domains?: StorageDomainInfo[]
   domains?: StorageDomainInfo[]
   Backups?: BackupFileInfo[]

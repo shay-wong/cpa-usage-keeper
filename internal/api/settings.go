@@ -134,7 +134,7 @@ func registerSettingsRoutes(router gin.IRoutes, provider service.DatabaseSetting
 			ModelPrices:     request.ModelPrices,
 		})
 		if err != nil {
-			if errors.Is(err, service.ErrStorageBackupDomainNeeded) {
+			if errors.Is(err, service.ErrStorageBackupDomainNeeded) || errors.Is(err, service.ErrDatabaseBackupsUnsupported) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
@@ -165,7 +165,7 @@ func registerSettingsRoutes(router gin.IRoutes, provider service.DatabaseSetting
 			SkipSafetyBackup: request.SkipSafetyBackup,
 		})
 		if err != nil {
-			if errors.Is(err, service.ErrStorageRestoreDomainNeeded) || errors.Is(err, service.ErrStorageBackupNotFound) {
+			if errors.Is(err, service.ErrStorageRestoreDomainNeeded) || errors.Is(err, service.ErrStorageBackupNotFound) || errors.Is(err, service.ErrDatabaseBackupsUnsupported) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}

@@ -134,6 +134,34 @@ func TestCreateStorageBackupRoutePassesAllDomains(t *testing.T) {
 	}
 }
 
+func TestCreateStorageBackupRouteReturnsBadRequestWhenBackupsUnsupported(t *testing.T) {
+	provider := &databaseSettingsStub{err: service.ErrDatabaseBackupsUnsupported}
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{DatabaseSettings: provider})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/settings/storage/backups", strings.NewReader(`{"usage_logs":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest || !contains(resp.Body.String(), service.ErrDatabaseBackupsUnsupported.Error()) {
+		t.Fatalf("expected unsupported backup to return 400, got %d %s", resp.Code, resp.Body.String())
+	}
+}
+
+func TestRestoreStorageBackupRouteReturnsBadRequestWhenBackupsUnsupported(t *testing.T) {
+	provider := &databaseSettingsStub{err: service.ErrDatabaseBackupsUnsupported}
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{DatabaseSettings: provider})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/settings/storage/restore", strings.NewReader(`{"id":"backup.db","usage_logs":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest || !contains(resp.Body.String(), service.ErrDatabaseBackupsUnsupported.Error()) {
+		t.Fatalf("expected unsupported restore to return 400, got %d %s", resp.Code, resp.Body.String())
+	}
+}
+
 func TestRestoreStorageBackupRoutePassesDomainsAndSkipSafetyBackup(t *testing.T) {
 	provider := &databaseSettingsStub{}
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{DatabaseSettings: provider})

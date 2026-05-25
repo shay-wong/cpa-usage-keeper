@@ -36,12 +36,14 @@ type BackupFileInfo struct {
 }
 
 type StorageInfo struct {
-	Settings                 UpdateDatabaseCleanupSettingsInput `json:"settings"`
-	CurrentDatabaseSizeBytes *int64                             `json:"current_database_size_bytes,omitempty"`
-	BackupTotalSizeBytes     int64                              `json:"backup_total_size_bytes"`
-	BackupCount              int                                `json:"backup_count"`
-	Domains                  []StorageDomainInfo                `json:"domains"`
-	Backups                  []BackupFileInfo                   `json:"backups"`
+	Settings                   UpdateDatabaseCleanupSettingsInput `json:"settings"`
+	CurrentDatabaseSizeBytes   *int64                             `json:"current_database_size_bytes,omitempty"`
+	BackupTotalSizeBytes       int64                              `json:"backup_total_size_bytes"`
+	BackupCount                int                                `json:"backup_count"`
+	DatabaseBackupsSupported   bool                               `json:"database_backups_supported"`
+	SQLiteFileBackupsSupported bool                               `json:"sqlite_file_backups_supported"`
+	Domains                    []StorageDomainInfo                `json:"domains"`
+	Backups                    []BackupFileInfo                   `json:"backups"`
 }
 
 type CreateBackupInput struct {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/backup"
+	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
@@ -37,14 +38,16 @@ var (
 	ErrStorageBackupDomainNeeded  = errors.New("storage backup domain required")
 	ErrStorageRestoreDomainNeeded = errors.New("storage restore domain required")
 	ErrStorageBackupNotFound      = errors.New("storage backup not found")
+	ErrDatabaseBackupsUnsupported = errors.New("database backups unsupported")
 )
 
 type databaseSettingsService struct {
-	db         *gorm.DB
-	sqlDB      *sql.DB
-	sqlDBErr   error
-	sqlitePath string
-	backupDir  string
+	db          *gorm.DB
+	sqlDB       *sql.DB
+	sqlDBErr    error
+	sqlitePath  string
+	backupDir   string
+	databaseURL string
 }
 
 func NewDatabaseSettingsService(db *gorm.DB, sqlitePath string) DatabaseSettingsProvider {
@@ -53,12 +56,16 @@ func NewDatabaseSettingsService(db *gorm.DB, sqlitePath string) DatabaseSettings
 }
 
 func NewDatabaseSettingsServiceWithBackupDir(db *gorm.DB, sqlitePath string, backupDir string) DatabaseSettingsProvider {
+	return NewDatabaseSettingsServiceWithBackupDirAndDatabaseURL(db, sqlitePath, backupDir, "")
+}
+
+func NewDatabaseSettingsServiceWithBackupDirAndDatabaseURL(db *gorm.DB, sqlitePath string, backupDir string, databaseURL string) DatabaseSettingsProvider {
 	var sqlDB *sql.DB
 	var sqlDBErr error
 	if db != nil {
 		sqlDB, sqlDBErr = db.DB()
 	}
-	return &databaseSettingsService{db: db, sqlDB: sqlDB, sqlDBErr: sqlDBErr, sqlitePath: sqlitePath, backupDir: backupDir}
+	return &databaseSettingsService{db: db, sqlDB: sqlDB, sqlDBErr: sqlDBErr, sqlitePath: sqlitePath, backupDir: backupDir, databaseURL: strings.TrimSpace(databaseURL)}
 }
 
 func (s *databaseSettingsService) GetDatabaseCleanupSettings(context.Context) (DatabaseCleanupSettingsSnapshot, error) {
@@ -67,7 +74,7 @@ func (s *databaseSettingsService) GetDatabaseCleanupSettings(context.Context) (D
 		return DatabaseCleanupSettingsSnapshot{}, err
 	}
 	snapshot := DatabaseCleanupSettingsSnapshot{Settings: settings}
-	sizeBytes, ok, err := repository.GetSQLiteDatabaseSizeBytes(s.sqlitePath)
+	sizeBytes, ok, err := repository.GetDatabaseSizeBytes(s.db, s.sqlitePath)
 	if err != nil {
 		return DatabaseCleanupSettingsSnapshot{}, err
 	}
@@ -105,11 +112,13 @@ func (s *databaseSettingsService) GetStorageInfo(context.Context) (servicedto.St
 		return servicedto.StorageInfo{}, err
 	}
 	info := servicedto.StorageInfo{
-		Settings:             settingsToInput(settings),
-		BackupTotalSizeBytes: backupSizeBytes,
-		BackupCount:          len(backups),
-		Domains:              mapStorageDomains(domains),
-		Backups:              backups,
+		Settings:                   settingsToInput(settings),
+		BackupTotalSizeBytes:       backupSizeBytes,
+		BackupCount:                len(backups),
+		DatabaseBackupsSupported:   s.databaseBackupsSupported(),
+		SQLiteFileBackupsSupported: s.sqliteFileBackupsSupported(),
+		Domains:                    mapStorageDomains(domains),
+		Backups:                    backups,
 	}
 	if sizeBytes, ok, err := repository.GetDatabaseSizeBytes(s.db, s.sqlitePath); err != nil {
 		return servicedto.StorageInfo{}, err
@@ -119,49 +128,43 @@ func (s *databaseSettingsService) GetStorageInfo(context.Context) (servicedto.St
 	return info, nil
 }
 
+func (s *databaseSettingsService) databaseBackupsSupported() bool {
+	return s != nil && (s.sqliteFileBackupsSupported() || s.postgresBackupsSupported())
+}
+
 func (s *databaseSettingsService) sqliteFileBackupsSupported() bool {
-	return s != nil && s.db != nil && s.db.Dialector.Name() == "sqlite"
+	return s != nil && s.db != nil && s.db.Dialector.Name() == config.DatabaseDriverSQLite
+}
+
+func (s *databaseSettingsService) postgresBackupsSupported() bool {
+	return s != nil && s.db != nil && s.db.Dialector.Name() == config.DatabaseDriverPostgres && strings.TrimSpace(s.databaseURL) != "" && backup.PostgresToolsAvailable()
 }
 
 func (s *databaseSettingsService) CreateBackup(ctx context.Context, input servicedto.CreateBackupInput) (servicedto.BackupOperationResult, error) {
-	if !s.sqliteFileBackupsSupported() {
-		return servicedto.BackupOperationResult{}, fmt.Errorf("sqlite file backups are only available when DATABASE_DRIVER=sqlite")
-	}
-	if s.sqlDBErr != nil {
-		return servicedto.BackupOperationResult{}, fmt.Errorf("load sql database handle: %w", s.sqlDBErr)
-	}
-	if s.sqlDB == nil {
-		return servicedto.BackupOperationResult{}, fmt.Errorf("database is required")
-	}
 	settings, err := repository.GetDatabaseCleanupSettings(s.db)
 	if err != nil {
 		return servicedto.BackupOperationResult{}, err
 	}
-	requestLogs := input.RequestLogs
-	usageLogs := input.UsageLogs
-	usageIdentities := input.UsageIdentities
-	apiKeys := input.APIKeys
-	redisInbox := input.RedisInbox
-	modelPrices := input.ModelPrices
-	if !storageBackupDomainSelected(requestLogs, usageLogs, usageIdentities, apiKeys, redisInbox, modelPrices) {
-		requestLogs = settings.BackupRequestLogs
-		usageLogs = settings.BackupUsageLogs
-		usageIdentities = settings.BackupUsageIdentities
-		apiKeys = settings.BackupAPIKeys
-		redisInbox = settings.BackupRedisInbox
-		modelPrices = settings.BackupModelPrices
+	options, err := storageBackupOptions(input, settings)
+	if err != nil {
+		return servicedto.BackupOperationResult{}, err
 	}
-	if !storageBackupDomainSelected(requestLogs, usageLogs, usageIdentities, apiKeys, redisInbox, modelPrices) {
-		return servicedto.BackupOperationResult{}, fmt.Errorf("%w: at least one backup domain is required", ErrStorageBackupDomainNeeded)
+
+	var path string
+	switch {
+	case s.sqliteFileBackupsSupported():
+		if s.sqlDBErr != nil {
+			return servicedto.BackupOperationResult{}, fmt.Errorf("load sql database handle: %w", s.sqlDBErr)
+		}
+		if s.sqlDB == nil {
+			return servicedto.BackupOperationResult{}, fmt.Errorf("database is required")
+		}
+		path, err = backup.NewWriter(s.backupDir).WriteDatabaseWithOptions(ctx, s.sqlDB, time.Now(), options)
+	case s.postgresBackupsSupported():
+		path, err = backup.NewPostgresWriter(s.backupDir, s.databaseURL).WriteDatabaseWithOptions(ctx, time.Now(), options)
+	default:
+		return servicedto.BackupOperationResult{}, fmt.Errorf("%w: database backups are not available for current database driver", ErrDatabaseBackupsUnsupported)
 	}
-	path, err := backup.NewWriter(s.backupDir).WriteDatabaseWithOptions(ctx, s.sqlDB, time.Now(), backup.Options{
-		RequestLogs:     requestLogs,
-		UsageLogs:       usageLogs,
-		UsageIdentities: usageIdentities,
-		APIKeys:         apiKeys,
-		RedisInbox:      redisInbox,
-		ModelPrices:     modelPrices,
-	})
 	if err != nil {
 		return servicedto.BackupOperationResult{}, err
 	}
@@ -177,6 +180,27 @@ func (s *databaseSettingsService) CreateBackup(ctx context.Context, input servic
 	return servicedto.BackupOperationResult{Backup: file}, nil
 }
 
+func storageBackupOptions(input servicedto.CreateBackupInput, settings entities.DatabaseCleanupSettings) (backup.Options, error) {
+	requestLogs := input.RequestLogs
+	usageLogs := input.UsageLogs
+	usageIdentities := input.UsageIdentities
+	apiKeys := input.APIKeys
+	redisInbox := input.RedisInbox
+	modelPrices := input.ModelPrices
+	if !storageBackupDomainSelected(requestLogs, usageLogs, usageIdentities, apiKeys, redisInbox, modelPrices) {
+		requestLogs = settings.BackupRequestLogs
+		usageLogs = settings.BackupUsageLogs
+		usageIdentities = settings.BackupUsageIdentities
+		apiKeys = settings.BackupAPIKeys
+		redisInbox = settings.BackupRedisInbox
+		modelPrices = settings.BackupModelPrices
+	}
+	if !storageBackupDomainSelected(requestLogs, usageLogs, usageIdentities, apiKeys, redisInbox, modelPrices) {
+		return backup.Options{}, fmt.Errorf("%w: at least one backup domain is required", ErrStorageBackupDomainNeeded)
+	}
+	return backup.Options{RequestLogs: requestLogs, UsageLogs: usageLogs, UsageIdentities: usageIdentities, APIKeys: apiKeys, RedisInbox: redisInbox, ModelPrices: modelPrices}, nil
+}
+
 func storageBackupDomainSelected(values ...bool) bool {
 	for _, value := range values {
 		if value {
@@ -187,20 +211,25 @@ func storageBackupDomainSelected(values ...bool) bool {
 }
 
 func (s *databaseSettingsService) createRestoreSafetyBackup(ctx context.Context) error {
-	if s.sqlDBErr != nil {
-		return fmt.Errorf("load sql database handle: %w", s.sqlDBErr)
+	switch {
+	case s.sqliteFileBackupsSupported():
+		if s.sqlDBErr != nil {
+			return fmt.Errorf("load sql database handle: %w", s.sqlDBErr)
+		}
+		if s.sqlDB == nil {
+			return fmt.Errorf("database is required")
+		}
+		_, err := backup.NewWriter(s.backupDir).WriteRestoreSafetyBackup(ctx, s.sqlDB, time.Now())
+		return err
+	case s.postgresBackupsSupported():
+		_, err := backup.NewPostgresWriter(s.backupDir, s.databaseURL).WriteRestoreSafetyBackup(ctx, time.Now())
+		return err
+	default:
+		return fmt.Errorf("%w: database backups are not available for current database driver", ErrDatabaseBackupsUnsupported)
 	}
-	if s.sqlDB == nil {
-		return fmt.Errorf("database is required")
-	}
-	_, err := backup.NewWriter(s.backupDir).WriteRestoreSafetyBackup(ctx, s.sqlDB, time.Now())
-	return err
 }
 
 func (s *databaseSettingsService) RestoreBackup(ctx context.Context, input servicedto.RestoreBackupInput) (servicedto.RestoreOperationResult, error) {
-	if !s.sqliteFileBackupsSupported() {
-		return servicedto.RestoreOperationResult{}, fmt.Errorf("sqlite file restore is only available when DATABASE_DRIVER=sqlite")
-	}
 	path, err := s.backupPathByID(input.ID)
 	if err != nil {
 		return servicedto.RestoreOperationResult{}, err
@@ -221,7 +250,15 @@ func (s *databaseSettingsService) RestoreBackup(ctx context.Context, input servi
 			return servicedto.RestoreOperationResult{}, fmt.Errorf("create safety backup before restore: %w", err)
 		}
 	}
-	if err := repository.RestoreStorageDomains(ctx, s.db, path, selection, time.Now()); err != nil {
+	switch {
+	case s.sqliteFileBackupsSupported():
+		err = repository.RestoreStorageDomains(ctx, s.db, path, selection, time.Now())
+	case s.postgresBackupsSupported():
+		err = s.restorePostgresBackup(ctx, path, selection)
+	default:
+		err = fmt.Errorf("%w: database restore is not available for current database driver", ErrDatabaseBackupsUnsupported)
+	}
+	if err != nil {
 		return servicedto.RestoreOperationResult{}, err
 	}
 	return servicedto.RestoreOperationResult{
@@ -232,6 +269,27 @@ func (s *databaseSettingsService) RestoreBackup(ctx context.Context, input servi
 		RestoredRedisInbox:      input.RedisInbox,
 		RestoredModelPrices:     input.ModelPrices,
 	}, nil
+}
+
+func (s *databaseSettingsService) restorePostgresBackup(ctx context.Context, path string, selection repository.StorageDomainSelection) error {
+	options := backup.Options{
+		RequestLogs:     selection.RequestLogs,
+		UsageLogs:       selection.UsageLogs,
+		UsageIdentities: selection.UsageIdentities,
+		APIKeys:         selection.APIKeys,
+		RedisInbox:      selection.RedisInbox,
+		ModelPrices:     selection.ModelPrices,
+	}
+	if len(backup.PostgresTablesForOptions(options)) == 0 {
+		return fmt.Errorf("%w: at least one restore domain is required", ErrStorageRestoreDomainNeeded)
+	}
+	if err := backup.RestorePostgresDatabase(ctx, s.databaseURL, path, options); err != nil {
+		return err
+	}
+	if selection.UsageLogs {
+		return repository.RebuildUsageDerivedStats(ctx, s.db, time.Now())
+	}
+	return nil
 }
 
 func settingsToInput(settings entities.DatabaseCleanupSettings) servicedto.UpdateDatabaseCleanupSettingsInput {
@@ -274,6 +332,7 @@ func (s *databaseSettingsService) listBackups() ([]servicedto.BackupFileInfo, er
 	if err != nil {
 		return nil, err
 	}
+	paths = s.filterBackupPathsForCurrentDriver(paths)
 	items := make([]servicedto.BackupFileInfo, 0, len(paths))
 	for _, path := range paths {
 		item, err := backupFileInfo(path)
@@ -291,12 +350,36 @@ func (s *databaseSettingsService) backupPathByID(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	for _, path := range paths {
+	for _, path := range s.filterBackupPathsForCurrentDriver(paths) {
 		if backupID(path) == id {
 			return path, nil
 		}
 	}
 	return "", fmt.Errorf("%w: backup not found", ErrStorageBackupNotFound)
+}
+
+func (s *databaseSettingsService) filterBackupPathsForCurrentDriver(paths []string) []string {
+	extension := s.currentBackupFileExtension()
+	if extension == "" {
+		return nil
+	}
+	filtered := make([]string, 0, len(paths))
+	for _, path := range paths {
+		if strings.EqualFold(filepath.Ext(path), extension) {
+			filtered = append(filtered, path)
+		}
+	}
+	return filtered
+}
+
+func (s *databaseSettingsService) currentBackupFileExtension() string {
+	if s.sqliteFileBackupsSupported() {
+		return ".db"
+	}
+	if s.postgresBackupsSupported() {
+		return ".dump"
+	}
+	return ""
 }
 
 func validateStorageSettings(input servicedto.UpdateDatabaseCleanupSettingsInput) error {
