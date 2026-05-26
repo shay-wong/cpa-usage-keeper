@@ -1,4 +1,4 @@
-import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type DatabaseCleanupSettingsResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type StatusResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventRequestDetailResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UpdateDatabaseCleanupSettingsRequest } from './types'
+import { type AnalysisResponse, type AuthSessionResponse, type CpaApiKeyOptionsResponse, type CpaApiKeySettingsItem, type CpaApiKeysResponse, type CreateBackupRequest, type DatabaseCleanupSettingsResponse, type KeyOverviewTimeRange, type PricingEntry, type PricingResponse, type RestoreBackupRequest, type StatusResponse, type StorageInfoResponse, type UpdateCheckResponse, type UsageEventModelFilterOptionsResponse, type UsageEventSourceFilterOptionsResponse, type UsedModelsResponse, type UsageIdentitiesPageResponse, type UsageIdentitiesResponse, type UsageEventRequestDetailResponse, type UsageEventsResponse, type UsageIdentityAuthType, type UsageOverviewResponse, type UsageQuotaCacheResponse, type UsageQuotaRefreshResponse, type UsageQuotaRefreshTaskResponse, type UpdateDatabaseCleanupSettingsRequest } from './types'
 
 export class ApiError extends Error {
   status: number
@@ -378,6 +378,42 @@ export async function updateDatabaseCleanupSettings(settings: UpdateDatabaseClea
   })
   if (!response.ok) {
     await parseApiError(response, `Failed to update database cleanup settings: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function fetchStorageInfo(signal?: AbortSignal): Promise<StorageInfoResponse> {
+  const response = await apiFetch(apiPath('/settings/storage'), { signal, cache: 'no-store' })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to load storage info: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function createStorageBackup(request: CreateBackupRequest): Promise<unknown> {
+  const response = await apiFetch(apiPath('/settings/storage/backups'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to create storage backup: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function restoreStorageBackup(request: RestoreBackupRequest): Promise<unknown> {
+  const response = await apiFetch(apiPath('/settings/storage/restore'), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+  if (!response.ok) {
+    await parseApiError(response, `Failed to restore storage backup: ${response.status}`)
   }
   return response.json()
 }

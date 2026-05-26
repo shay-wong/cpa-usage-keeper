@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"cpa-usage-keeper/internal/api"
 	"cpa-usage-keeper/internal/auth"
+	"cpa-usage-keeper/internal/backup"
 	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/logging"
@@ -93,23 +95,37 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		IdleInterval: cfg.RedisQueueIdleInterval,
 		ErrorBackoff: cfg.RedisQueueErrorBackoff,
 	})
+	databaseSettingsService := service.NewDatabaseSettingsServiceWithBackupDirAndDatabaseURL(db, cfg.SQLitePath, cfg.BackupDir, cfg.DatabaseURL)
 	var backupMaintenance *DatabaseBackupRunner
 	if cfg.BackupEnabled {
-		sqlDB, err := db.DB()
-		if err != nil {
-			_ = closeGormDB(db)
-			_ = logCloser.Close()
-			return nil, err
+		switch db.Dialector.Name() {
+		case config.DatabaseDriverSQLite:
+			sqlDB, err := db.DB()
+			if err != nil {
+				_ = closeGormDB(db)
+				_ = logCloser.Close()
+				return nil, err
+			}
+			backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
+			backupMaintenance = NewDatabaseBackupRunnerWithSettings(backupStore, backupStore, databaseSettingsService, cfg.BackupInterval, cfg.BackupRetentionDays)
+		case config.DatabaseDriverPostgres:
+			if strings.TrimSpace(cfg.DatabaseURL) != "" && backup.PostgresToolsAvailable() {
+				backupStore := newPostgresBackupStore(cfg.BackupDir, cfg.DatabaseURL)
+				backupMaintenance = NewDatabaseBackupRunnerWithSettings(backupStore, backupStore, databaseSettingsService, cfg.BackupInterval, cfg.BackupRetentionDays)
+			} else {
+				logrus.Warn("postgres database backup task disabled because pg_dump, pg_restore, or psql is unavailable")
+			}
 		}
-		backupStore := newDatabaseBackupStore(sqlDB, cfg.BackupDir)
-		backupMaintenance = NewDatabaseBackupRunner(backupStore, backupStore, cfg.BackupInterval, cfg.BackupRetentionDays)
 	}
 
 	cpaClient := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
 	usageService := service.NewUsageServiceWithRequestLogFetcher(db, cpaClient)
 	usageIdentityService := service.NewUsageIdentityService(db)
 	cpaAPIKeyService := service.NewCPAAPIKeyService(db)
-	databaseSettingsService := service.NewDatabaseSettingsService(db, cfg.SQLitePath)
+	cpaPublicURL := cfg.CPAPublicURL
+	if cpaPublicURL == "" {
+		cpaPublicURL = cfg.CPABaseURL
+	}
 	if cfg.TLSSkipVerify {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
@@ -152,7 +168,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				Quota:            quotaService,
 				CPAAPIKeys:       cpaAPIKeyService,
 				DatabaseSettings: databaseSettingsService,
-				Status:           api.StatusRouteConfig{CPAManagementURL: api.BuildCPAManagementURL(cfg.CPABaseURL)},
+				Status:           api.StatusRouteConfig{CPAPublicURL: cpaPublicURL},
 			},
 		),
 	}, nil

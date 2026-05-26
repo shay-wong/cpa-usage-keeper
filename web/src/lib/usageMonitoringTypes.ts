@@ -119,6 +119,7 @@ export interface UsageMonitoringRequestLog {
   id?: number
   timestamp: string
   model: string
+  reasoning_effort?: string
   source: string
   source_type?: string
   source_key?: string

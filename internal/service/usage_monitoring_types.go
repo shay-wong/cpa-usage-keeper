@@ -109,6 +109,7 @@ type UsageMonitoringRequestLog struct {
 	ID              int64
 	Timestamp       time.Time
 	Model           string
+	ReasoningEffort string
 	Source          string
 	AuthIndex       string
 	Failed          bool

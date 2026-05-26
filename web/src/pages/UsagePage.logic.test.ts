@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, getBackToCPALinkURL, getCustomDateRangeBounds, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, openDateInputPicker, refreshPageData, resolveMonitoringQueryState, resolveUsageRangeQueryState, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowUpdateCheckButton, getUpdateCheckToastDuration, shouldUseOverviewUsage } from './UsagePage';
+import { buildCustomDateRangeQuery, getBackToCPALinkURL, getCustomDateRangeBounds, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getStorageSettingsCardKey, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, openDateInputPicker, refreshPageData, resolveMonitoringQueryState, resolveUsageRangeQueryState, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldAutoCheckForUpdate, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowVersionBadge, shouldShowVersionBadgeDot, getUpdateCheckToastDuration, shouldUseOverviewUsage, applySavedStorageSettings } from './UsagePage';
 import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
-import type { UsageSnapshot } from '@/lib/types';
+import type { StorageInfoResponse, UpdateDatabaseCleanupSettingsRequest, UsageSnapshot } from '@/lib/types';
 
 const usage: UsageSnapshot = {
   total_requests: 2,
@@ -95,33 +95,125 @@ describe('UsagePage Overview loading display', () => {
 });
 
 describe('UsagePage Back to CPA link', () => {
-  it('uses the CPA management URL from status', () => {
-    expect(getBackToCPALinkURL({ cpa_management_url: 'https://cpa.example.com/management.html' })).toBe('https://cpa.example.com/management.html');
+  it('uses the CPA public URL from status', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
   });
 
-  it('hides the link when status does not include a CPA management URL', () => {
-    expect(getBackToCPALinkURL({})).toBe('');
-    expect(getBackToCPALinkURL(null)).toBe('');
+  it('maps Docker service hostnames to the current browser host', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'http://cli-proxy-api:8317' }, 'http://192.168.1.23:8080')).toBe('http://192.168.1.23:8317/management.html');
+  });
+
+  it('maps local CPA hosts to the current browser host', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'http://0.0.0.0:8317' }, 'http://localhost:8080')).toBe('http://localhost:8317/management.html');
+  });
+
+  it('uses the current origin when status does not include a CPA public URL', () => {
+    expect(getBackToCPALinkURL({}, 'https://cpa.domain.com')).toBe('https://cpa.domain.com/management.html');
+    expect(getBackToCPALinkURL(null, 'https://cpa.domain.com')).toBe('https://cpa.domain.com/management.html');
+  });
+
+  it('normalizes trailing slashes and existing management pages', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/cpa/' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/cpa/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/management.html' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+  });
+
+  it('supports relative public paths and bare host names', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: '/cpa/' }, 'https://keeper.example.com')).toBe('https://keeper.example.com/cpa/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'cpa.domain.com/' }, 'https://keeper.example.com')).toBe('https://cpa.domain.com/management.html');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'cpa.domain.com:8317/' }, 'https://keeper.example.com')).toBe('https://cpa.domain.com:8317/management.html');
+  });
+
+  it('rejects explicit non-http public URL schemes', () => {
+    expect(getBackToCPALinkURL({ cpa_public_url: 'javascript://alert(1)' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'data://text/html,<script>alert(1)</script>' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'file:///etc/passwd' }, 'https://keeper.example.com')).toBe('');
+    expect(getBackToCPALinkURL({ cpa_public_url: 'ftp://cpa.example.com' }, 'https://keeper.example.com')).toBe('');
   });
 });
 
 describe('UsagePage update check controls', () => {
-  it('hides the update button before status loads', () => {
-    expect(shouldShowUpdateCheckButton(null)).toBe(false);
+  it('hides the version badge before status loads', () => {
+    expect(shouldShowVersionBadge(null)).toBe(false);
   });
 
-  it('hides the update button for dev builds', () => {
-    expect(shouldShowUpdateCheckButton({ updateCheckEnabled: false })).toBe(false);
+  it('shows the version badge for dev builds with a version', () => {
+    expect(shouldShowVersionBadge({ version: 'dev', updateCheckEnabled: false })).toBe(true);
   });
 
-  it('shows the update button for release builds', () => {
-    expect(shouldShowUpdateCheckButton({ updateCheckEnabled: true })).toBe(true);
+  it('shows the version badge for release builds with a version', () => {
+    expect(shouldShowVersionBadge({ version: 'v1.2.3', updateCheckEnabled: true })).toBe(true);
+  });
+
+  it('hides the version badge when status does not include a usable version', () => {
+    expect(shouldShowVersionBadge({ updateCheckEnabled: true })).toBe(false);
+    expect(shouldShowVersionBadge({ version: '   ', updateCheckEnabled: true })).toBe(false);
+  });
+
+  it('auto-checks comparable release builds once per version', () => {
+    expect(shouldAutoCheckForUpdate({ version: 'v1.2.3', updateCheckEnabled: true }, null)).toBe(true);
+    expect(shouldAutoCheckForUpdate({ version: 'v1.2.3', updateCheckEnabled: true }, 'v1.2.2')).toBe(true);
+    expect(shouldAutoCheckForUpdate({ version: 'v1.2.3', updateCheckEnabled: true }, 'v1.2.3')).toBe(false);
+  });
+
+  it('does not auto-check dev or missing versions', () => {
+    expect(shouldAutoCheckForUpdate(null, null)).toBe(false);
+    expect(shouldAutoCheckForUpdate({ version: 'dev', updateCheckEnabled: false }, null)).toBe(false);
+    expect(shouldAutoCheckForUpdate({ updateCheckEnabled: true }, null)).toBe(false);
+  });
+
+  it('shows the version badge dot only when an update is available', () => {
+    expect(shouldShowVersionBadgeDot(true)).toBe(true);
+    expect(shouldShowVersionBadgeDot(false)).toBe(false);
   });
 
   it('keeps failure toasts visible longer than success toasts', () => {
     expect(getUpdateCheckToastDuration('success')).toBe(4_000);
     expect(getUpdateCheckToastDuration('info')).toBe(4_000);
     expect(getUpdateCheckToastDuration('error')).toBe(6_000);
+  });
+});
+
+describe('UsagePage Storage settings refresh', () => {
+  const currentSettings: UpdateDatabaseCleanupSettingsRequest = {
+    record_request_details: true,
+    cleanup_request_logs: true,
+    cleanup_usage_logs: false,
+    request_log_retention_days: 7,
+    usage_log_retention_days: 30,
+    max_database_size_mb: 512,
+    backup_request_logs: false,
+    backup_usage_logs: true,
+    backup_usage_identities: true,
+    backup_api_keys: true,
+    backup_redis_inbox: false,
+    backup_model_prices: true,
+    backup_hour: 4,
+    backup_minute: 0,
+    max_backup_count: 1,
+  };
+
+  it('merges saved settings into existing storage info before the full refresh returns', () => {
+    const current: StorageInfoResponse = {
+      settings: currentSettings,
+      backup_count: 2,
+      domains: [{ key: 'usage_logs', label: 'Usage logs', description: 'Usage events', rows: 10, size_bytes: 1024, table_names: ['usage_events'] }],
+    };
+    const savedSettings: UpdateDatabaseCleanupSettingsRequest = {
+      ...currentSettings,
+      record_request_details: false,
+      cleanup_request_logs: false,
+      max_backup_count: 0,
+    };
+
+    expect(applySavedStorageSettings(current, savedSettings)).toEqual({
+      ...current,
+      settings: savedSettings,
+    });
+  });
+
+  it('changes the storage card key after a save revision even when settings values are unchanged', () => {
+    expect(getStorageSettingsCardKey(currentSettings, 1)).not.toBe(getStorageSettingsCardKey(currentSettings, 2));
   });
 });
 
@@ -231,6 +323,7 @@ describe('UsagePage active tab auto-refresh guard', () => {
   it('keeps Overview auto-refresh enabled and does not auto-refresh other tabs', () => {
     expect(shouldAutoRefreshUsageTab({ activeTab: 'overview', eventsPage: 2 })).toBe(true);
     expect(shouldAutoRefreshUsageTab({ activeTab: 'analysis', eventsPage: 1 })).toBe(false);
+    expect(shouldAutoRefreshUsageTab({ activeTab: 'storage', eventsPage: 1 })).toBe(false);
     expect(shouldAutoRefreshUsageTab({ activeTab: 'settings', eventsPage: 1 })).toBe(false);
   });
 });
@@ -299,6 +392,7 @@ for (const [tab, expected] of [
   ['analysis', true],
   ['events', true],
   ['credentials', false],
+  ['storage', false],
   ['settings', false],
 ] as const) {
   it(`returns ${expected} for ${tab} range controls visibility`, () => {
@@ -311,6 +405,7 @@ for (const [tab, expected] of [
   ['analysis', true],
   ['events', true],
   ['credentials', false],
+  ['storage', false],
   ['settings', false],
 ] as const) {
   it(`returns ${expected} for ${tab} API Key filter visibility`, () => {
@@ -473,6 +568,7 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_events',
       'translated:usage_stats.tab_credentials',
+      'translated:usage_stats.tab_storage',
       'translated:usage_stats.tab_settings',
     ]);
   });

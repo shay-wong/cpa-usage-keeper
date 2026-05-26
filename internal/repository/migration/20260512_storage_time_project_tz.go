@@ -14,6 +14,9 @@ type storageTimeColumn struct {
 }
 
 func normalizeStorageTimesToProjectTZMigration(tx *gorm.DB) error {
+	if tx.Dialector.Name() != "sqlite" {
+		return nil
+	}
 	// 最后一段迁移统一收口所有历史时间字段，前置迁移保留原顺序和原逻辑。
 	columns := []storageTimeColumn{
 		{table: "usage_events", field: "timestamp"},

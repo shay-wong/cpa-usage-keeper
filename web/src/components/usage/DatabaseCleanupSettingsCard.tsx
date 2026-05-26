@@ -92,8 +92,21 @@ function DatabaseCleanupSettingsForm({ settings, saving, onSave }: DatabaseClean
     }
     setError('');
     void onSave({
+      record_request_details: settings?.record_request_details ?? true,
+      cleanup_request_logs: settings?.cleanup_request_logs ?? true,
+      cleanup_usage_logs: settings?.cleanup_usage_logs ?? false,
       request_log_retention_days: nextRetentionDays,
+      usage_log_retention_days: settings?.usage_log_retention_days ?? 0,
       max_database_size_mb: nextMaxDatabaseSizeMB,
+      backup_request_logs: settings?.backup_request_logs ?? false,
+      backup_usage_logs: settings?.backup_usage_logs ?? true,
+      backup_usage_identities: settings?.backup_usage_identities ?? true,
+      backup_api_keys: settings?.backup_api_keys ?? true,
+      backup_redis_inbox: settings?.backup_redis_inbox ?? false,
+      backup_model_prices: settings?.backup_model_prices ?? true,
+      backup_hour: settings?.backup_hour ?? 4,
+      backup_minute: settings?.backup_minute ?? 0,
+      max_backup_count: settings?.max_backup_count ?? 1,
     });
   };
 

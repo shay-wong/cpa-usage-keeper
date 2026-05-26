@@ -27,6 +27,7 @@
   --border-hover: #cecac4;
 
   --primary-color: #8b8680; // 行动色（主色）
+  --accent-color: var(--primary-color);
   --primary-hover: #7f7a74;
   --primary-active: #726d67;
   --primary-contrast: #ffffff;
@@ -92,6 +93,7 @@
   --border-hover: #cccccc;
 
   --primary-color: #8b8680;
+  --accent-color: var(--primary-color);
   --primary-hover: #7f7a74;
   --primary-active: #726d67;
   --primary-contrast: #ffffff;

@@ -11,9 +11,9 @@ import (
 )
 
 var configEnvKeys = []string{
-	"APP_PORT", "APP_BASE_PATH", "WORK_DIR", "CPA_BASE_URL", "CPA_MANAGEMENT_KEY", "POLL_INTERVAL",
+	"APP_PORT", "APP_BASE_PATH", "CPA_PUBLIC_URL", "WORK_DIR", "CPA_BASE_URL", "CPA_MANAGEMENT_KEY", "POLL_INTERVAL",
 	"USAGE_SYNC_MODE", "REDIS_QUEUE_ADDR", "REDIS_QUEUE_TLS", "REDIS_QUEUE_BATCH_SIZE", "REDIS_QUEUE_IDLE_INTERVAL",
-	"SQLITE_PATH", "BACKUP_ENABLED", "BACKUP_DIR", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
+	"SQLITE_PATH", "DATABASE_DRIVER", "DATABASE_URL", "BACKUP_ENABLED", "BACKUP_DIR", "BACKUP_INTERVAL", "BACKUP_RETENTION_DAYS",
 	"REQUEST_TIMEOUT", "LOG_LEVEL", "LOG_FILE_ENABLED", "LOG_DIR", "LOG_RETENTION_DAYS",
 	"AUTH_ENABLED", "LOGIN_PASSWORD", "AUTH_SESSION_TTL", "TZ", "TLS_SKIP_VERIFY",
 }
@@ -99,8 +99,11 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.AppBasePath != "" {
 		t.Fatalf("expected default app base path to be empty, got %q", cfg.AppBasePath)
 	}
-	if !cfg.BackupEnabled {
-		t.Fatal("expected backup to be enabled by default")
+	if cfg.CPAPublicURL != "" {
+		t.Fatalf("expected default CPA public URL to be empty, got %q", cfg.CPAPublicURL)
+	}
+	if cfg.BackupEnabled {
+		t.Fatal("expected backup to be disabled by default")
 	}
 	if cfg.WorkDir != filepath.Join(".", "data") {
 		t.Fatalf("expected default work dir ./data, got %s", cfg.WorkDir)
@@ -117,8 +120,11 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.RequestTimeout != 30*time.Second {
 		t.Fatalf("expected default request timeout 30s, got %s", cfg.RequestTimeout)
 	}
-	if cfg.SQLitePath != filepath.Join("data", "app.db") {
-		t.Fatalf("expected default sqlite path data/app.db, got %s", cfg.SQLitePath)
+	if cfg.DatabaseDriver != "sqlite" {
+		t.Fatalf("expected default database driver sqlite, got %s", cfg.DatabaseDriver)
+	}
+	if cfg.DatabaseURL != "" {
+		t.Fatalf("expected default database URL to be empty, got %q", cfg.DatabaseURL)
 	}
 	if cfg.AuthEnabled {
 		t.Fatal("expected auth to be disabled by default")
@@ -138,8 +144,8 @@ func TestLoadFromEnvAppliesDefaults(t *testing.T) {
 	if cfg.RedisQueueKey != RedisQueueKeyDefault {
 		t.Fatalf("expected default redis queue key queue, got %s", cfg.RedisQueueKey)
 	}
-	if cfg.RedisQueueBatchSize != 1000 {
-		t.Fatalf("expected default redis queue batch size 1000, got %d", cfg.RedisQueueBatchSize)
+	if cfg.RedisQueueBatchSize != 10000 {
+		t.Fatalf("expected default redis queue batch size 10000, got %d", cfg.RedisQueueBatchSize)
 	}
 	if cfg.RedisQueueIdleInterval != time.Second {
 		t.Fatalf("expected default redis queue idle interval 1s, got %s", cfg.RedisQueueIdleInterval)
@@ -372,6 +378,35 @@ func TestLoadFromEnvRequiresCriticalValues(t *testing.T) {
 	})
 }
 
+func TestLoadFromEnvParsesDatabaseDriverOverride(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "https://cpa.example.com")
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("DATABASE_DRIVER", "postgres")
+	t.Setenv("DATABASE_URL", "postgres://keeper:secret@127.0.0.1:5432/keeper?sslmode=disable")
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+	if cfg.DatabaseDriver != "postgres" {
+		t.Fatalf("expected database driver postgres, got %q", cfg.DatabaseDriver)
+	}
+	if cfg.DatabaseURL != "postgres://keeper:secret@127.0.0.1:5432/keeper?sslmode=disable" {
+		t.Fatalf("expected database URL override, got %q", cfg.DatabaseURL)
+	}
+}
+
+func TestLoadFromEnvRejectsUnsupportedDatabaseDriver(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "https://cpa.example.com")
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("DATABASE_DRIVER", "mysql")
+
+	_, err := LoadFromEnv()
+	if err == nil || !strings.Contains(err.Error(), "unsupported DATABASE_DRIVER") {
+		t.Fatalf("expected unsupported DATABASE_DRIVER error, got %v", err)
+	}
+}
+
 func TestLoadFromEnvIgnoresRemovedLegacySyncEnvVars(t *testing.T) {
 	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
@@ -430,6 +465,7 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 	t.Setenv("WORK_DIR", "/tmp/work")
 	t.Setenv("APP_PORT", "9090")
 	t.Setenv("APP_BASE_PATH", "/cpa/")
+	t.Setenv("CPA_PUBLIC_URL", "https://cpa.public.example.com/")
 	t.Setenv("BACKUP_ENABLED", "false")
 	t.Setenv("BACKUP_INTERVAL", "2h")
 	t.Setenv("BACKUP_RETENTION_DAYS", "7")
@@ -455,7 +491,7 @@ func TestLoadFromEnvParsesOverrides(t *testing.T) {
 	if !cfg.RedisQueueTLS {
 		t.Fatal("expected redis queue TLS to be enabled when set to true")
 	}
-	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.WorkDir != "/tmp/work" || cfg.SQLitePath != filepath.Join("/tmp/work", "app.db") || cfg.BackupEnabled || cfg.BackupDir != filepath.Join("/tmp/work", "backups") || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || cfg.LogFileEnabled || cfg.LogDir != filepath.Join("/tmp/work", "logs") || cfg.LogRetentionDays != 14 || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour || cfg.RedisQueueIdleInterval != 2*time.Second {
+	if cfg.AppPort != "9090" || cfg.AppBasePath != "/cpa" || cfg.CPAPublicURL != "https://cpa.public.example.com/" || cfg.WorkDir != "/tmp/work" || cfg.SQLitePath != filepath.Join("/tmp/work", "app.db") || cfg.BackupEnabled || cfg.BackupDir != filepath.Join("/tmp/work", "backups") || cfg.BackupInterval != 2*time.Hour || cfg.BackupRetentionDays != 7 || cfg.RequestTimeout != 15*time.Second || cfg.LogLevel != "debug" || cfg.LogFileEnabled || cfg.LogDir != filepath.Join("/tmp/work", "logs") || cfg.LogRetentionDays != 14 || !cfg.AuthEnabled || cfg.LoginPassword != "top-secret" || cfg.AuthSessionTTL != 12*time.Hour || cfg.RedisQueueIdleInterval != 2*time.Second {
 		t.Fatalf("unexpected config override result: %+v", cfg)
 	}
 }

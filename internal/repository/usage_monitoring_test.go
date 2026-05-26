@@ -60,6 +60,39 @@ func TestListUsageMonitoringRecentRequestsWithFilterReturnsRowsPerTarget(t *test
 	}
 }
 
+func TestListRecentUsageMonitoringEventsWithFilterKeepsReasoningEffort(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-reasoning-effort.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	requestTime := time.Date(2026, 5, 21, 14, 27, 54, 0, time.UTC)
+	events := []entities.UsageEvent{{
+		EventKey:        "event-reasoning-effort",
+		Source:          "source-a",
+		AuthIndex:       "1",
+		Model:           "gpt-5.5",
+		ReasoningEffort: "xhigh",
+		Timestamp:       requestTime,
+		TotalTokens:     47_047,
+	}}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	rows, err := ListRecentUsageMonitoringEventsWithFilter(context.Background(), db, dto.UsageQueryFilter{Limit: 1})
+	if err != nil {
+		t.Fatalf("ListRecentUsageMonitoringEventsWithFilter returned error: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected one recent event, got %+v", rows)
+	}
+	if rows[0].ReasoningEffort != "xhigh" {
+		t.Fatalf("expected reasoning effort to be preserved, got %+v", rows[0])
+	}
+}
+
 func TestListUsageMonitoringStatsWithFilterParsesAggregateTimestamps(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-aggregate-time.db")})
 	if err != nil {

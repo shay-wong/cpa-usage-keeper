@@ -73,6 +73,10 @@ type SyncService struct {
 // NewSyncService 按生产配置组装 CPA metadata client、request log fetcher 和 Redis queue client。
 func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 	client := cpa.NewClient(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify)
+	sqlitePath := cfg.SQLitePath
+	if cfg.DatabaseDriver == config.DatabaseDriverPostgres {
+		sqlitePath = ""
+	}
 	return NewSyncServiceWithOptions(db, SyncServiceOptions{
 		BaseURL:           cfg.CPABaseURL,
 		Client:            client,
@@ -88,7 +92,7 @@ func NewSyncService(db *gorm.DB, cfg config.Config) *SyncService {
 			TLSSkipVerify: cfg.TLSSkipVerify,
 		}),
 		RedisQueueKey: cfg.RedisQueueKey,
-		SQLitePath:    cfg.SQLitePath,
+		SQLitePath:    sqlitePath,
 	})
 }
 
@@ -268,9 +272,22 @@ func (s *SyncService) CleanupStorage(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = repository.CleanupStorageWithSettings(s.db, s.now(), dto.DatabaseCleanupSettingsInput{
+	_, err = repository.CleanupStorageWithSettings(ctx, s.db, s.now(), dto.DatabaseCleanupSettingsInput{
+		RecordRequestDetails:    settings.RecordRequestDetails,
+		CleanupRequestLogs:      settings.CleanupRequestLogs,
+		CleanupUsageLogs:        settings.CleanupUsageLogs,
 		RequestLogRetentionDays: settings.RequestLogRetentionDays,
+		UsageLogRetentionDays:   settings.UsageLogRetentionDays,
 		MaxDatabaseSizeMB:       settings.MaxDatabaseSizeMB,
+		BackupRequestLogs:       settings.BackupRequestLogs,
+		BackupUsageLogs:         settings.BackupUsageLogs,
+		BackupUsageIdentities:   settings.BackupUsageIdentities,
+		BackupAPIKeys:           settings.BackupAPIKeys,
+		BackupRedisInbox:        settings.BackupRedisInbox,
+		BackupModelPrices:       settings.BackupModelPrices,
+		BackupHour:              settings.BackupHour,
+		BackupMinute:            settings.BackupMinute,
+		MaxBackupCount:          settings.MaxBackupCount,
 	}, s.sqlitePath)
 	return err
 }
@@ -394,6 +411,14 @@ func (s *SyncService) persistRedisUsageEvents(db *gorm.DB, events []entities.Usa
 
 func (s *SyncService) scheduleUsageRequestDetailPrefetch(events []entities.UsageEvent) {
 	if s == nil || s.db == nil || s.requestLogFetcher == nil {
+		return
+	}
+	settings, err := repository.GetDatabaseCleanupSettings(s.db)
+	if err != nil {
+		logrus.WithError(err).Warn("failed to load request detail recording setting before prefetch")
+		return
+	}
+	if !settings.RecordRequestDetails {
 		return
 	}
 	requestIDs := usageRequestDetailPrefetchIDs(events)

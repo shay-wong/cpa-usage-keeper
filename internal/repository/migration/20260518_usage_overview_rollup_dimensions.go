@@ -38,8 +38,10 @@ func usageOverviewRollupDimensionsMigration(db *gorm.DB) error {
 	}); err != nil {
 		return err
 	}
-	if err := db.Exec("VACUUM").Error; err != nil {
-		return fmt.Errorf("vacuum usage overview rollup migration: %w", err)
+	if db.Dialector.Name() == "sqlite" {
+		if err := db.Exec("VACUUM").Error; err != nil {
+			return fmt.Errorf("vacuum usage overview rollup migration: %w", err)
+		}
 	}
 	return nil
 }

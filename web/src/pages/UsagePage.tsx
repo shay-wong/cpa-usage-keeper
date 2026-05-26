@@ -14,8 +14,8 @@ import {
   Legend,
   Filler
 } from 'chart.js';
-import { ApiError, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchDatabaseCleanupSettings, fetchStatus, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from '@/lib/api';
-import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, DatabaseCleanupSettingsResponse, StatusResponse, UsageEvent, UsageSourceFilterOption, UpdateDatabaseCleanupSettingsRequest } from '@/lib/types';
+import { ApiError, createStorageBackup, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchStatus, fetchStorageInfo, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventSourceFilterOptions, fetchUsageEvents, logout, restoreStorageBackup, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from '@/lib/api';
+import type { AnalysisResponse, CpaApiKeyOption, CpaApiKeySettingsItem, CreateBackupRequest, RestoreBackupRequest, StorageInfoResponse, StatusResponse, UsageEvent, UsageSourceFilterOption, UpdateDatabaseCleanupSettingsRequest } from '@/lib/types';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Button } from '@/components/ui/Button';
 import { LanguageSwitcher } from '@/components/ui/LanguageSwitcher';
@@ -30,7 +30,8 @@ import {
   ChartLineSelector,
   AnalysisPanel,
   ApiKeySettingsCard,
-  DatabaseCleanupSettingsCard,
+  StorageSettingsCard,
+  type StorageOperationNotice,
   PriceSettingsCard,
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
@@ -103,7 +104,7 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
   { value: 'dark', labelKey: 'usage_stats.theme_dark' },
   { value: 'auto', labelKey: 'usage_stats.theme_auto' }
 ];
-const BASE_USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'settings'] as const;
+const BASE_USAGE_TAB_OPTIONS = ['overview', 'credentials', 'events', 'analysis', 'storage', 'settings'] as const;
 const USAGE_TAB_OPTIONS = withDevUsageTabs(BASE_USAGE_TAB_OPTIONS);
 export type UsageTab = (typeof USAGE_TAB_OPTIONS)[number];
 type Translate = (key: string) => string;
@@ -113,6 +114,7 @@ const USAGE_TAB_LABEL_KEYS: Record<BaseUsageTab, string> = {
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
   credentials: 'usage_stats.tab_credentials',
+  storage: 'usage_stats.tab_storage',
   settings: 'usage_stats.tab_settings',
 };
 const DEFAULT_USAGE_TAB: UsageTab = 'overview';
@@ -124,14 +126,91 @@ const OVERVIEW_AUTO_REFRESH_INTERVAL_MS = 10_000;
 // 与 sticky toolbar 的 CSS top 保持一致，用于计算 header 被下一层 toolbar 顶出的距离。
 const STICKY_TOOLBAR_TOP_PX = 16;
 const STICKY_TOOLBAR_PUSH_GAP_PX = 18;
+const CPA_MANAGEMENT_PAGE = 'management.html';
+const ABSOLUTE_HTTP_URL_PATTERN = /^https?:\/\//i;
+const EXPLICIT_URL_SCHEME_PATTERN = /^[a-z][a-z\d+.-]*:/i;
+const BARE_HOST_WITH_PORT_PATTERN = /^[a-z0-9.-]+:\d+(?:[/?#]|$)/i;
+const BROWSER_LOCAL_CPA_HOSTS = new Set(['cli-proxy-api', 'localhost', '127.0.0.1', '0.0.0.0', '::1']);
 
-export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'credentials';
+const normalizeCPALinkHostname = (hostname: string) => hostname.trim().replace(/^\[|\]$/g, '').toLowerCase();
+
+const shouldUseCurrentHostForCPALink = (hostname: string) => {
+  const normalizedHostname = normalizeCPALinkHostname(hostname);
+  if (!normalizedHostname) return false;
+  if (BROWSER_LOCAL_CPA_HOSTS.has(normalizedHostname)) return true;
+  return !normalizedHostname.includes('.') && !normalizedHostname.includes(':');
+};
+
+export const shouldShowRangeControls = (tab: UsageTab) => tab !== 'settings' && tab !== 'storage' && tab !== 'credentials';
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) => shouldShowRangeControls(tab);
 
-export const shouldShowUpdateCheckButton = (status: Pick<StatusResponse, 'updateCheckEnabled'> | null) => status?.updateCheckEnabled === true;
+export const shouldShowVersionBadge = (status: Pick<StatusResponse, 'version'> | null) => Boolean(status?.version?.trim());
 
-export const getBackToCPALinkURL = (status: Pick<StatusResponse, 'cpa_management_url'> | null) => status?.cpa_management_url ?? '';
+export const shouldAutoCheckForUpdate = (
+  status: Pick<StatusResponse, 'version' | 'updateCheckEnabled'> | null,
+  lastCheckedVersion: string | null,
+) => {
+  const version = status?.version?.trim();
+  return status?.updateCheckEnabled === true && Boolean(version) && version !== lastCheckedVersion;
+};
+
+export const shouldShowVersionBadgeDot = (hasNewVersion: boolean) => hasNewVersion;
+
+const getBrowserOrigin = () => (typeof window === 'undefined' ? '' : window.location.origin);
+
+const getProtocolForBareHost = (currentOrigin: string) => {
+  try {
+    return new URL(currentOrigin).protocol;
+  } catch {
+    return typeof window === 'undefined' ? 'https:' : window.location.protocol;
+  }
+};
+
+const getBrowserHostname = (currentOrigin: string) => {
+  try {
+    return new URL(currentOrigin).hostname;
+  } catch {
+    return typeof window === 'undefined' ? '' : window.location.hostname;
+  }
+};
+
+const prepareCPAPublicURL = (rawURL: string, currentOrigin: string) => {
+  const trimmed = rawURL.trim();
+  if (!trimmed) return '';
+  if (ABSOLUTE_HTTP_URL_PATTERN.test(trimmed) || trimmed.startsWith('//') || trimmed.startsWith('/')) {
+    return trimmed;
+  }
+  if (EXPLICIT_URL_SCHEME_PATTERN.test(trimmed) && !BARE_HOST_WITH_PORT_PATTERN.test(trimmed)) {
+    return '';
+  }
+  return `${getProtocolForBareHost(currentOrigin)}//${trimmed}`;
+};
+
+export const getBackToCPALinkURL = (
+  status: Pick<StatusResponse, 'cpa_public_url'> | null,
+  currentOrigin = getBrowserOrigin(),
+) => {
+  const preparedURL = prepareCPAPublicURL(status?.cpa_public_url ?? currentOrigin, currentOrigin);
+  if (!preparedURL) return '';
+
+  try {
+    const parsedURL = currentOrigin ? new URL(preparedURL, currentOrigin) : new URL(preparedURL);
+    const browserHostname = getBrowserHostname(currentOrigin);
+    if (browserHostname && shouldUseCurrentHostForCPALink(parsedURL.hostname)) {
+      parsedURL.hostname = browserHostname;
+    }
+    if (!parsedURL.pathname.endsWith(`/${CPA_MANAGEMENT_PAGE}`)) {
+      const basePath = parsedURL.pathname.replace(/\/+$/, '');
+      parsedURL.pathname = basePath ? `${basePath}/${CPA_MANAGEMENT_PAGE}` : `/${CPA_MANAGEMENT_PAGE}`;
+      parsedURL.search = '';
+      parsedURL.hash = '';
+    }
+    return parsedURL.toString();
+  } catch {
+    return '';
+  }
+};
 
 export const getUpdateCheckToastDuration = (kind: 'success' | 'info' | 'error') => (kind === 'error' ? 6_000 : 4_000);
 
@@ -176,6 +255,13 @@ export const refreshPageData = async ({ refreshActiveTab }: RefreshPageDataOptio
 };
 
 export const getOverviewDisplayLoading = ({ loading, hasUsage }: { loading: boolean; hasUsage: boolean }) => loading && !hasUsage;
+
+export const applySavedStorageSettings = (current: StorageInfoResponse | null, settings: UpdateDatabaseCleanupSettingsRequest): StorageInfoResponse => ({
+  ...(current ?? {}),
+  settings,
+});
+
+export const getStorageSettingsCardKey = (settings: UpdateDatabaseCleanupSettingsRequest | null | undefined, revision: number) => `${revision}:${JSON.stringify(settings ?? null)}`;
 
 export const scheduleOverviewAutoRefresh = ({
   enabled,
@@ -536,16 +622,20 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [apiKeySettingsError, setApiKeySettingsError] = useState('');
   const [apiKeySettingsSavingId, setApiKeySettingsSavingId] = useState<string | null>(null);
   const apiKeySettingsRequestControllerRef = useRef<AbortController | null>(null);
-  const [databaseCleanupSettings, setDatabaseCleanupSettings] = useState<DatabaseCleanupSettingsResponse | null>(null);
-  const [databaseCleanupSettingsLoading, setDatabaseCleanupSettingsLoading] = useState(false);
-  const [databaseCleanupSettingsSaving, setDatabaseCleanupSettingsSaving] = useState(false);
-  const [databaseCleanupSettingsError, setDatabaseCleanupSettingsError] = useState('');
-  const databaseCleanupSettingsRequestControllerRef = useRef<AbortController | null>(null);
+  const [storageSettingsSaving, setStorageSettingsSaving] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<StorageInfoResponse | null>(null);
+  const [storageInfoRevision, setStorageInfoRevision] = useState(0);
+  const [storageInfoLoading, setStorageInfoLoading] = useState(false);
+  const [storageInfoActionState, setStorageInfoActionState] = useState<Exclude<StorageOperationNotice['scope'], 'cleanup'> | null>(null);
+  const [storageInfoError, setStorageInfoError] = useState('');
+  const [storageOperationNotice, setStorageOperationNotice] = useState<StorageOperationNotice | null>(null);
+  const storageInfoRequestControllerRef = useRef<AbortController | null>(null);
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [statusError, setStatusError] = useState('');
   const [updateCheckLoading, setUpdateCheckLoading] = useState(false);
   const [updateCheckNotice, setUpdateCheckNotice] = useState<{ kind: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [hasNewVersion, setHasNewVersion] = useState(false);
+  const [lastAutoCheckedVersion, setLastAutoCheckedVersion] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const updateCheckNoticeTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const [customRangeError, setCustomRangeError] = useState('');
@@ -606,6 +696,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     return styles.updateCheckToastInfo;
   })() : '';
   const cpaManagementURL = useMemo(() => getBackToCPALinkURL(status), [status]);
+  const versionBadgeLabel = status?.version?.trim() ?? '';
+  const versionBadgeHasDot = shouldShowVersionBadgeDot(hasNewVersion);
 
   const resolvedRangeStartMs = toTimestampMs(overviewUsage?.range_start);
   const resolvedRangeEndMs = toTimestampMs(overviewUsage?.range_end);
@@ -720,19 +812,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired]);
 
-  const loadDatabaseCleanupSettings = useCallback(async () => {
-    databaseCleanupSettingsRequestControllerRef.current?.abort();
+  const loadStorageInfo = useCallback(async () => {
+    storageInfoRequestControllerRef.current?.abort();
     const controller = new AbortController();
-    databaseCleanupSettingsRequestControllerRef.current = controller;
+    storageInfoRequestControllerRef.current = controller;
 
-    setDatabaseCleanupSettingsLoading(true);
-    setDatabaseCleanupSettingsError('');
+    setStorageInfoLoading(true);
+    setStorageInfoError('');
     try {
-      const response = await fetchDatabaseCleanupSettings(controller.signal);
-      if (databaseCleanupSettingsRequestControllerRef.current !== controller) {
+      const response = await fetchStorageInfo(controller.signal);
+      if (storageInfoRequestControllerRef.current !== controller) {
         return;
       }
-      setDatabaseCleanupSettings(response);
+      setStorageInfo(response);
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -741,31 +833,77 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         onAuthRequired?.();
         return;
       }
-      setDatabaseCleanupSettingsError(error instanceof Error ? error.message : 'Failed to load database cleanup settings');
+      setStorageInfoError(error instanceof Error ? error.message : 'Failed to load storage info');
     } finally {
-      if (databaseCleanupSettingsRequestControllerRef.current === controller) {
-        setDatabaseCleanupSettingsLoading(false);
-        databaseCleanupSettingsRequestControllerRef.current = null;
+      if (storageInfoRequestControllerRef.current === controller) {
+        setStorageInfoLoading(false);
+        storageInfoRequestControllerRef.current = null;
       }
     }
   }, [onAuthRequired]);
 
-  const handleSaveDatabaseCleanupSettings = useCallback(async (settings: UpdateDatabaseCleanupSettingsRequest) => {
-    setDatabaseCleanupSettingsSaving(true);
-    setDatabaseCleanupSettingsError('');
+  const handleSaveStorageSettings = useCallback(async (settings: UpdateDatabaseCleanupSettingsRequest, scope: Exclude<StorageOperationNotice['scope'], 'restore'>) => {
+    setStorageSettingsSaving(true);
+    setStorageOperationNotice(null);
     try {
-      const updated = await updateDatabaseCleanupSettings(settings);
-      setDatabaseCleanupSettings(updated);
+      const savedSettings = await updateDatabaseCleanupSettings(settings);
+      setStorageInfo((current) => applySavedStorageSettings(current, savedSettings));
+      setStorageInfoRevision((current) => current + 1);
+      await loadStorageInfo();
+      setStorageOperationNotice({
+        scope,
+        kind: 'success',
+        message: scope === 'backup' ? t('usage_stats.storage_backup_settings_saved') : t('usage_stats.storage_cleanup_settings_saved'),
+      });
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
-      setDatabaseCleanupSettingsError(error instanceof Error ? error.message : 'Failed to update database cleanup settings');
+      const message = error instanceof Error ? error.message : t('usage_stats.storage_settings_save_failed');
+      setStorageOperationNotice({ scope, kind: 'error', message });
     } finally {
-      setDatabaseCleanupSettingsSaving(false);
+      setStorageSettingsSaving(false);
     }
-  }, [onAuthRequired]);
+  }, [loadStorageInfo, onAuthRequired, t]);
+
+  const handleCreateStorageBackup = useCallback(async (request: CreateBackupRequest) => {
+    setStorageInfoActionState('backup');
+    setStorageOperationNotice(null);
+    try {
+      await createStorageBackup(request);
+      await loadStorageInfo();
+      setStorageOperationNotice({ scope: 'backup', kind: 'success', message: t('usage_stats.storage_backup_created') });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      const message = error instanceof Error ? error.message : t('usage_stats.storage_backup_create_failed');
+      setStorageOperationNotice({ scope: 'backup', kind: 'error', message });
+    } finally {
+      setStorageInfoActionState(null);
+    }
+  }, [loadStorageInfo, onAuthRequired, t]);
+
+  const handleRestoreStorageBackup = useCallback(async (request: RestoreBackupRequest) => {
+    setStorageInfoActionState('restore');
+    setStorageOperationNotice(null);
+    try {
+      await restoreStorageBackup(request);
+      await loadStorageInfo();
+      setStorageOperationNotice({ scope: 'restore', kind: 'success', message: t('usage_stats.storage_backup_restored') });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        onAuthRequired?.();
+        return;
+      }
+      const message = error instanceof Error ? error.message : t('usage_stats.storage_backup_restore_failed');
+      setStorageOperationNotice({ scope: 'restore', kind: 'error', message });
+    } finally {
+      setStorageInfoActionState(null);
+    }
+  }, [loadStorageInfo, onAuthRequired, t]);
 
   const loadAnalysis = useCallback(async () => {
     const queryWindow = buildUsageRangeQuery({ range: timeRange, customStart: customTimeRange.start, customEnd: customTimeRange.end });
@@ -932,10 +1070,10 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [apiKeyOptions, selectedApiKeyId]);
 
   useEffect(() => {
-    if (!shouldShowUpdateCheckButton(status)) {
+    if (status?.updateCheckEnabled !== true) {
       setHasNewVersion(false);
     }
-  }, [status]);
+  }, [status?.updateCheckEnabled, status?.version]);
 
   useEffect(() => () => {
     if (updateCheckNoticeTimerRef.current !== null) {
@@ -1102,12 +1240,16 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await loadAnalysis();
       return;
     }
+    if (activeTab === 'storage') {
+      await loadStorageInfo();
+      return;
+    }
     if (activeTab === 'settings') {
-      await Promise.all([loadApiKeySettings(), loadDatabaseCleanupSettings(), loadPricing()]);
+      await Promise.all([loadApiKeySettings(), loadPricing()]);
       return;
     }
     await loadUsage();
-  }, [activeTab, loadAnalysis, loadApiKeySettings, loadDatabaseCleanupSettings, loadEventFilterOptions, loadEvents, loadPricing, loadUsage, refreshCredentials, refreshMonitoring]);
+  }, [activeTab, loadAnalysis, loadApiKeySettings, loadEventFilterOptions, loadEvents, loadPricing, loadStorageInfo, loadUsage, refreshCredentials, refreshMonitoring]);
 
   const refreshAutoRefreshTab = useCallback(async () => {
     if (activeTab === 'events') {
@@ -1193,13 +1335,16 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     }
   }, [onAuthRequired]);
 
-  const handleUpdateCheck = useCallback(async () => {
+  const handleUpdateCheck = useCallback(async (trigger: 'manual' | 'auto' = 'manual') => {
+    const shouldNotifyLatest = trigger === 'manual';
     setUpdateCheckLoading(true);
     try {
       const result = await fetchUpdateCheck();
       if (!result.canCompare) {
         setHasNewVersion(false);
-        showUpdateCheckNotice('info', t('usage_stats.update_check_dev_build'));
+        if (shouldNotifyLatest) {
+          showUpdateCheckNotice('info', t('usage_stats.update_check_dev_build'));
+        }
         return;
       }
       if (result.updateAvailable) {
@@ -1208,18 +1353,33 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         return;
       }
       setHasNewVersion(false);
-      showUpdateCheckNotice('info', t('usage_stats.update_check_latest'));
+      if (shouldNotifyLatest) {
+        showUpdateCheckNotice('info', t('usage_stats.update_check_latest'));
+      }
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
         return;
       }
       setHasNewVersion(false);
-      showUpdateCheckNotice('error', t('usage_stats.update_check_failed'));
+      if (shouldNotifyLatest) {
+        showUpdateCheckNotice('error', t('usage_stats.update_check_failed'));
+      }
     } finally {
       setUpdateCheckLoading(false);
     }
   }, [onAuthRequired, showUpdateCheckNotice, t]);
+
+  const statusVersion = status?.version?.trim() ?? '';
+  const isUpdateCheckEnabled = status?.updateCheckEnabled === true;
+
+  useEffect(() => {
+    if (!statusVersion || !shouldAutoCheckForUpdate({ version: statusVersion, updateCheckEnabled: isUpdateCheckEnabled }, lastAutoCheckedVersion)) {
+      return;
+    }
+    setLastAutoCheckedVersion(statusVersion);
+    void handleUpdateCheck('auto');
+  }, [handleUpdateCheck, isUpdateCheckEnabled, lastAutoCheckedVersion, statusVersion]);
 
   useEffect(() => scheduleOverviewAutoRefresh({
     enabled: autoRefreshEnabled,
@@ -1265,21 +1425,29 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     if (activeTab !== 'settings') {
       apiKeySettingsRequestControllerRef.current?.abort();
       apiKeySettingsRequestControllerRef.current = null;
-      databaseCleanupSettingsRequestControllerRef.current?.abort();
-      databaseCleanupSettingsRequestControllerRef.current = null;
       setApiKeySettingsLoading(false);
-      setDatabaseCleanupSettingsLoading(false);
       return;
     }
     void loadApiKeySettings();
-    void loadDatabaseCleanupSettings();
     return () => {
       apiKeySettingsRequestControllerRef.current?.abort();
       apiKeySettingsRequestControllerRef.current = null;
-      databaseCleanupSettingsRequestControllerRef.current?.abort();
-      databaseCleanupSettingsRequestControllerRef.current = null;
     };
-  }, [activeTab, loadApiKeySettings, loadDatabaseCleanupSettings]);
+  }, [activeTab, loadApiKeySettings]);
+
+  useEffect(() => {
+    if (activeTab !== 'storage') {
+      storageInfoRequestControllerRef.current?.abort();
+      storageInfoRequestControllerRef.current = null;
+      setStorageInfoLoading(false);
+      return;
+    }
+    void loadStorageInfo();
+    return () => {
+      storageInfoRequestControllerRef.current?.abort();
+      storageInfoRequestControllerRef.current = null;
+    };
+  }, [activeTab, loadStorageInfo]);
 
   useEffect(() => {
     const next = sanitizeRequestEventFilters(
@@ -1426,25 +1594,26 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                 );
               })}
             </div>
-            {shouldShowUpdateCheckButton(status) && (
+            {shouldShowVersionBadge(status) && (
               <div className={styles.updateCheckSwitcher} role="group" aria-label={t('usage_stats.check_updates')}>
                 <button
                   type="button"
-                  className={`${styles.updateCheckPill} ${styles.updateCheckPillActive} ${updateCheckLoading ? styles.updateCheckPillLoading : ''}`.trim()}
+                  className={`${styles.updateCheckPill} ${styles.updateCheckPillActive} ${versionBadgeHasDot ? styles.updateCheckPillUpdate : ''} ${updateCheckLoading ? styles.updateCheckPillLoading : ''}`.trim()}
                   onClick={() => void handleUpdateCheck()}
                   disabled={updateCheckLoading}
                   aria-busy={updateCheckLoading}
-                  aria-pressed={hasNewVersion}
+                  aria-pressed={versionBadgeHasDot}
+                  title={t('usage_stats.check_updates')}
                 >
                   {updateCheckLoading ? (
                     <span className={styles.updateCheckPillInner}>
                       <LoadingSpinner size={12} className={styles.updateCheckSpinner} />
-                      <span>{t('common.loading')}</span>
+                      <span>{versionBadgeLabel}</span>
                     </span>
                   ) : (
                     <span className={styles.updateCheckPillInner}>
-                      <span>{t('usage_stats.check_updates')}</span>
-                      {hasNewVersion && <span className={styles.updateCheckDot} aria-hidden="true" />}
+                      <span className={styles.updateCheckVersionLabel}>{versionBadgeLabel}</span>
+                      {versionBadgeHasDot && <span className={styles.updateCheckDot} aria-hidden="true" />}
                     </span>
                   )}
                 </button>
@@ -1705,8 +1874,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
             {activeTab === 'overview' && error && <div className={styles.errorBox}>{error === 'AUTH_REQUIRED' ? t('auth.session_expired') : error}</div>}
             {activeTab === 'settings' && pricingError && <div className={styles.errorBox}>{pricingError === 'AUTH_REQUIRED' ? t('auth.session_expired') : pricingError}</div>}
             {activeTab === 'settings' && apiKeySettingsError && <div className={styles.errorBox}>{apiKeySettingsError}</div>}
-            {activeTab === 'settings' && databaseCleanupSettingsError && <div className={styles.errorBox}>{databaseCleanupSettingsError}</div>}
-            {!(activeTab === 'overview' ? error : activeTab === 'settings' ? (pricingError || apiKeySettingsError || databaseCleanupSettingsError) : '') && displayStatusError && <div className={styles.errorBox}>{displayStatusError}</div>}
+            {activeTab === 'storage' && storageInfoError && <div className={styles.errorBox}>{storageInfoError}</div>}
+            {!(activeTab === 'overview' ? error : activeTab === 'settings' ? (pricingError || apiKeySettingsError) : activeTab === 'storage' ? storageInfoError : '') && displayStatusError && <div className={styles.errorBox}>{displayStatusError}</div>}
 
             {activeTab === 'overview' && (
               <>
@@ -1858,14 +2027,25 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </>
             )}
 
+            {activeTab === 'storage' && (
+              <div className={styles.settingsSections}>
+                <StorageSettingsCard
+                  key={getStorageSettingsCardKey(storageInfo?.settings ?? storageInfo?.Settings ?? null, storageInfoRevision)}
+                  info={storageInfo}
+                  loading={storageInfoLoading}
+                  saving={storageSettingsSaving}
+                  actionLoading={storageInfoActionState !== null}
+                  actionState={storageInfoActionState}
+                  notice={storageOperationNotice}
+                  onSave={handleSaveStorageSettings}
+                  onCreateBackup={handleCreateStorageBackup}
+                  onRestoreBackup={handleRestoreStorageBackup}
+                />
+              </div>
+            )}
+
             {activeTab === 'settings' && (
               <div className={styles.settingsSections}>
-                <DatabaseCleanupSettingsCard
-                  settings={databaseCleanupSettings}
-                  loading={databaseCleanupSettingsLoading}
-                  saving={databaseCleanupSettingsSaving}
-                  onSave={handleSaveDatabaseCleanupSettings}
-                />
                 <ApiKeySettingsCard
                   apiKeys={apiKeySettings}
                   loading={apiKeySettingsLoading}

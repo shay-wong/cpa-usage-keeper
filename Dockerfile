@@ -23,7 +23,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build \
 
 FROM alpine:3.20
 WORKDIR /
-RUN apk add --no-cache ca-certificates tzdata su-exec \
+RUN apk add --no-cache ca-certificates tzdata su-exec postgresql-client \
 	&& addgroup -S app \
 	&& adduser -S -G app app \
 	&& mkdir -p /data \

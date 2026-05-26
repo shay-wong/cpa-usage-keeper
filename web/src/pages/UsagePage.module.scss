@@ -237,12 +237,25 @@
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
 }
 
+.updateCheckPillUpdate {
+  color: color-mix(in srgb, var(--text-primary) 84%, #{$warning-color});
+  box-shadow:
+    0 8px 20px rgba($warning-color, 0.14),
+    0 0 0 1px rgba($warning-color, 0.22) inset;
+}
+
 .updateCheckPillInner,
 .signOutPillInner,
 .refreshPillInner {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+}
+
+.updateCheckVersionLabel {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 
 .updateCheckSpinner,
@@ -1059,6 +1072,15 @@
   font-size: 12px;
 }
 
+.successBox {
+  padding: 10px;
+  background-color: color-mix(in srgb, var(--success-color) 12%, transparent);
+  border: 1px solid var(--success-color);
+  border-radius: $radius-sm;
+  color: var(--success-color);
+  font-size: 12px;
+}
+
 .hint {
   color: var(--text-secondary);
   font-size: 12px;
@@ -1778,6 +1800,20 @@
   min-height: auto;
 }
 
+.storageSettingsCards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.storageSectionTitleBlock {
+  gap: 12px;
+
+  .sectionEyebrow {
+    margin-bottom: 6px;
+  }
+}
+
 .databaseCleanupSettingsBody {
   display: flex;
   flex-direction: column;
@@ -1787,6 +1823,16 @@
 .databaseCleanupSettingsGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+
+  @include mobile {
+    grid-template-columns: 1fr;
+  }
+}
+
+.storageDomainSwitchGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 
   @include mobile {
@@ -1842,9 +1888,246 @@
   line-height: 1.1;
 }
 
+.storageTableListBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 2px;
+}
+
+.storageTableListLabel {
+  padding-left: 10px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.storageTableList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 0;
+  padding: 0 0 0 10px;
+  list-style: none;
+
+  li {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 4px 8px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-primary) 76%, transparent);
+    color: var(--text-secondary);
+    font-family: $font-mono;
+    font-size: 10px;
+    line-height: 1;
+  }
+}
+
+.storageSwitchField {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  min-height: 74px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 86%, transparent);
+  border-radius: 20px;
+  background:
+    radial-gradient(360px 120px at 0% 0%, rgba($primary-color, 0.08), transparent 62%),
+    color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  cursor: pointer;
+}
+
+.storageSwitchCopy {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+
+  small {
+    color: var(--text-tertiary);
+    font-size: 10px;
+    line-height: 1.4;
+  }
+}
+
+.storageSwitchLabel {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.storageSwitchInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.storageSwitchTrack {
+  position: relative;
+  width: 46px;
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.storageSwitchThumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  transition:
+    transform 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.storageSwitchField[data-checked='true'] {
+  border-color: color-mix(in srgb, var(--success-color) 46%, var(--border-color));
+  background:
+    radial-gradient(360px 120px at 0% 0%, color-mix(in srgb, var(--success-color) 16%, transparent), transparent 62%),
+    color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+}
+
+.storageSwitchInput:checked + .storageSwitchTrack {
+  border-color: color-mix(in srgb, var(--success-color) 88%, var(--border-color));
+  background: linear-gradient(135deg, var(--success-color), color-mix(in srgb, var(--success-color) 78%, #047857));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--success-color) 18%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+}
+
+.storageSwitchInput:checked + .storageSwitchTrack .storageSwitchThumb {
+  transform: translateX(20px);
+  background: #ffffff;
+  box-shadow:
+    0 5px 12px rgba(0, 0, 0, 0.24),
+    0 0 0 1px rgba(255, 255, 255, 0.72) inset;
+}
+
+.storageSwitchInput:focus-visible + .storageSwitchTrack {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success-color) 22%, transparent);
+}
+
+.storageSwitchInput:disabled + .storageSwitchTrack {
+  opacity: 0.55;
+}
+
+.storageSwitchField:has(.storageSwitchInput:disabled) {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.storageSelectShell {
+  position: relative;
+  display: block;
+  min-width: 0;
+
+  &::after {
+    position: absolute;
+    top: 50%;
+    right: 18px;
+    width: 14px;
+    height: 14px;
+    transform: translateY(-50%);
+    pointer-events: none;
+    content: '';
+    background: var(--text-secondary);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / 14px 14px no-repeat;
+  }
+}
+
+.storageSelectControl {
+  width: 100%;
+  height: 40px;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
+  border-radius: 999px;
+  padding: 0 46px 0 18px;
+  appearance: none;
+  background: color-mix(in srgb, var(--bg-primary) 86%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 40px;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+
+  &:hover:not(:disabled),
+  &:focus-visible {
+    border-color: color-mix(in srgb, var(--primary-color) 48%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 12%, transparent);
+    outline: none;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+}
+
+.storageProgress {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--primary-color) 36%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--primary-color) 9%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.storageProgressBar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+
+  span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 42%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, transparent, var(--primary-color), transparent);
+    animation: storageProgressSweep 1.15s ease-in-out infinite;
+  }
+}
+
+@keyframes storageProgressSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(240%);
+  }
+}
+
 .databaseCleanupSettingsActions {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 
   @include mobile {
     :global(.btn) {
@@ -2321,82 +2604,160 @@
 }
 
 .requestEventsPaginationFooter {
-  --usage-pagination-bar-height: 51px;
+  --usage-pagination-bar-height: 58px;
 
+  position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex: 0 0 var(--usage-pagination-bar-height);
   gap: $spacing-md;
-  height: var(--usage-pagination-bar-height);
+  min-height: var(--usage-pagination-bar-height);
   box-sizing: border-box;
-  margin: $spacing-sm calc(-1 * #{$spacing-lg}) 0;
-  padding: 0 #{$spacing-lg};
-  border-top: 1px solid var(--border-color);
+  padding: 8px #{$spacing-lg};
 }
 
 .requestEventsPaginationControls {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 10px;
+  min-height: 42px;
+  padding: 4px 6px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border-radius: $radius-full;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 72%, transparent), color-mix(in srgb, var(--bg-primary) 94%, transparent));
   color: var(--text-secondary);
   font-size: 12px;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, white 6%, transparent),
+    0 14px 28px color-mix(in srgb, black 10%, transparent);
 }
 
 .requestEventsPagerButton {
-  border: 1px solid var(--border-color);
+  min-width: 72px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
   border-radius: $radius-full;
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
   color: var(--text-primary);
   font: inherit;
   font-weight: 800;
-  padding: 6px 10px;
+  padding: 0 14px;
   cursor: pointer;
+  transition:
+    border-color 0.16s ease,
+    background 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
 
   &:hover:not(:disabled) {
-    border-color: color-mix(in srgb, var(--accent-color) 45%, var(--border-color));
+    border-color: color-mix(in srgb, var(--primary-color) 48%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 10%, var(--bg-secondary));
+    box-shadow: 0 8px 18px color-mix(in srgb, var(--primary-color) 12%, transparent);
     transform: translateY(-1px);
   }
 
   &:disabled {
     cursor: not-allowed;
-    opacity: 0.5;
+    opacity: 0.42;
   }
 }
 
 .requestEventsPaginationPage {
-  min-width: 44px;
+  min-width: 58px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
   text-align: center;
-  font-weight: 800;
 }
 
 .requestEventsPageSizeControl {
   display: flex;
   align-items: center;
   gap: 8px;
+  margin-left: 10px;
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
+  position: relative;
+  white-space: nowrap;
+
+  &::after {
+    position: absolute;
+    top: 50%;
+    right: 18px;
+    width: 14px;
+    height: 14px;
+    transform: translateY(-50%);
+    pointer-events: none;
+    content: '';
+    background: var(--text-secondary);
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / 14px 14px no-repeat;
+    transition: background-color 0.16s ease;
+  }
+
+  &:has(select:disabled)::after {
+    opacity: 0.45;
+  }
 
   select {
-    height: 32px;
-    border: 1px solid var(--border-color);
+    height: 34px;
+    min-width: 94px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 84%, transparent);
     border-radius: $radius-full;
-    padding: 0 24px 0 10px;
-    background: var(--bg-secondary);
+    padding: 0 42px 0 18px;
+    appearance: none;
+    background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
     color: var(--text-primary);
     font: inherit;
-    font-weight: 800;
+    font-size: 13px;
+    font-weight: 900;
     cursor: pointer;
+    transition:
+      border-color 0.16s ease,
+      background-color 0.16s ease,
+      box-shadow 0.16s ease;
+
+    &:hover:not(:disabled),
+    &:focus-visible {
+      border-color: color-mix(in srgb, var(--primary-color) 48%, var(--border-color));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 12%, transparent);
+      outline: none;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.45;
+    }
   }
 }
 
 
 
-.requestEventsTableWrapper {
+.requestEventsTableFrame {
+  display: flex;
+  flex-direction: column;
+  height: clamp(560px, 72vh, 760px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  border-radius: $radius-lg;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-primary) 96%, var(--bg-secondary)),
+    var(--bg-primary)
+  );
+  box-shadow:
+    0 18px 40px rgb(0 0 0 / 0.10),
+    inset 0 1px 0 rgb(255 255 255 / 0.03);
+}
+
+.requestEventsTableScroll {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
-  height: clamp(400px, 60vh, 600px);
-  border: 1px solid var(--border-color);
-  border-radius: $radius-md;
 
   .table {
     border-collapse: separate;
@@ -2408,6 +2769,21 @@
     top: 0;
     z-index: 2;
   }
+}
+
+.requestEventsTableFooter {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  padding: 14px $spacing-lg $spacing-lg;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-primary) 86%, transparent),
+      var(--bg-primary) 42%
+    );
+  box-shadow: 0 -12px 24px color-mix(in srgb, var(--bg-primary) 88%, transparent);
 }
 
 

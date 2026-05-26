@@ -3,9 +3,13 @@ package app
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"cpa-usage-keeper/internal/backup"
 )
 
 func TestNextDailyBackupAtUsesLocal0400(t *testing.T) {
@@ -112,6 +116,26 @@ func TestDatabaseBackupRunnerUsesDailyScheduleForMultipleOf24Hours(t *testing.T)
 	expected := time.Date(2026, 4, 17, 4, 0, 0, 0, time.Local).Sub(now)
 	if delay != expected {
 		t.Fatalf("expected next 48h daily schedule delay %s, got %s", expected, delay)
+	}
+}
+
+func TestDatabaseBackupStoreIgnoresRestoreSafetyBackupsForLastBackupHistory(t *testing.T) {
+	root := t.TempDir()
+	dayDir := filepath.Join(root, "2026-05-24")
+	if err := os.MkdirAll(dayDir, 0o700); err != nil {
+		t.Fatalf("create backup day dir: %v", err)
+	}
+	safetyPath := filepath.Join(dayDir, "restore_safety_20260524T040000.db")
+	if err := os.WriteFile(safetyPath, []byte("db"), 0o600); err != nil {
+		t.Fatalf("write safety backup: %v", err)
+	}
+
+	_, ok, err := newDatabaseBackupStore(nil, root).LastBackupAt()
+	if err != nil {
+		t.Fatalf("LastBackupAt returned error: %v", err)
+	}
+	if ok {
+		t.Fatal("expected safety backup to be ignored for scheduled backup history")
 	}
 }
 
@@ -238,6 +262,10 @@ type databaseBackupWriterStub struct {
 }
 
 func (s *databaseBackupWriterStub) WriteDatabase(_ context.Context, backupAt time.Time) (string, error) {
+	return s.WriteDatabaseWithOptions(context.Background(), backupAt, backup.Options{RequestLogs: true, UsageLogs: true})
+}
+
+func (s *databaseBackupWriterStub) WriteDatabaseWithOptions(_ context.Context, backupAt time.Time, _ backup.Options) (string, error) {
 	s.calls++
 	if s.err == nil {
 		s.lastBackupAt = backupAt
@@ -260,5 +288,9 @@ func (s *databaseBackupCleanerStub) Cleanup(retentionDays int, now time.Time) (i
 	s.calls++
 	s.retentionDays = retentionDays
 	s.now = now
+	return 0, s.err
+}
+
+func (s *databaseBackupCleanerStub) CleanupByMaxCount(int) (int, error) {
 	return 0, s.err
 }

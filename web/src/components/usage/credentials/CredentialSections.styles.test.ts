@@ -51,11 +51,22 @@ describe('Credential section styles', () => {
   })
 
   it('uses a fixed centered pagination bar height', () => {
-    expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?--usage-pagination-bar-height:\s*51px;/)
+    expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?--usage-pagination-bar-height:\s*60px;/)
     expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?height:\s*var\(--usage-pagination-bar-height\);/)
     expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?box-sizing:\s*border-box;/)
     expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?align-items:\s*center;/)
-    expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?padding:\s*0 22px;/)
+    expect(credentialStyles).toMatch(/\.credentialPagination\s*\{[\s\S]*?padding:\s*8px 22px;/)
+    expect(credentialStyles).toMatch(/\.credentialPaginationControls\s*\{[\s\S]*?gap:\s*10px;/)
+    expect(credentialStyles).toMatch(/\.credentialPaginationControls\s*\{[\s\S]*?padding:\s*4px 6px 4px 20px;/)
+    const credentialPageSizeControlBlock = credentialStyles.slice(
+      credentialStyles.indexOf('.credentialPageSizeControl {'),
+      credentialStyles.indexOf('.credentialPageSizeControl + .credentialPageSizeControl')
+    )
+
+    expect(credentialPageSizeControlBlock).not.toContain('margin-left: 10px;')
+    expect(credentialStyles).toMatch(/\.credentialPageSizeControl \+ \.credentialPageSizeControl\s*\{[\s\S]*?margin-left:\s*10px;/)
+    expect(credentialPageSizeControlBlock).toMatch(/select\s*\{[\s\S]*?appearance:\s*none;/)
+    expect(credentialStyles).toMatch(/\.credentialPageSizeControl\s*\{[\s\S]*?&::after\s*\{[\s\S]*?mask:\s*url\("data:image\/svg\+xml/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPagination\s*\{[\s\S]*?overflow-x:\s*auto;/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPaginationControls\s*\{[\s\S]*?width:\s*max-content;/)
     expect(credentialStyles).toMatch(/@include mobile\s*\{[\s\S]*?\.credentialPageSizeControl\s*\{[\s\S]*?flex:\s*0 0 auto;/)

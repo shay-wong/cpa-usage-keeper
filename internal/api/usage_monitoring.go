@@ -153,15 +153,16 @@ type usageMonitoringFailureModelStatPayload struct {
 }
 
 type usageMonitoringRequestLogPayload struct {
-	ID         int64                  `json:"id,omitempty"`
-	Timestamp  string                 `json:"timestamp"`
-	Model      string                 `json:"model"`
-	Source     string                 `json:"source"`
-	SourceType string                 `json:"source_type,omitempty"`
-	SourceKey  string                 `json:"source_key,omitempty"`
-	Failed     bool                   `json:"failed"`
-	LatencyMS  int64                  `json:"latency_ms"`
-	Tokens     usageEventTokenPayload `json:"tokens"`
+	ID              int64                  `json:"id,omitempty"`
+	Timestamp       string                 `json:"timestamp"`
+	Model           string                 `json:"model"`
+	ReasoningEffort string                 `json:"reasoning_effort,omitempty"`
+	Source          string                 `json:"source"`
+	SourceType      string                 `json:"source_type,omitempty"`
+	SourceKey       string                 `json:"source_key,omitempty"`
+	Failed          bool                   `json:"failed"`
+	LatencyMS       int64                  `json:"latency_ms"`
+	Tokens          usageEventTokenPayload `json:"tokens"`
 }
 
 func registerUsageMonitoringRoute(
@@ -550,14 +551,15 @@ func buildUsageMonitoringRequestLogsPayload(rows []service.UsageMonitoringReques
 	for _, row := range rows {
 		resolved := resolver.resolve(row.Source, row.AuthIndex)
 		payload = append(payload, usageMonitoringRequestLogPayload{
-			ID:         row.ID,
-			Timestamp:  row.Timestamp.UTC().Format(time.RFC3339),
-			Model:      row.Model,
-			Source:     safeUsageSourceDisplay(resolved, row.AuthIndex),
-			SourceType: resolved.SourceType,
-			SourceKey:  safeUsageSourceKey(resolved),
-			Failed:     row.Failed,
-			LatencyMS:  row.LatencyMS,
+			ID:              row.ID,
+			Timestamp:       row.Timestamp.UTC().Format(time.RFC3339),
+			Model:           row.Model,
+			ReasoningEffort: row.ReasoningEffort,
+			Source:          safeUsageSourceDisplay(resolved, row.AuthIndex),
+			SourceType:      resolved.SourceType,
+			SourceKey:       safeUsageSourceKey(resolved),
+			Failed:          row.Failed,
+			LatencyMS:       row.LatencyMS,
 			Tokens: usageEventTokenPayload{
 				InputTokens:     row.InputTokens,
 				OutputTokens:    row.OutputTokens,

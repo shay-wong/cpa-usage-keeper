@@ -16,7 +16,11 @@ import (
 
 const (
 	DefaultTimeZone               = "Asia/Shanghai"
+	DefaultDatabaseDriver         = "sqlite"
+	DatabaseDriverSQLite          = "sqlite"
+	DatabaseDriverPostgres        = "postgres"
 	RedisQueueKeyDefault          = cpa.ManagementUsageQueueKey
+	RedisQueueBatchSizeDefault    = 10000
 	RedisQueueErrorBackoffDefault = 10 * time.Second
 	MetadataSyncIntervalDefault   = 30 * time.Second
 )
@@ -36,6 +40,8 @@ type Config struct {
 	AppPort string
 	// AppBasePath 是 Web 服务部署子路径，空值表示根路径。
 	AppBasePath string
+	// CPAPublicURL 是浏览器访问 CPA 的公开地址；为空时 App 会回退到 CPA_BASE_URL 并由前端做本地主机映射。
+	CPAPublicURL string
 	// TLSEnabled 控制是否以 HTTPS 模式启动 HTTP 服务。
 	TLSEnabled bool
 	// TLSCertFile 是 HTTPS 证书文件路径。
@@ -60,6 +66,10 @@ type Config struct {
 	RedisQueueErrorBackoff time.Duration
 	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
 	MetadataSyncInterval time.Duration
+	// DatabaseDriver 是主库存储后端，支持 sqlite 和 postgres。
+	DatabaseDriver string
+	// DatabaseURL 是 PostgreSQL 连接串；sqlite 模式下留空。
+	DatabaseURL string
 	// WorkDir 是应用工作目录，数据库、日志和备份默认从这里派生。
 	WorkDir string
 	// SQLitePath 是 SQLite 数据库文件路径。
@@ -117,7 +127,7 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, err
 	}
 
-	redisQueueBatchSize, err := getInt("REDIS_QUEUE_BATCH_SIZE", 1000)
+	redisQueueBatchSize, err := getInt("REDIS_QUEUE_BATCH_SIZE", RedisQueueBatchSizeDefault)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +148,7 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, err
 	}
 
-	backupEnabled, err := getBool("BACKUP_ENABLED", true)
+	backupEnabled, err := getBool("BACKUP_ENABLED", false)
 	if err != nil {
 		return nil, err
 	}
@@ -205,9 +215,15 @@ func Load(options LoadOptions) (*Config, error) {
 
 	workDir := getString("WORK_DIR", DefaultWorkDir)
 
+	databaseDriver, databaseURL, err := getDatabaseConfig()
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		AppPort:                getString("APP_PORT", "8080"),
 		AppBasePath:            appBasePath,
+		CPAPublicURL:           strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
 		TLSEnabled:             tlsEnabled,
 		TLSCertFile:            strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
 		TLSKeyFile:             strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
@@ -220,6 +236,8 @@ func Load(options LoadOptions) (*Config, error) {
 		RedisQueueIdleInterval: redisQueueIdleInterval,
 		RedisQueueErrorBackoff: RedisQueueErrorBackoffDefault,
 		MetadataSyncInterval:   MetadataSyncIntervalDefault,
+		DatabaseDriver:         databaseDriver,
+		DatabaseURL:            databaseURL,
 		WorkDir:                workDir,
 		SQLitePath:             filepath.Join(workDir, workDirDatabaseName),
 		BackupEnabled:          backupEnabled,
@@ -366,6 +384,28 @@ func normalizeBasePath(value string) (string, error) {
 		normalized = "/" + normalized
 	}
 	return normalized, nil
+}
+
+func getDatabaseConfig() (string, string, error) {
+	databaseURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	driver := strings.ToLower(strings.TrimSpace(os.Getenv("DATABASE_DRIVER")))
+	if driver == "" {
+		driver = DefaultDatabaseDriver
+		if databaseURL != "" {
+			driver = DatabaseDriverPostgres
+		}
+	}
+	switch driver {
+	case DatabaseDriverSQLite:
+		return driver, databaseURL, nil
+	case DatabaseDriverPostgres:
+		if databaseURL == "" {
+			return "", "", fmt.Errorf("DATABASE_URL is required when DATABASE_DRIVER is postgres")
+		}
+		return driver, databaseURL, nil
+	default:
+		return "", "", fmt.Errorf("unsupported DATABASE_DRIVER %q", driver)
+	}
 }
 
 func getString(key, fallback string) string {

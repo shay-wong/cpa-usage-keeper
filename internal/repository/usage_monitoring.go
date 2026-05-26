@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/config"
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/repository/dto"
 	"cpa-usage-keeper/internal/timeutil"
@@ -129,7 +130,7 @@ func listRecentMonitoringSourceRequests(ctx context.Context, db *gorm.DB, filter
 	if len(targets) == 0 {
 		return []UsageMonitoringRecentRequestRecord{}, nil
 	}
-	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(targets)
+	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(db, targets)
 	filterSQL, filterArgs := usageMonitoringRecentRequestFilterSQL(filter)
 	query := fmt.Sprintf(`
 WITH targets(target_index, source, auth_index) AS (%s),
@@ -161,7 +162,7 @@ func listRecentMonitoringSourceModelRequests(ctx context.Context, db *gorm.DB, f
 	if len(targets) == 0 {
 		return []UsageMonitoringRecentRequestRecord{}, nil
 	}
-	targetSQL, targetArgs := buildUsageMonitoringSourceModelTargetSQL(targets)
+	targetSQL, targetArgs := buildUsageMonitoringSourceModelTargetSQL(db, targets)
 	filterSQL, filterArgs := usageMonitoringRecentRequestFilterSQL(filter)
 	query := fmt.Sprintf(`
 WITH targets(target_index, source, auth_index, model) AS (%s),
@@ -189,24 +190,38 @@ ORDER BY target_index ASC, timestamp DESC`, targetSQL, filterSQL)
 	return scanUsageMonitoringRecentRequests(ctx, db, query, args)
 }
 
-func buildUsageMonitoringSourceTargetSQL(targets []UsageMonitoringSourceTargetRecord) (string, []any) {
+func buildUsageMonitoringSourceTargetSQL(db *gorm.DB, targets []UsageMonitoringSourceTargetRecord) (string, []any) {
 	parts := make([]string, 0, len(targets))
 	args := make([]any, 0, len(targets)*3)
 	for index, target := range targets {
-		parts = append(parts, "SELECT ? AS target_index, ? AS source, ? AS auth_index")
+		parts = append(parts, usageMonitoringSourceTargetSelectSQL(db))
 		args = append(args, index, target.Source, target.AuthIndex)
 	}
 	return strings.Join(parts, " UNION ALL "), args
 }
 
-func buildUsageMonitoringSourceModelTargetSQL(targets []UsageMonitoringSourceModelTargetRecord) (string, []any) {
+func buildUsageMonitoringSourceModelTargetSQL(db *gorm.DB, targets []UsageMonitoringSourceModelTargetRecord) (string, []any) {
 	parts := make([]string, 0, len(targets))
 	args := make([]any, 0, len(targets)*4)
 	for index, target := range targets {
-		parts = append(parts, "SELECT ? AS target_index, ? AS source, ? AS auth_index, ? AS model")
+		parts = append(parts, usageMonitoringSourceModelTargetSelectSQL(db))
 		args = append(args, index, target.Source, target.AuthIndex, target.Model)
 	}
 	return strings.Join(parts, " UNION ALL "), args
+}
+
+func usageMonitoringSourceTargetSelectSQL(db *gorm.DB) string {
+	if db.Dialector.Name() == config.DatabaseDriverPostgres {
+		return "SELECT CAST(? AS integer) AS target_index, CAST(? AS text) AS source, CAST(? AS text) AS auth_index"
+	}
+	return "SELECT ? AS target_index, ? AS source, ? AS auth_index"
+}
+
+func usageMonitoringSourceModelTargetSelectSQL(db *gorm.DB) string {
+	if db.Dialector.Name() == config.DatabaseDriverPostgres {
+		return "SELECT CAST(? AS integer) AS target_index, CAST(? AS text) AS source, CAST(? AS text) AS auth_index, CAST(? AS text) AS model"
+	}
+	return "SELECT ? AS target_index, ? AS source, ? AS auth_index, ? AS model"
 }
 
 func usageMonitoringRecentRequestFilterSQL(filter dto.UsageQueryFilter) (string, []any) {
@@ -300,16 +315,20 @@ func ListUsageMonitoringHourlyModelStatsWithFilter(ctx context.Context, db *gorm
 	if db == nil {
 		return nil, fmt.Errorf("database is nil")
 	}
+	hourExpression, err := usageMonitoringHourlyBucketExpression(db)
+	if err != nil {
+		return nil, err
+	}
 	query := applyUsageEventListQuery(db.WithContext(ctx).Model(&entities.UsageEvent{}), filter)
 	query = query.Select(strings.Join([]string{
-		"strftime('%Y-%m-%dT%H:00:00Z', timestamp) AS hour",
+		hourExpression + " AS hour",
 		"COALESCE(TRIM(model), '') AS model",
 		"COUNT(*) AS requests",
 		"SUM(total_tokens) AS tokens",
 		"SUM(CASE WHEN failed THEN 0 ELSE 1 END) AS success_count",
 		"SUM(CASE WHEN failed THEN 1 ELSE 0 END) AS failure_count",
 	}, ", "))
-	query = query.Group("strftime('%Y-%m-%dT%H:00:00Z', timestamp), COALESCE(TRIM(model), '')")
+	query = query.Group(hourExpression + ", COALESCE(TRIM(model), '')")
 	query = query.Order("hour ASC, requests DESC, model ASC")
 
 	var rows []UsageMonitoringHourlyModelStatRecord
@@ -317,6 +336,17 @@ func ListUsageMonitoringHourlyModelStatsWithFilter(ctx context.Context, db *gorm
 		return nil, fmt.Errorf("load usage monitoring hourly model stats: %w", err)
 	}
 	return rows, nil
+}
+
+func usageMonitoringHourlyBucketExpression(db *gorm.DB) (string, error) {
+	switch db.Dialector.Name() {
+	case config.DatabaseDriverSQLite:
+		return "strftime('%Y-%m-%dT%H:00:00Z', timestamp)", nil
+	case config.DatabaseDriverPostgres:
+		return `to_char(date_trunc('hour', timestamp::timestamptz AT TIME ZONE 'UTC'), 'YYYY-MM-DD"T"HH24:00:00"Z"')`, nil
+	default:
+		return "", fmt.Errorf("unsupported database driver %q", db.Dialector.Name())
+	}
 }
 
 func ListUsageMonitoringChannelStatsWithFilter(ctx context.Context, db *gorm.DB, filter dto.UsageQueryFilter) ([]UsageMonitoringChannelStatRecord, []UsageMonitoringChannelModelStatRecord, error) {
@@ -389,7 +419,7 @@ func listUsageMonitoringChannelModelStatsForChannels(ctx context.Context, db *go
 	if len(channels) == 0 {
 		return []UsageMonitoringChannelModelStatRecord{}, nil
 	}
-	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(channelRowsToSourceTargets(channels))
+	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(db, channelRowsToSourceTargets(channels))
 	filterSQL, filterArgs := usageMonitoringRecentRequestFilterSQL(filter)
 	query := fmt.Sprintf(`
 WITH targets(target_index, source, auth_index) AS (%s),
@@ -424,7 +454,7 @@ func listUsageMonitoringFailureModelStatsForFailures(ctx context.Context, db *go
 	if len(failures) == 0 {
 		return []UsageMonitoringFailureModelStatRecord{}, nil
 	}
-	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(failureRowsToSourceTargets(failures))
+	targetSQL, targetArgs := buildUsageMonitoringSourceTargetSQL(db, failureRowsToSourceTargets(failures))
 	filterSQL, filterArgs := usageMonitoringRecentRequestFilterSQL(filter)
 	query := fmt.Sprintf(`
 WITH targets(target_index, source, auth_index) AS (%s),
@@ -575,6 +605,7 @@ func mapUsageMonitoringEventRecords(events []entities.UsageEvent) []dto.UsageEve
 			Timestamp:       event.Timestamp.UTC(),
 			APIGroupKey:     strings.TrimSpace(event.APIGroupKey),
 			Model:           strings.TrimSpace(event.Model),
+			ReasoningEffort: strings.TrimSpace(event.ReasoningEffort),
 			AuthType:        strings.TrimSpace(event.AuthType),
 			Provider:        strings.TrimSpace(event.Provider),
 			Source:          strings.TrimSpace(event.Source),
