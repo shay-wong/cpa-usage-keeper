@@ -51,3 +51,4 @@ lerna-debug.log*
 .omc
 .playwright-mcp
 .playwright-cli
+.codegraph
