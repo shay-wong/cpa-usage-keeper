@@ -82,10 +82,6 @@ import {
   useChartData,
   useCredentialsTabData,
 } from '@/components/usage';
-import {
-  filterCredentialsByProvider,
-  type CredentialProviderFilterKey,
-} from '@/components/usage/credentials/credentialProviderFilters';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import {
   getModelNamesFromUsage,
@@ -156,9 +152,10 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; labelKey: string }> = [
 ];
 const BASE_USAGE_TAB_OPTIONS = [
   'overview',
-  'credentials',
-  'events',
   'analysis',
+  'events',
+  'auth-files',
+  'ai-provider',
   'storage',
   'settings',
 ] as const;
@@ -170,7 +167,8 @@ const USAGE_TAB_LABEL_KEYS: Record<BaseUsageTab, string> = {
   overview: 'usage_stats.tab_overview',
   analysis: 'usage_stats.tab_analysis',
   events: 'usage_stats.tab_events',
-  credentials: 'usage_stats.tab_credentials',
+  'auth-files': 'usage_stats.tab_auth_files',
+  'ai-provider': 'usage_stats.tab_ai_provider',
   storage: 'usage_stats.tab_storage',
   settings: 'usage_stats.tab_settings',
 };
@@ -202,6 +200,12 @@ const normalizeCPALinkHostname = (hostname: string) =>
     .replace(/^\[|\]$/g, '')
     .toLowerCase();
 
+export const getCredentialSectionVisibility = (tab: UsageTab) => ({
+  enabled: tab === 'auth-files' || tab === 'ai-provider',
+  showAuthFiles: tab === 'auth-files',
+  showAiProvider: tab === 'ai-provider',
+});
+
 const shouldUseCurrentHostForCPALink = (hostname: string) => {
   const normalizedHostname = normalizeCPALinkHostname(hostname);
   if (!normalizedHostname) return false;
@@ -210,7 +214,9 @@ const shouldUseCurrentHostForCPALink = (hostname: string) => {
 };
 
 export const shouldShowRangeControls = (tab: UsageTab) =>
-  tab !== 'settings' && tab !== 'storage' && tab !== 'credentials';
+  tab !== 'settings' &&
+  tab !== 'storage' &&
+  !getCredentialSectionVisibility(tab).enabled;
 
 export const shouldShowApiKeyFilter = (tab: UsageTab) =>
   shouldShowRangeControls(tab);
@@ -811,6 +817,13 @@ const loadTimeRange = (): UsageTimeRange => {
 const isUsageTab = (value: unknown): value is UsageTab =>
   typeof value === 'string' && USAGE_TAB_OPTIONS.includes(value as UsageTab);
 
+export const normalizeUsageTabValue = (value: unknown): UsageTab | null => {
+  if (value === 'credentials') {
+    return 'auth-files';
+  }
+  return isUsageTab(value) ? value : null;
+};
+
 export const getUsageTabOptions = (
   translate: Translate,
 ): Array<{ value: UsageTab; label: string }> =>
@@ -891,7 +904,7 @@ const loadUsageTab = (): UsageTab => {
       return DEFAULT_USAGE_TAB;
     }
     const raw = localStorage.getItem(USAGE_TAB_STORAGE_KEY);
-    return isUsageTab(raw) ? raw : DEFAULT_USAGE_TAB;
+    return normalizeUsageTabValue(raw) ?? DEFAULT_USAGE_TAB;
   } catch {
     return DEFAULT_USAGE_TAB;
   }
@@ -917,6 +930,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     null,
   );
   const isOverviewTab = activeTab === 'overview';
+  const credentialSectionVisibility = getCredentialSectionVisibility(activeTab);
 
   const { usage, loading, error, lastRefreshedAt, loadUsage } = useUsageData({
     onAuthRequired,
@@ -1009,12 +1023,12 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   const [monitoringQuery, setMonitoringQuery] = useState('');
   const [pageVisible, setPageVisible] = useState(isUsagePageVisible);
   const credentialsData = useCredentialsTabData({
-    enabled: activeTab === 'credentials' && pageVisible,
+    enabledAuthFiles: credentialSectionVisibility.showAuthFiles && pageVisible,
+    enabledAiProviders:
+      credentialSectionVisibility.showAiProvider && pageVisible,
     onAuthRequired,
   });
   const refreshCredentials = credentialsData.refresh;
-  const [credentialProviderFilter, setCredentialProviderFilter] =
-    useState<CredentialProviderFilterKey>('all');
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
   const [analysisData, setAnalysisData] = useState<AnalysisResponse | null>(
@@ -1035,26 +1049,28 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     ],
     [apiKeyOptions, t],
   );
-  const credentialRowsForProviderFilter = useMemo(
-    () => [...credentialsData.authFileRows, ...credentialsData.aiProviderRows],
-    [credentialsData.aiProviderRows, credentialsData.authFileRows],
-  );
-  const filteredAuthFileCredentialRows = useMemo(
-    () =>
-      filterCredentialsByProvider(
-        credentialsData.authFileRows,
-        credentialProviderFilter,
-      ),
-    [credentialProviderFilter, credentialsData.authFileRows],
-  );
-  const filteredAiProviderCredentialRows = useMemo(
-    () =>
-      filterCredentialsByProvider(
-        credentialsData.aiProviderRows,
-        credentialProviderFilter,
-      ),
-    [credentialProviderFilter, credentialsData.aiProviderRows],
-  );
+  const credentialTypeCountsForProviderFilter = useMemo(() => {
+    if (credentialSectionVisibility.showAuthFiles)
+      return credentialsData.authFileTypeCounts;
+    if (credentialSectionVisibility.showAiProvider)
+      return credentialsData.aiProviderTypeCounts;
+    return [];
+  }, [
+    credentialSectionVisibility.showAiProvider,
+    credentialSectionVisibility.showAuthFiles,
+    credentialsData.aiProviderTypeCounts,
+    credentialsData.authFileTypeCounts,
+  ]);
+  const activeCredentialProviderFilter =
+    credentialSectionVisibility.showAiProvider
+      ? credentialsData.aiProviderProviderFilter
+      : credentialsData.authFileProviderFilter;
+  const setActiveCredentialProviderFilter =
+    credentialSectionVisibility.showAiProvider
+      ? credentialsData.setAiProviderProviderFilter
+      : credentialsData.setAuthFileProviderFilter;
+  const activeCredentialProviderFilterScope =
+    credentialSectionVisibility.showAiProvider ? 'ai-provider' : 'auth-files';
   const themeOptions = useMemo(
     () =>
       THEME_OPTIONS.map((option) => ({
@@ -1763,7 +1779,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await Promise.all([loadEventFilterOptions(), loadEvents()]);
       return;
     }
-    if (activeTab === 'credentials') {
+    if (credentialSectionVisibility.enabled) {
       await refreshCredentials();
       return;
     }
@@ -1782,6 +1798,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     await loadUsage();
   }, [
     activeTab,
+    credentialSectionVisibility.enabled,
     loadAnalysis,
     loadApiKeySettings,
     loadEventFilterOptions,
@@ -1798,12 +1815,18 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       await loadEvents();
       return;
     }
-    if (activeTab === 'credentials') {
+    if (credentialSectionVisibility.enabled) {
       await refreshCredentials();
       return;
     }
     await loadUsage();
-  }, [activeTab, loadEvents, loadUsage, refreshCredentials]);
+  }, [
+    activeTab,
+    credentialSectionVisibility.enabled,
+    loadEvents,
+    loadUsage,
+    refreshCredentials,
+  ]);
 
   const autoRefreshEnabled = shouldAutoRefreshUsageTab({
     activeTab,
@@ -2715,51 +2738,56 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
               </>
             )}
 
-            {activeTab === 'credentials' && (
+            {credentialSectionVisibility.enabled && (
               <>
                 {credentialsData.error && (
                   <div className={styles.errorBox}>{credentialsData.error}</div>
                 )}
                 <CredentialProviderFilterBar
-                  rows={credentialRowsForProviderFilter}
-                  value={credentialProviderFilter}
-                  onChange={setCredentialProviderFilter}
+                  scope={activeCredentialProviderFilterScope}
+                  typeCounts={credentialTypeCountsForProviderFilter}
+                  value={activeCredentialProviderFilter}
+                  onChange={setActiveCredentialProviderFilter}
                 />
                 <div className={styles.credentialsSections}>
-                  <AuthFileCredentialsSection
-                    rows={filteredAuthFileCredentialRows}
-                    total={credentialsData.authFileTotal}
-                    page={credentialsData.authFilePage}
-                    totalPages={credentialsData.authFileTotalPages}
-                    pageSize={credentialsData.authFilePageSize}
-                    activeOnly={credentialsData.authFileActiveOnly}
-                    sort={credentialsData.authFileSort}
-                    loading={credentialsData.loading}
-                    quotaRefreshing={credentialsData.quotaRefreshing}
-                    quotaRefreshError={credentialsData.quotaRefreshError}
-                    onPageChange={credentialsData.setAuthFilePage}
-                    onPageSizeChange={credentialsData.setAuthFilePageSize}
-                    onActiveOnlyChange={credentialsData.setAuthFileActiveOnly}
-                    onSortChange={credentialsData.setAuthFileSort}
-                    onRefreshQuota={
-                      credentialsData.refreshQuotaForCurrentAuthFilePage
-                    }
-                    onRefreshQuotaForAuthIndex={
-                      credentialsData.refreshQuotaForAuthIndex
-                    }
-                  />
-                  <AiProviderCredentialsSection
-                    rows={filteredAiProviderCredentialRows}
-                    total={credentialsData.aiProviderTotal}
-                    page={credentialsData.aiProviderPage}
-                    totalPages={credentialsData.aiProviderTotalPages}
-                    pageSize={credentialsData.aiProviderPageSize}
-                    sort={credentialsData.aiProviderSort}
-                    loading={credentialsData.loading}
-                    onPageChange={credentialsData.setAiProviderPage}
-                    onPageSizeChange={credentialsData.setAiProviderPageSize}
-                    onSortChange={credentialsData.setAiProviderSort}
-                  />
+                  {credentialSectionVisibility.showAuthFiles && (
+                    <AuthFileCredentialsSection
+                      rows={credentialsData.authFileRows}
+                      total={credentialsData.authFileTotal}
+                      page={credentialsData.authFilePage}
+                      totalPages={credentialsData.authFileTotalPages}
+                      pageSize={credentialsData.authFilePageSize}
+                      activeOnly={credentialsData.authFileActiveOnly}
+                      sort={credentialsData.authFileSort}
+                      loading={credentialsData.loading}
+                      quotaRefreshing={credentialsData.quotaRefreshing}
+                      quotaRefreshError={credentialsData.quotaRefreshError}
+                      onPageChange={credentialsData.setAuthFilePage}
+                      onPageSizeChange={credentialsData.setAuthFilePageSize}
+                      onActiveOnlyChange={credentialsData.setAuthFileActiveOnly}
+                      onSortChange={credentialsData.setAuthFileSort}
+                      onRefreshQuota={
+                        credentialsData.refreshQuotaForCurrentAuthFilePage
+                      }
+                      onRefreshQuotaForAuthIndex={
+                        credentialsData.refreshQuotaForAuthIndex
+                      }
+                    />
+                  )}
+                  {credentialSectionVisibility.showAiProvider && (
+                    <AiProviderCredentialsSection
+                      rows={credentialsData.aiProviderRows}
+                      total={credentialsData.aiProviderTotal}
+                      page={credentialsData.aiProviderPage}
+                      totalPages={credentialsData.aiProviderTotalPages}
+                      pageSize={credentialsData.aiProviderPageSize}
+                      sort={credentialsData.aiProviderSort}
+                      loading={credentialsData.loading}
+                      onPageChange={credentialsData.setAiProviderPage}
+                      onPageSizeChange={credentialsData.setAiProviderPageSize}
+                      onSortChange={credentialsData.setAiProviderSort}
+                    />
+                  )}
                 </div>
               </>
             )}

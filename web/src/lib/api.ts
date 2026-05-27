@@ -317,6 +317,7 @@ export async function fetchUsageEventRequestDetail(
 export interface FetchUsageIdentitiesPageOptions {
   authType?: UsageIdentityAuthType;
   activeOnly?: boolean;
+  types?: string[];
   sort?: UsageIdentityPageSort;
   page?: number;
   pageSize?: number;
@@ -349,6 +350,11 @@ export async function fetchUsageIdentitiesPage(
   }
   if (options?.sort) {
     params.set('sort', options.sort);
+  }
+  for (const type of options?.types ?? []) {
+    if (type !== '') {
+      params.append('type', type);
+    }
   }
   if (
     typeof options?.page === 'number' &&

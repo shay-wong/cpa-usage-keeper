@@ -125,13 +125,14 @@ describe('UsagePage toolbar styles', () => {
     expect(i18nSource).not.toContain("tab_analysis: 'API 與模型'");
     expect(usagePageSource).toContain('const BASE_USAGE_TAB_OPTIONS = [');
     expect(usagePageSource).toContain(
-      "'overview',\n  'credentials',\n  'events',\n  'analysis',\n  'storage',\n  'settings',",
+      "'overview',\n  'analysis',\n  'events',\n  'auth-files',\n  'ai-provider',\n  'storage',\n  'settings',",
     );
     expect(usagePageSource).toContain(
       'const USAGE_TAB_OPTIONS = withDevUsageTabs(BASE_USAGE_TAB_OPTIONS)',
     );
+    expect(usagePageDevTabsSource).toContain('const DEV_USAGE_TAB_ORDER = [');
     expect(usagePageDevTabsSource).toContain(
-      "const DEV_USAGE_TAB_ORDER = ['overview', DEV_USAGE_TAB_VALUE, 'analysis', 'events', 'credentials', 'storage', 'settings'] as const",
+      "'overview',\n  DEV_USAGE_TAB_VALUE,\n  'analysis',\n  'events',\n  'auth-files',\n  'ai-provider',\n  'storage',\n  'settings',",
     );
   });
 

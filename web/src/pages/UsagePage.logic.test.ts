@@ -3,6 +3,7 @@ import {
   applySavedStorageSettings,
   buildCustomDateRangeQuery,
   getBackToCPALinkURL,
+  getCredentialSectionVisibility,
   getCustomDateRangeBounds,
   getOverviewChartEndMs,
   getOverviewDisplayLoading,
@@ -14,6 +15,7 @@ import {
   getUpdateCheckToastDuration,
   isCustomDateWithinBounds,
   isUsagePageVisible,
+  normalizeUsageTabValue,
   openDateInputPicker,
   refreshPageData,
   resolveMonitoringQueryState,
@@ -618,15 +620,12 @@ describe('UsagePage active tab auto-refresh guard', () => {
     ).toBe(false);
   });
 
-  it('does not auto-refresh Credentials', () => {
+  it('does not auto-refresh credential detail tabs', () => {
     expect(
-      shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1 }),
+      shouldAutoRefreshUsageTab({ activeTab: 'auth-files', eventsPage: 1 }),
     ).toBe(false);
     expect(
-      shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1 }),
-    ).toBe(false);
-    expect(
-      shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1 }),
+      shouldAutoRefreshUsageTab({ activeTab: 'ai-provider', eventsPage: 1 }),
     ).toBe(false);
   });
 
@@ -709,7 +708,8 @@ for (const [tab, expected] of [
   ['monitoring', true],
   ['analysis', true],
   ['events', true],
-  ['credentials', false],
+  ['auth-files', false],
+  ['ai-provider', false],
   ['storage', false],
   ['settings', false],
 ] as const) {
@@ -722,7 +722,8 @@ for (const [tab, expected] of [
   ['overview', true],
   ['analysis', true],
   ['events', true],
-  ['credentials', false],
+  ['auth-files', false],
+  ['ai-provider', false],
   ['storage', false],
   ['settings', false],
 ] as const) {
@@ -950,10 +951,35 @@ describe('UsagePage tab labels', () => {
       'translated:usage_stats.tab_monitoring',
       'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_events',
-      'translated:usage_stats.tab_credentials',
+      'translated:usage_stats.tab_auth_files',
+      'translated:usage_stats.tab_ai_provider',
       'translated:usage_stats.tab_storage',
       'translated:usage_stats.tab_settings',
     ]);
+  });
+});
+
+describe('UsagePage credentials tab migration', () => {
+  it('migrates the legacy Credentials tab value to Auth Files', () => {
+    expect(normalizeUsageTabValue('credentials')).toBe('auth-files');
+  });
+
+  it('keeps each credential section scoped to its own tab', () => {
+    expect(getCredentialSectionVisibility('auth-files')).toEqual({
+      enabled: true,
+      showAuthFiles: true,
+      showAiProvider: false,
+    });
+    expect(getCredentialSectionVisibility('ai-provider')).toEqual({
+      enabled: true,
+      showAuthFiles: false,
+      showAiProvider: true,
+    });
+    expect(getCredentialSectionVisibility('overview')).toEqual({
+      enabled: false,
+      showAuthFiles: false,
+      showAiProvider: false,
+    });
   });
 });
 
