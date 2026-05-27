@@ -15,14 +15,18 @@ import (
 )
 
 const (
-	DefaultTimeZone               = "Asia/Shanghai"
-	DefaultDatabaseDriver         = "sqlite"
-	DatabaseDriverSQLite          = "sqlite"
-	DatabaseDriverPostgres        = "postgres"
-	RedisQueueKeyDefault          = cpa.ManagementUsageQueueKey
-	RedisQueueBatchSizeDefault    = 10000
-	RedisQueueErrorBackoffDefault = 10 * time.Second
-	MetadataSyncIntervalDefault   = 30 * time.Second
+	DefaultTimeZone                 = "Asia/Shanghai"
+	DefaultDatabaseDriver           = "sqlite"
+	DatabaseDriverSQLite            = "sqlite"
+	DatabaseDriverPostgres          = "postgres"
+	RedisQueueKeyDefault            = cpa.ManagementUsageQueueKey
+	RedisQueueBatchSizeDefault      = 10000
+	RedisQueueErrorBackoffDefault   = 10 * time.Second
+	MetadataSyncIntervalDefault     = 30 * time.Second
+	QuotaAutoRefreshIntervalDefault = 5 * time.Minute
+	QuotaAutoRefreshIntervalMin     = 60 * time.Second
+	QuotaRefreshWorkerLimitDefault  = 10
+	QuotaRefreshWorkerLimitMax      = 100
 )
 
 var (
@@ -70,6 +74,12 @@ type Config struct {
 	DatabaseDriver string
 	// DatabaseURL 是 PostgreSQL 连接串；sqlite 模式下留空。
 	DatabaseURL string
+	// QuotaAutoRefreshEnabled 控制是否启动 Auth Files 限额自动刷新后台任务。
+	QuotaAutoRefreshEnabled bool
+	// QuotaAutoRefreshInterval 是 Auth Files 限额自动刷新的固定调度间隔。
+	QuotaAutoRefreshInterval time.Duration
+	// QuotaRefreshWorkerLimit 是 Auth Files 限额刷新队列的最大并发数。
+	QuotaRefreshWorkerLimit int
 	// WorkDir 是应用工作目录，数据库、日志和备份默认从这里派生。
 	WorkDir string
 	// SQLitePath 是 SQLite 数据库文件路径。
@@ -134,6 +144,9 @@ func Load(options LoadOptions) (*Config, error) {
 	if redisQueueBatchSize <= 0 {
 		return nil, fmt.Errorf("REDIS_QUEUE_BATCH_SIZE must be positive")
 	}
+	if redisQueueBatchSize > cpa.ManagementUsageQueueMaxBatchSize {
+		return nil, fmt.Errorf("REDIS_QUEUE_BATCH_SIZE must be <= %d", cpa.ManagementUsageQueueMaxBatchSize)
+	}
 
 	redisQueueIdleInterval, err := getDuration("REDIS_QUEUE_IDLE_INTERVAL", time.Second)
 	if err != nil {
@@ -141,6 +154,30 @@ func Load(options LoadOptions) (*Config, error) {
 	}
 	if redisQueueIdleInterval <= 0 {
 		return nil, fmt.Errorf("REDIS_QUEUE_IDLE_INTERVAL must be positive")
+	}
+
+	quotaAutoRefreshEnabled, err := getBool("QUOTA_AUTO_REFRESH_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+
+	quotaAutoRefreshInterval, err := getDuration("QUOTA_AUTO_REFRESH_INTERVAL", QuotaAutoRefreshIntervalDefault)
+	if err != nil {
+		return nil, err
+	}
+	if quotaAutoRefreshInterval < QuotaAutoRefreshIntervalMin {
+		return nil, fmt.Errorf("QUOTA_AUTO_REFRESH_INTERVAL must be >= 60s")
+	}
+
+	quotaRefreshWorkerLimit, err := getInt("QUOTA_REFRESH_WORKER_LIMIT", QuotaRefreshWorkerLimitDefault)
+	if err != nil {
+		return nil, err
+	}
+	if quotaRefreshWorkerLimit <= 0 {
+		return nil, fmt.Errorf("QUOTA_REFRESH_WORKER_LIMIT must be positive")
+	}
+	if quotaRefreshWorkerLimit > QuotaRefreshWorkerLimitMax {
+		return nil, fmt.Errorf("QUOTA_REFRESH_WORKER_LIMIT must be <= %d", QuotaRefreshWorkerLimitMax)
 	}
 
 	requestTimeout, err := getDuration("REQUEST_TIMEOUT", 30*time.Second)
@@ -221,38 +258,41 @@ func Load(options LoadOptions) (*Config, error) {
 	}
 
 	cfg := &Config{
-		AppPort:                getString("APP_PORT", "8080"),
-		AppBasePath:            appBasePath,
-		CPAPublicURL:           strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
-		TLSEnabled:             tlsEnabled,
-		TLSCertFile:            strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
-		TLSKeyFile:             strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
-		CPABaseURL:             strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
-		CPAManagementKey:       strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
-		RedisQueueAddr:         strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
-		RedisQueueTLS:          redisQueueTLS,
-		RedisQueueKey:          RedisQueueKeyDefault,
-		RedisQueueBatchSize:    redisQueueBatchSize,
-		RedisQueueIdleInterval: redisQueueIdleInterval,
-		RedisQueueErrorBackoff: RedisQueueErrorBackoffDefault,
-		MetadataSyncInterval:   MetadataSyncIntervalDefault,
-		DatabaseDriver:         databaseDriver,
-		DatabaseURL:            databaseURL,
-		WorkDir:                workDir,
-		SQLitePath:             filepath.Join(workDir, workDirDatabaseName),
-		BackupEnabled:          backupEnabled,
-		BackupDir:              filepath.Join(workDir, workDirBackupsName),
-		BackupInterval:         backupInterval,
-		BackupRetentionDays:    backupRetentionDays,
-		RequestTimeout:         requestTimeout,
-		TLSSkipVerify:          tlsSkipVerify,
-		LogLevel:               getString("LOG_LEVEL", "info"),
-		LogFileEnabled:         logFileEnabled,
-		LogDir:                 filepath.Join(workDir, workDirLogsName),
-		LogRetentionDays:       logRetentionDays,
-		AuthEnabled:            authEnabled,
-		LoginPassword:          strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
-		AuthSessionTTL:         authSessionTTL,
+		AppPort:                  getString("APP_PORT", "8080"),
+		AppBasePath:              appBasePath,
+		CPAPublicURL:             strings.TrimSpace(os.Getenv("CPA_PUBLIC_URL")),
+		TLSEnabled:               tlsEnabled,
+		TLSCertFile:              strings.TrimSpace(os.Getenv("TLS_CERT_FILE")),
+		TLSKeyFile:               strings.TrimSpace(os.Getenv("TLS_KEY_FILE")),
+		CPABaseURL:               strings.TrimSpace(os.Getenv("CPA_BASE_URL")),
+		CPAManagementKey:         strings.TrimSpace(os.Getenv("CPA_MANAGEMENT_KEY")),
+		RedisQueueAddr:           strings.TrimSpace(os.Getenv("REDIS_QUEUE_ADDR")),
+		RedisQueueTLS:            redisQueueTLS,
+		RedisQueueKey:            RedisQueueKeyDefault,
+		RedisQueueBatchSize:      redisQueueBatchSize,
+		RedisQueueIdleInterval:   redisQueueIdleInterval,
+		RedisQueueErrorBackoff:   RedisQueueErrorBackoffDefault,
+		MetadataSyncInterval:     MetadataSyncIntervalDefault,
+		DatabaseDriver:           databaseDriver,
+		DatabaseURL:              databaseURL,
+		QuotaAutoRefreshEnabled:  quotaAutoRefreshEnabled,
+		QuotaAutoRefreshInterval: quotaAutoRefreshInterval,
+		QuotaRefreshWorkerLimit:  quotaRefreshWorkerLimit,
+		WorkDir:                  workDir,
+		SQLitePath:               filepath.Join(workDir, workDirDatabaseName),
+		BackupEnabled:            backupEnabled,
+		BackupDir:                filepath.Join(workDir, workDirBackupsName),
+		BackupInterval:           backupInterval,
+		BackupRetentionDays:      backupRetentionDays,
+		RequestTimeout:           requestTimeout,
+		TLSSkipVerify:            tlsSkipVerify,
+		LogLevel:                 getString("LOG_LEVEL", "info"),
+		LogFileEnabled:           logFileEnabled,
+		LogDir:                   filepath.Join(workDir, workDirLogsName),
+		LogRetentionDays:         logRetentionDays,
+		AuthEnabled:              authEnabled,
+		LoginPassword:            strings.TrimSpace(os.Getenv("LOGIN_PASSWORD")),
+		AuthSessionTTL:           authSessionTTL,
 	}
 	if cfg.CPABaseURL == "" {
 		return nil, fmt.Errorf("CPA_BASE_URL is required")

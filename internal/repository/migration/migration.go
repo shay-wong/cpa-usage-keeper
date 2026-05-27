@@ -42,6 +42,7 @@ const (
 	migrationAddUsageEventReasoningEffort           = "20260519_add_usage_event_reasoning_effort"
 	migrationExtendDatabaseCleanupSettings          = "20260523_extend_database_cleanup_settings"
 	migrationExtendDatabaseCleanupBackupDomains     = "20260524_extend_database_cleanup_backup_domains"
+	migrationAddUsageEventQuotaWindowIndexes        = "20260525_add_usage_event_quota_window_indexes"
 )
 
 type schemaMigration struct {
@@ -142,6 +143,7 @@ func orderedMigrations() []databaseMigration {
 		{version: migrationAddUsageEventReasoningEffort, run: addUsageEventReasoningEffortMigration},
 		{version: migrationExtendDatabaseCleanupSettings, run: extendDatabaseCleanupSettingsMigration},
 		{version: migrationExtendDatabaseCleanupBackupDomains, run: extendDatabaseCleanupBackupDomainsMigration},
+		{version: migrationAddUsageEventQuotaWindowIndexes, run: addUsageEventQuotaWindowIndexesMigration},
 	}
 }
 

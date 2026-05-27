@@ -1,5 +1,31 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { appPath, createStorageBackup, fetchAnalysis, fetchCpaApiKeyOptions, fetchCpaApiKeys, fetchDatabaseCleanupSettings, fetchKeyOverview, fetchStorageInfo, fetchUsageOverview, fetchUsageQuotaCache, fetchUpdateCheck, fetchUsageEventModelFilterOptions, fetchUsageEventRequestDetail, fetchUsageEventSourceFilterOptions, fetchUsageEvents, fetchUsageIdentities, fetchUsageIdentitiesPage, fetchUsageQuotaRefreshTask, loginWithCPAAPIKey, logout, refreshUsageQuotas, restoreStorageBackup, updateCpaApiKeyAlias, updateDatabaseCleanupSettings } from './api';
+import {
+  appPath,
+  createStorageBackup,
+  fetchAnalysis,
+  fetchCpaApiKeyOptions,
+  fetchCpaApiKeys,
+  fetchDatabaseCleanupSettings,
+  fetchKeyOverview,
+  fetchStorageInfo,
+  fetchUsageOverview,
+  fetchUsageQuotaCache,
+  fetchUpdateCheck,
+  fetchUsageEventModelFilterOptions,
+  fetchUsageEventRequestDetail,
+  fetchUsageEventSourceFilterOptions,
+  fetchUsageEvents,
+  fetchUsageIdentities,
+  fetchUsageIdentitiesPage,
+  fetchUsageQuotaRefreshTask,
+  loginWithCPAAPIKey,
+  logout,
+  markStatusActive,
+  refreshUsageQuotas,
+  restoreStorageBackup,
+  updateCpaApiKeyAlias,
+  updateDatabaseCleanupSettings,
+} from './api';
 
 describe('fetchUsageEvents', () => {
   afterEach(() => {
@@ -24,7 +50,9 @@ describe('fetchUsageEvents', () => {
     await loginWithCPAAPIKey('sk-cpa-viewer');
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/auth/api-key-login');
+    expect(new URL(String(url), 'http://localhost').pathname).toBe(
+      '/api/v1/auth/api-key-login',
+    );
     expect(init).toMatchObject({ credentials: 'include', method: 'POST' });
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
     expect(init?.body).toBe(JSON.stringify({ apiKey: 'sk-cpa-viewer' }));
@@ -34,7 +62,19 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0, requests_by_day: {}, requests_by_hour: {}, tokens_by_day: {}, tokens_by_hour: {}, apis: {} } }),
+      json: async () => ({
+        usage: {
+          total_requests: 0,
+          success_count: 0,
+          failure_count: 0,
+          total_tokens: 0,
+          requests_by_day: {},
+          requests_by_hour: {},
+          tokens_by_day: {},
+          tokens_by_hour: {},
+          apis: {},
+        },
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
@@ -59,8 +99,26 @@ describe('fetchUsageEvents', () => {
     await logout();
 
     const [url, init] = fetchMock.mock.calls[0];
-    expect(new URL(String(url), 'http://localhost').pathname).toBe('/api/v1/auth/logout');
+    expect(new URL(String(url), 'http://localhost').pathname).toBe(
+      '/api/v1/auth/logout',
+    );
     expect(init).toMatchObject({ credentials: 'include', method: 'POST' });
+  });
+
+  it('marks backend page activity with the status active endpoint', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+    } as Response);
+    const signal = new AbortController().signal;
+
+    await markStatusActive(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(new URL(String(url), 'http://localhost').pathname).toBe(
+      '/api/v1/status/active',
+    );
+    expect(init).toMatchObject({ credentials: 'include', signal });
   });
 
   it('loads model filter options without query params', async () => {
@@ -87,14 +145,20 @@ describe('fetchUsageEvents', () => {
     expect(parsed.searchParams.get('model')).toBeNull();
     expect(parsed.searchParams.get('source')).toBeNull();
     expect(parsed.searchParams.get('result')).toBeNull();
-    expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(init).toMatchObject({
+      credentials: 'include',
+      signal,
+      cache: 'no-store',
+    });
   });
 
   it('loads source filter options without query params', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ sources: [{ value: 'source-a', label: 'Provider A' }] }),
+      json: async () => ({
+        sources: [{ value: 'source-a', label: 'Provider A' }],
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
@@ -103,12 +167,17 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
-    expect(response.sources).toEqual([{ value: 'source-a', label: 'Provider A' }]);
+    expect(response.sources).toEqual([
+      { value: 'source-a', label: 'Provider A' },
+    ]);
     expect(parsed.pathname).toBe('/api/v1/usage/events/filters/sources');
     expect(parsed.search).toBe('');
-    expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(init).toMatchObject({
+      credentials: 'include',
+      signal,
+      cache: 'no-store',
+    });
   });
-
 
   it('loads request detail by usage event id', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
@@ -154,17 +223,31 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ events: [], models: [], sources: [], total_count: 0, page: 3, page_size: 100, total_pages: 0 }),
+      json: async () => ({
+        events: [],
+        models: [],
+        sources: [],
+        total_count: 0,
+        page: 3,
+        page_size: 100,
+        total_pages: 0,
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageEvents('custom', '2026-04-20T00:00:00Z', '2026-04-21T00:00:00Z', signal, {
-      page: 3,
-      pageSize: 100,
-      model: 'claude-sonnet',
-      source: 'authidx-source-a',
-      result: 'failed',
-    });
+    await fetchUsageEvents(
+      'custom',
+      '2026-04-20T00:00:00Z',
+      '2026-04-21T00:00:00Z',
+      signal,
+      {
+        page: 3,
+        pageSize: 100,
+        model: 'claude-sonnet',
+        source: 'authidx-source-a',
+        result: 'failed',
+      },
+    );
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
@@ -186,15 +269,46 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0, requests_by_day: {}, requests_by_hour: {}, tokens_by_day: {}, tokens_by_hour: {}, apis: {} }, events: [], total_count: 0, page: 1, page_size: 100, total_pages: 0 }),
+      json: async () => ({
+        usage: {
+          total_requests: 0,
+          success_count: 0,
+          failure_count: 0,
+          total_tokens: 0,
+          requests_by_day: {},
+          requests_by_hour: {},
+          tokens_by_day: {},
+          tokens_by_hour: {},
+          apis: {},
+        },
+        events: [],
+        total_count: 0,
+        page: 1,
+        page_size: 100,
+        total_pages: 0,
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageOverview('24h', undefined, undefined, signal, '9007199254740993');
-    await fetchUsageEvents('24h', undefined, undefined, signal, { apiKeyId: '9007199254740993' });
+    await fetchUsageOverview(
+      '24h',
+      undefined,
+      undefined,
+      signal,
+      '9007199254740993',
+    );
+    await fetchUsageEvents('24h', undefined, undefined, signal, {
+      apiKeyId: '9007199254740993',
+    });
 
-    const overviewUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
-    const eventsUrl = new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost');
+    const overviewUrl = new URL(
+      String(fetchMock.mock.calls[0][0]),
+      'http://localhost',
+    );
+    const eventsUrl = new URL(
+      String(fetchMock.mock.calls[1][0]),
+      'http://localhost',
+    );
 
     expect(overviewUrl.pathname).toBe('/api/v1/usage/overview');
     expect(eventsUrl.pathname).toBe('/api/v1/usage/events');
@@ -206,15 +320,38 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ usage: { total_requests: 0, success_count: 0, failure_count: 0, total_tokens: 0, requests_by_day: {}, requests_by_hour: {}, tokens_by_day: {}, tokens_by_hour: {}, apis: {} }, events: [], total_count: 0, page: 1, page_size: 100, total_pages: 0 }),
+      json: async () => ({
+        usage: {
+          total_requests: 0,
+          success_count: 0,
+          failure_count: 0,
+          total_tokens: 0,
+          requests_by_day: {},
+          requests_by_hour: {},
+          tokens_by_day: {},
+          tokens_by_hour: {},
+          apis: {},
+        },
+        events: [],
+        total_count: 0,
+        page: 1,
+        page_size: 100,
+        total_pages: 0,
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
     await fetchUsageOverview('24h', undefined, undefined, signal, '  ');
-    await fetchUsageEvents('24h', undefined, undefined, signal, { apiKeyId: '' });
+    await fetchUsageEvents('24h', undefined, undefined, signal, {
+      apiKeyId: '',
+    });
 
     for (const call of fetchMock.mock.calls) {
-      expect(new URL(String(call[0]), 'http://localhost').searchParams.get('api_key_id')).toBeNull();
+      expect(
+        new URL(String(call[0]), 'http://localhost').searchParams.get(
+          'api_key_id',
+        ),
+      ).toBeNull();
     }
   });
 
@@ -222,13 +359,29 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ granularity: 'hourly', timezone: 'UTC', token_usage: [], api_key_composition: [], model_composition: [], heatmap: { api_keys: [], models: [], cells: [] } }),
+      json: async () => ({
+        granularity: 'hourly',
+        timezone: 'UTC',
+        token_usage: [],
+        api_key_composition: [],
+        model_composition: [],
+        heatmap: { api_keys: [], models: [], cells: [] },
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchAnalysis('custom', '2026-04-20', '2026-04-21', signal, '9007199254740993');
+    await fetchAnalysis(
+      'custom',
+      '2026-04-20',
+      '2026-04-21',
+      signal,
+      '9007199254740993',
+    );
 
-    const analysisUrl = new URL(String(fetchMock.mock.calls[0][0]), 'http://localhost');
+    const analysisUrl = new URL(
+      String(fetchMock.mock.calls[0][0]),
+      'http://localhost',
+    );
 
     expect(analysisUrl.pathname).toBe('/api/v1/usage/analysis');
     expect(analysisUrl.searchParams.get('range')).toBe('custom');
@@ -241,7 +394,13 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ identities: [], total_count: 0, page: 1, page_size: 10, total_pages: 0 }),
+      json: async () => ({
+        identities: [],
+        total_count: 0,
+        page: 1,
+        page_size: 10,
+        total_pages: 0,
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
@@ -314,7 +473,17 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ items: [{ id: '9007199254740993', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: null }] }),
+      json: async () => ({
+        items: [
+          {
+            id: '9007199254740993',
+            keyAlias: '',
+            displayKey: 'sk-*********123456',
+            label: 'sk-*********123456',
+            lastSyncedAt: null,
+          },
+        ],
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
@@ -326,19 +495,40 @@ describe('fetchUsageEvents', () => {
     expect(response.items[0].id).toBe('9007199254740993');
     expect(typeof response.items[0].id).toBe('string');
     expect(parsed.pathname).toBe('/api/v1/usage/api-keys');
-    expect(init).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(init).toMatchObject({
+      credentials: 'include',
+      signal,
+      cache: 'no-store',
+    });
   });
 
   it('loads CPA API key options and updates aliases', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ options: [{ id: '123', keyAlias: 'Main', displayKey: 'sk-*********123456', label: 'Main', lastSyncedAt: '2026-05-13T00:00:00Z' }] }),
+        json: async () => ({
+          options: [
+            {
+              id: '123',
+              keyAlias: 'Main',
+              displayKey: 'sk-*********123456',
+              label: 'Main',
+              lastSyncedAt: '2026-05-13T00:00:00Z',
+            },
+          ],
+        }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: '123', keyAlias: '', displayKey: 'sk-*********123456', label: 'sk-*********123456', lastSyncedAt: '2026-05-13T00:00:00Z' }),
+        json: async () => ({
+          id: '123',
+          keyAlias: '',
+          displayKey: 'sk-*********123456',
+          label: 'sk-*********123456',
+          lastSyncedAt: '2026-05-13T00:00:00Z',
+        }),
       } as Response);
     const signal = new AbortController().signal;
 
@@ -349,11 +539,22 @@ describe('fetchUsageEvents', () => {
     const [updateUrl, updateInit] = fetchMock.mock.calls[1];
 
     expect(options.options[0].id).toBe('123');
-    expect(new URL(String(optionsUrl), 'http://localhost').pathname).toBe('/api/v1/usage/api-keys/options');
-    expect(optionsInit).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(new URL(String(optionsUrl), 'http://localhost').pathname).toBe(
+      '/api/v1/usage/api-keys/options',
+    );
+    expect(optionsInit).toMatchObject({
+      credentials: 'include',
+      signal,
+      cache: 'no-store',
+    });
     expect(updated.label).toBe('sk-*********123456');
-    expect(new URL(String(updateUrl), 'http://localhost').pathname).toBe('/api/v1/usage/api-keys/123');
-    expect(updateInit).toMatchObject({ credentials: 'include', method: 'PATCH' });
+    expect(new URL(String(updateUrl), 'http://localhost').pathname).toBe(
+      '/api/v1/usage/api-keys/123',
+    );
+    expect(updateInit).toMatchObject({
+      credentials: 'include',
+      method: 'PATCH',
+    });
     expect(updateInit?.body).toBe(JSON.stringify({ keyAlias: '' }));
   });
 
@@ -361,11 +562,21 @@ describe('fetchUsageEvents', () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
-      json: async () => ({ identities: [], total_count: 25, page: 3, page_size: 10, total_pages: 3 }),
+      json: async () => ({
+        identities: [],
+        total_count: 25,
+        page: 3,
+        page_size: 10,
+        total_pages: 3,
+      }),
     } as Response);
     const signal = new AbortController().signal;
 
-    const response = await fetchUsageIdentitiesPage(signal, { authType: 2, page: 3, pageSize: 10 });
+    const response = await fetchUsageIdentitiesPage(signal, {
+      authType: 2,
+      page: 3,
+      pageSize: 10,
+    });
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
@@ -383,7 +594,23 @@ describe('fetchUsageEvents', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
-        items: [{ id: 'auth-1', quota: [{ key: 'rate_limit.secondary_window', label: 'Weekly', remaining: 12 }] }],
+        items: [
+          {
+            auth_index: 'auth-1',
+            status: 'completed',
+            quota: {
+              id: 'auth-1',
+              quota: [
+                {
+                  key: 'rate_limit.secondary_window',
+                  label: 'Weekly',
+                  remaining: 12,
+                },
+              ],
+            },
+            refreshed_at: '2026-05-25T00:00:00Z',
+          },
+        ],
       }),
     } as Response);
     const signal = new AbortController().signal;
@@ -393,10 +620,15 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
-    expect(response.items[0].id).toBe('auth-1');
-    expect(response.items[0].quota[0].remaining).toBe(12);
+    expect(response.items[0].auth_index).toBe('auth-1');
+    expect(response.items[0].refreshed_at).toBe('2026-05-25T00:00:00Z');
+    expect(response.items[0].quota?.quota[0].remaining).toBe(12);
     expect(parsed.pathname).toBe('/api/v1/quota/cache');
-    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
+    expect(init).toMatchObject({
+      credentials: 'include',
+      method: 'POST',
+      signal,
+    });
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
     expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
   });
@@ -406,7 +638,7 @@ describe('fetchUsageEvents', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
-        tasks: [{ authIndex: 'auth-1', taskId: 'task-1' }],
+        tasks: [{ authIndex: 'auth-1' }],
         rejected: [],
         accepted: 1,
         skipped: 0,
@@ -420,10 +652,14 @@ describe('fetchUsageEvents', () => {
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
-    expect(response.tasks[0]).toEqual({ authIndex: 'auth-1', taskId: 'task-1' });
+    expect(response.tasks[0]).toEqual({ authIndex: 'auth-1' });
     expect(response.limit).toBe(1);
     expect(parsed.pathname).toBe('/api/v1/quota/refresh');
-    expect(init).toMatchObject({ credentials: 'include', method: 'POST', signal });
+    expect(init).toMatchObject({
+      credentials: 'include',
+      method: 'POST',
+      signal,
+    });
     expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
     expect(init?.body).toBe(JSON.stringify({ auth_indexes: ['auth-1'] }));
   });
@@ -454,25 +690,30 @@ describe('fetchUsageEvents', () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
-        taskId: 'task-1',
         authIndex: 'auth-1',
         status: 'completed',
-        quota: { id: 'auth-1', quota: [{ key: 'rate_limit.primary_window', label: '5h' }] },
+        http_status_code: 401,
+        refreshed_at: '2026-05-25T00:00:00Z',
+        quota: {
+          id: 'auth-1',
+          quota: [{ key: 'rate_limit.primary_window', label: '5h' }],
+        },
       }),
     } as Response);
     const signal = new AbortController().signal;
 
-    const response = await fetchUsageQuotaRefreshTask('task-1', signal);
+    const response = await fetchUsageQuotaRefreshTask('auth-1', signal);
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.status).toBe('completed');
+    expect(response.http_status_code).toBe(401);
+    expect(response.refreshed_at).toBe('2026-05-25T00:00:00Z');
     expect(response.quota?.id).toBe('auth-1');
-    expect(parsed.pathname).toBe('/api/v1/quota/refresh/task-1');
+    expect(parsed.pathname).toBe('/api/v1/quota/refresh/auth-1');
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
-
 
   it('loads and updates database cleanup settings', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
@@ -489,14 +730,23 @@ describe('fetchUsageEvents', () => {
       backup_minute: 0,
       max_backup_count: 7,
     };
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ ...nextSettings, request_log_retention_days: 30, max_database_size_mb: 512, current_database_size_bytes: 3145728 }),
+        json: async () => ({
+          ...nextSettings,
+          request_log_retention_days: 30,
+          max_database_size_mb: 512,
+          current_database_size_bytes: 3145728,
+        }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ ...nextSettings, current_database_size_bytes: 3145728 }),
+        json: async () => ({
+          ...nextSettings,
+          current_database_size_bytes: 3145728,
+        }),
       } as Response);
     const signal = new AbortController().signal;
 
@@ -508,10 +758,18 @@ describe('fetchUsageEvents', () => {
 
     expect(loaded.max_database_size_mb).toBe(512);
     expect(loaded.current_database_size_bytes).toBe(3145728);
-    expect(new URL(String(loadUrl), 'http://localhost').pathname).toBe('/api/v1/settings/database');
-    expect(loadInit).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
+    expect(new URL(String(loadUrl), 'http://localhost').pathname).toBe(
+      '/api/v1/settings/database',
+    );
+    expect(loadInit).toMatchObject({
+      credentials: 'include',
+      signal,
+      cache: 'no-store',
+    });
     expect(updated.request_log_retention_days).toBe(7);
-    expect(new URL(String(updateUrl), 'http://localhost').pathname).toBe('/api/v1/settings/database');
+    expect(new URL(String(updateUrl), 'http://localhost').pathname).toBe(
+      '/api/v1/settings/database',
+    );
     expect(updateInit).toMatchObject({ credentials: 'include', method: 'PUT' });
     expect(updateInit?.headers).toEqual({ 'Content-Type': 'application/json' });
     expect(updateInit?.body).toBe(JSON.stringify(nextSettings));
@@ -519,7 +777,8 @@ describe('fetchUsageEvents', () => {
 
   it('loads storage info and posts backup operations', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
-    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -543,8 +802,22 @@ describe('fetchUsageEvents', () => {
           current_database_size_bytes: 1024,
           backup_total_size_bytes: 2048,
           backup_count: 1,
-          domains: [{ key: 'usage_logs', label: 'Usage Logs', rows: 3, size_bytes: 4096, table_names: ['usage_events'] }],
-          backups: [{ id: '2026-05-24/database_20260524_040000', file_name: 'database_20260524_040000.db', size_bytes: 2048 }],
+          domains: [
+            {
+              key: 'usage_logs',
+              label: 'Usage Logs',
+              rows: 3,
+              size_bytes: 4096,
+              table_names: ['usage_events'],
+            },
+          ],
+          backups: [
+            {
+              id: '2026-05-24/database_20260524_040000',
+              file_name: 'database_20260524_040000.db',
+              size_bytes: 2048,
+            },
+          ],
         }),
       } as Response)
       .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response)
@@ -552,8 +825,24 @@ describe('fetchUsageEvents', () => {
     const signal = new AbortController().signal;
 
     const info = await fetchStorageInfo(signal);
-    await createStorageBackup({ request_logs: false, usage_logs: true, usage_identities: true, api_keys: true, redis_inbox: false, model_prices: true });
-    await restoreStorageBackup({ id: '2026-05-24/database_20260524_040000', request_logs: false, usage_logs: true, usage_identities: true, api_keys: true, redis_inbox: false, model_prices: true, skip_safety_backup: false });
+    await createStorageBackup({
+      request_logs: false,
+      usage_logs: true,
+      usage_identities: true,
+      api_keys: true,
+      redis_inbox: false,
+      model_prices: true,
+    });
+    await restoreStorageBackup({
+      id: '2026-05-24/database_20260524_040000',
+      request_logs: false,
+      usage_logs: true,
+      usage_identities: true,
+      api_keys: true,
+      redis_inbox: false,
+      model_prices: true,
+      skip_safety_backup: false,
+    });
 
     const [infoUrl, infoInit] = fetchMock.mock.calls[0];
     const [backupUrl, backupInit] = fetchMock.mock.calls[1];
@@ -561,16 +850,54 @@ describe('fetchUsageEvents', () => {
 
     expect(info.current_database_size_bytes).toBe(1024);
     expect(info.backup_total_size_bytes).toBe(2048);
-    expect(new URL(String(infoUrl), 'http://localhost').pathname).toBe('/api/v1/settings/storage');
-    expect(infoInit).toMatchObject({ credentials: 'include', signal, cache: 'no-store' });
-    expect(new URL(String(backupUrl), 'http://localhost').pathname).toBe('/api/v1/settings/storage/backups');
-    expect(backupInit).toMatchObject({ credentials: 'include', method: 'POST' });
+    expect(new URL(String(infoUrl), 'http://localhost').pathname).toBe(
+      '/api/v1/settings/storage',
+    );
+    expect(infoInit).toMatchObject({
+      credentials: 'include',
+      signal,
+      cache: 'no-store',
+    });
+    expect(new URL(String(backupUrl), 'http://localhost').pathname).toBe(
+      '/api/v1/settings/storage/backups',
+    );
+    expect(backupInit).toMatchObject({
+      credentials: 'include',
+      method: 'POST',
+    });
     expect(backupInit?.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(backupInit?.body).toBe(JSON.stringify({ request_logs: false, usage_logs: true, usage_identities: true, api_keys: true, redis_inbox: false, model_prices: true }));
-    expect(new URL(String(restoreUrl), 'http://localhost').pathname).toBe('/api/v1/settings/storage/restore');
-    expect(restoreInit).toMatchObject({ credentials: 'include', method: 'POST' });
-    expect(restoreInit?.headers).toEqual({ 'Content-Type': 'application/json' });
-    expect(restoreInit?.body).toBe(JSON.stringify({ id: '2026-05-24/database_20260524_040000', request_logs: false, usage_logs: true, usage_identities: true, api_keys: true, redis_inbox: false, model_prices: true, skip_safety_backup: false }));
+    expect(backupInit?.body).toBe(
+      JSON.stringify({
+        request_logs: false,
+        usage_logs: true,
+        usage_identities: true,
+        api_keys: true,
+        redis_inbox: false,
+        model_prices: true,
+      }),
+    );
+    expect(new URL(String(restoreUrl), 'http://localhost').pathname).toBe(
+      '/api/v1/settings/storage/restore',
+    );
+    expect(restoreInit).toMatchObject({
+      credentials: 'include',
+      method: 'POST',
+    });
+    expect(restoreInit?.headers).toEqual({
+      'Content-Type': 'application/json',
+    });
+    expect(restoreInit?.body).toBe(
+      JSON.stringify({
+        id: '2026-05-24/database_20260524_040000',
+        request_logs: false,
+        usage_logs: true,
+        usage_identities: true,
+        api_keys: true,
+        redis_inbox: false,
+        model_prices: true,
+        skip_safety_backup: false,
+      }),
+    );
   });
 
   it('loads update check status from the protected endpoint', async () => {
