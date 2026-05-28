@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
 import { ApiError, fetchUsageEventRequestDetail } from '@/lib/api';
-import type { UsageEvent, UsageEventRequestDetailResponse, UsageSourceFilterOption } from '@/lib/types';
+import type { UsageEvent, UsageEventAttempt, UsageEventRequestDetailResponse, UsageSourceFilterOption } from '@/lib/types';
 import { buildRequestDetailViewModel, type RequestDetailViewModel } from './requestDetailViewModel';
 import {
   RequestDetailJsonBlock,
@@ -39,6 +40,17 @@ const appendSelectedOption = (
   return [...options, { value: selectedValue, label: selectedLabel }];
 };
 
+export type RequestEventAttemptRow = {
+  id: string;
+  timestamp: string;
+  timestampLabel: string;
+  source: string;
+  sourceType: string;
+  failed: boolean;
+  latencyMs: number | null;
+  totalTokens: number;
+};
+
 export type RequestEventTileRow = {
   id: string;
   usageEventID: string;
@@ -64,6 +76,8 @@ export type RequestEventTileRow = {
   cacheRate: string;
   cost: number;
   hasPrice: boolean;
+  attempts: RequestEventAttemptRow[];
+  attemptCount: number;
 };
 
 type RequestEventsTranslate = (key: string, options?: Record<string, unknown>) => string;
@@ -93,6 +107,28 @@ const toNumber = (value: unknown): number => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return parsed;
+};
+
+const mapRequestEventAttempts = (
+  attempts: UsageEventAttempt[] | undefined,
+): RequestEventAttemptRow[] => {
+  if (!Array.isArray(attempts)) return [];
+  return attempts.map((attempt, index) => {
+    const timestamp = String(attempt.timestamp ?? '').trim();
+    const source = String(attempt.source ?? '').trim() || '-';
+    const sourceType = String(attempt.source_type ?? '').trim();
+    const latencyMs = Number.isFinite(attempt.latency_ms) ? attempt.latency_ms : null;
+    return {
+      id: String(attempt.id ?? '').trim() || `${timestamp}-${index}`,
+      timestamp,
+      timestampLabel: formatRequestEventTimestamp(timestamp),
+      source,
+      sourceType,
+      failed: attempt.failed === true,
+      latencyMs,
+      totalTokens: Math.max(toNumber(attempt.total_tokens), 0),
+    };
+  });
 };
 
 export const formatRequestEventTimestamp = (timestamp: string): string => {
@@ -318,15 +354,7 @@ export function RequestEventTableRow({
         </span>
       </td>
       <td>
-        <span
-          className={
-            row.failed
-              ? styles.requestEventsResultFailed
-              : styles.requestEventsResultSuccess
-          }
-        >
-          {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
-        </span>
+        <RequestEventResultCell row={row} t={t} />
       </td>
       {showLatency && (
         <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
@@ -346,6 +374,125 @@ export function RequestEventTableRow({
   );
 }
 
+function RequestEventResultCell({ row, t }: { row: RequestEventTileRow; t: RequestEventsTranslate }) {
+  const retryPanelId = useId();
+  const retrySummaryRef = useRef<HTMLButtonElement | null>(null);
+  const retryPanelRef = useRef<HTMLDivElement | null>(null);
+  const [isRetryPanelOpen, setIsRetryPanelOpen] = useState(false);
+  const [retryPanelPosition, setRetryPanelPosition] = useState({ left: 0, top: 0, transform: 'none' });
+  const displayAttemptCount = Math.max(row.attemptCount, row.attempts.length);
+  const hasRetryProcess = displayAttemptCount > 1 && row.attempts.length > 0;
+  const resultClassName = row.failed
+    ? styles.requestEventsResultFailed
+    : styles.requestEventsResultSuccess;
+  const resultLabel = row.failed ? t('usage_stats.failure') : t('usage_stats.success');
+
+  const updateRetryPanelPosition = () => {
+    if (typeof window === 'undefined' || !retrySummaryRef.current) return;
+    const rect = retrySummaryRef.current.getBoundingClientRect();
+    const margin = 12;
+    const panelWidth = 360;
+    const panelHeight = Math.min(320, 120 + row.attempts.length * 72);
+    const maxLeft = Math.max(margin, window.innerWidth - panelWidth - margin);
+    const left = Math.min(Math.max(rect.left, margin), maxLeft);
+    const opensAbove = rect.bottom + panelHeight + margin > window.innerHeight && rect.top > panelHeight;
+    setRetryPanelPosition({
+      left,
+      top: opensAbove ? rect.top - 8 : rect.bottom + 8,
+      transform: opensAbove ? 'translateY(-100%)' : 'none',
+    });
+  };
+
+  useEffect(() => {
+    if (!isRetryPanelOpen || typeof document === 'undefined') return undefined;
+    updateRetryPanelPosition();
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (retrySummaryRef.current?.contains(target) || retryPanelRef.current?.contains(target)) return;
+      setIsRetryPanelOpen(false);
+    };
+    const reposition = () => updateRetryPanelPosition();
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [isRetryPanelOpen, row.attempts.length]);
+
+  if (!hasRetryProcess) {
+    return <span className={resultClassName}>{resultLabel}</span>;
+  }
+
+  const handleRetryDetailsClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+  };
+  const handleRetrySummaryClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    updateRetryPanelPosition();
+    setIsRetryPanelOpen((open) => !open);
+  };
+  const handleRetrySummaryKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Escape') return;
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      setIsRetryPanelOpen(false);
+    }
+  };
+  const retryPanel = (
+    <div
+      id={retryPanelId}
+      ref={retryPanelRef}
+      className={styles.requestEventsRetryPanel}
+      role="group"
+      aria-label={t('usage_stats.request_events_retry_process')}
+      hidden={!isRetryPanelOpen}
+      style={typeof document === 'undefined' ? undefined : retryPanelPosition}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className={styles.requestEventsRetryHeader}>
+        <span>{t('usage_stats.request_events_retry_process')}</span>
+        <strong>{t('usage_stats.request_events_attempt_count', { count: displayAttemptCount })}</strong>
+      </div>
+      <div className={styles.requestEventsRetryList}>
+        {row.attempts.map((attempt) => (
+          <div key={attempt.id} className={styles.requestEventsRetryAttempt}>
+            <span className={attempt.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess}>
+              {attempt.failed ? t('usage_stats.failure') : t('usage_stats.success')}
+            </span>
+            <span className={styles.requestEventsRetryAttemptMeta}>
+              <strong>{attempt.source}</strong>
+              <span>{attempt.timestampLabel}</span>
+              <span>{formatDurationMs(attempt.latencyMs)}</span>
+              <span>{attempt.totalTokens.toLocaleString()}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className={styles.requestEventsRetryDetails} onClick={handleRetryDetailsClick}>
+      <span className={resultClassName}>{resultLabel}</span>
+      <button
+        ref={retrySummaryRef}
+        type="button"
+        className={styles.requestEventsRetrySummary}
+        aria-expanded={isRetryPanelOpen}
+        aria-controls={retryPanelId}
+        onClick={handleRetrySummaryClick}
+        onKeyDown={handleRetrySummaryKeyDown}
+      >
+        <span className={styles.requestEventsRetryIndicator}>{t('usage_stats.request_events_retry_indicator')}</span>
+      </button>
+      {typeof document === 'undefined' ? retryPanel : createPortal(retryPanel, document.body)}
+    </div>
+  );
+}
 interface RequestEventsTableProps {
   rows: RequestEventTileRow[];
   canOpenDetail: (row: RequestEventTileRow) => boolean;
@@ -504,6 +651,8 @@ export function RequestEventsDetailsCard({
         cacheRate: formatCacheRateForSource(cachedTokens, inputTokens, sourceType),
         cost,
         hasPrice: Boolean(pricing),
+        attempts: mapRequestEventAttempts(event.attempts),
+        attemptCount: Math.max(toNumber(event.attempt_count), 1),
       };
     });
   }, [events, modelPrices]);

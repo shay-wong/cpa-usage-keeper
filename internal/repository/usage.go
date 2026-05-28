@@ -38,6 +38,7 @@ type usageEventProjection struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
+	AttemptCount        int
 }
 
 // BuildUsageSnapshot 构建无筛选的旧版 usage snapshot，供仍需要全量快照的调用方使用。
@@ -52,12 +53,10 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	// 第一步：应用列表筛选，统计分页总数。
-	baseQuery := queryUsageEvents(db)
-	baseQuery = applyUsageEventListQuery(baseQuery, filter)
-
+	latestBaseQuery := applyUsageEventLatestResultQuery(buildLatestUsageEventRowsQuery(db, filter), filter)
+	latestCountQuery := latestBaseQuery.Session(&gorm.Session{})
 	var totalCount int64
-	if err := baseQuery.Count(&totalCount).Error; err != nil {
+	if err := latestCountQuery.Count(&totalCount).Error; err != nil {
 		return nil, fmt.Errorf("count usage events: %w", err)
 	}
 
@@ -86,8 +85,15 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 		offset = 0
 	}
 
-	query := applyUsageEventListQuery(db.Model(&entities.UsageEvent{}), filter)
-	query = query.Select(usageEventProjectionColumns).Order("timestamp DESC, id DESC").Limit(pageSize).Offset(offset)
+	latestPageQuery := latestBaseQuery.Session(&gorm.Session{}).
+		Select("id").
+		Order("timestamp DESC, id DESC").
+		Limit(pageSize).
+		Offset(offset)
+	query := db.Model(&entities.UsageEvent{}).
+		Select(usageEventProjectionColumns).
+		Where("id IN (?)", latestPageQuery).
+		Order("timestamp DESC, id DESC")
 
 	var events []usageEventProjection
 	if err := query.Find(&events).Error; err != nil {
@@ -97,6 +103,10 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 	rows := make([]dto.UsageEventRecord, 0, len(events))
 	for _, event := range events {
 		rows = append(rows, usageEventProjectionToRecord(event))
+	}
+	rows, err = attachUsageEventAttempts(db, filter, rows)
+	if err != nil {
+		return nil, err
 	}
 	totalPages := 0
 	if totalCount > 0 {
@@ -247,6 +257,94 @@ func queryUsageEvents(db *gorm.DB) *gorm.DB {
 	return db.Model(&entities.UsageEvent{})
 }
 
+func buildLatestUsageEventRowsQuery(db *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	groupKey := usageEventRetryGroupKeySQL(db)
+	subQuery := applyUsageEventAttemptScopeQuery(db.Model(&entities.UsageEvent{}), filter).
+		Select(fmt.Sprintf(
+			"%s, ROW_NUMBER() OVER (PARTITION BY %s ORDER BY timestamp DESC, id DESC) AS retry_rank",
+			usageEventProjectionColumns,
+			groupKey,
+		))
+	return db.Table("(?) AS usage_event_latest", subQuery).Where("retry_rank = ?", 1)
+}
+
+func usageEventRetryGroupKeySQL(db *gorm.DB) string {
+	if db != nil && db.Dialector != nil && db.Dialector.Name() == "postgres" {
+		return "CASE WHEN TRIM(COALESCE(request_id, '')) = '' THEN CONCAT('event:', id) ELSE CONCAT('request:', TRIM(request_id)) END"
+	}
+	return "CASE WHEN TRIM(COALESCE(request_id, '')) = '' THEN 'event:' || id ELSE 'request:' || TRIM(request_id) END"
+}
+
+func attachUsageEventAttempts(db *gorm.DB, filter dto.UsageQueryFilter, rows []dto.UsageEventRecord) ([]dto.UsageEventRecord, error) {
+	if len(rows) == 0 {
+		return rows, nil
+	}
+	requestIDs := make([]string, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		requestID := strings.TrimSpace(row.RequestID)
+		if requestID == "" {
+			continue
+		}
+		if _, ok := seen[requestID]; ok {
+			continue
+		}
+		seen[requestID] = struct{}{}
+		requestIDs = append(requestIDs, requestID)
+	}
+	if len(requestIDs) == 0 {
+		result := make([]dto.UsageEventRecord, 0, len(rows))
+		for _, row := range rows {
+			row.AttemptCount = 1
+			result = append(result, row)
+		}
+		return result, nil
+	}
+
+	query := applyUsageQueryWindow(db.Model(&entities.UsageEvent{}), filter).
+		Select(usageEventProjectionColumns).
+		Where("request_id IN ?", requestIDs).
+		Order("request_id ASC, timestamp DESC, id DESC")
+	var attempts []usageEventProjection
+	if err := query.Find(&attempts).Error; err != nil {
+		return nil, fmt.Errorf("load usage event attempts: %w", err)
+	}
+
+	attemptsByRequestID := make(map[string][]dto.UsageEventAttemptRecord, len(requestIDs))
+	for _, attempt := range attempts {
+		requestID := strings.TrimSpace(attempt.RequestID)
+		if requestID == "" {
+			continue
+		}
+		attemptsByRequestID[requestID] = append(attemptsByRequestID[requestID], usageEventProjectionToAttemptRecord(attempt))
+	}
+	result := make([]dto.UsageEventRecord, 0, len(rows))
+	for _, row := range rows {
+		attempts := attemptsByRequestID[strings.TrimSpace(row.RequestID)]
+		row.AttemptCount = max(len(attempts), 1)
+		if len(attempts) > 1 {
+			row.Attempts = attempts
+		}
+		result = append(result, row)
+	}
+	return result, nil
+}
+
+func usageEventProjectionToAttemptRecord(event usageEventProjection) dto.UsageEventAttemptRecord {
+	return dto.UsageEventAttemptRecord{
+		ID:          event.ID,
+		Timestamp:   timeutil.NormalizeStorageTime(event.Timestamp),
+		Model:       strings.TrimSpace(event.Model),
+		AuthType:    strings.TrimSpace(event.AuthType),
+		Provider:    strings.TrimSpace(event.Provider),
+		Source:      strings.TrimSpace(event.Source),
+		AuthIndex:   strings.TrimSpace(event.AuthIndex),
+		Failed:      event.Failed,
+		LatencyMS:   event.LatencyMS,
+		TotalTokens: event.TotalTokens,
+	}
+}
+
 // usageEventProjectionToRecord 把数据库投影转换成 Request Event Log 的外部 DTO。
 func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventRecord {
 	// 对前端展示字段统一 trim，避免历史脏数据影响筛选和展示一致性。
@@ -270,6 +368,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		CacheReadTokens:     event.CacheReadTokens,
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
+		AttemptCount:        max(event.AttemptCount, 1),
 	}
 }
 
@@ -334,8 +433,8 @@ func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilt
 	return applyUsageQueryWindow(query, filter)
 }
 
-// Request Event Log 列表第一步：在时间窗口上叠加 model/source/auth_index/result。
-func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+// Request Event Log 列表第一步：在时间窗口上叠加 model/source/auth_index/API key。
+func applyUsageEventAttemptScopeQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	query = applyUsageQueryWindow(query, filter)
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
@@ -347,6 +446,10 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 		// Source 下拉在 API 层已转换成 auth_index，仓储层只保留真实查询维度。
 		query = query.Where("auth_index = ?", authIndex)
 	}
+	return query
+}
+
+func applyUsageEventLatestResultQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	switch strings.TrimSpace(filter.Result) {
 	case "success":
 		query = query.Where("failed = ?", false)
@@ -354,6 +457,12 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 		query = query.Where("failed = ?", true)
 	}
 	return query
+}
+
+// Request Event Log 列表第一步：在时间窗口上叠加 model/source/auth_index/result。
+func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	query = applyUsageEventAttemptScopeQuery(query, filter)
+	return applyUsageEventLatestResultQuery(query, filter)
 }
 
 // Snapshot 先读事件，再按时间窗口在内存里汇总。

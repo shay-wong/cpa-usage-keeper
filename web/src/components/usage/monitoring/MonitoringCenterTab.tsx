@@ -209,6 +209,8 @@ function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: R
     cacheRate: formatCacheRateForSource(cachedTokens, inputTokens, sourceType),
     cost,
     hasPrice: Boolean(pricing),
+    attempts: [],
+    attemptCount: 1,
   };
 }
 

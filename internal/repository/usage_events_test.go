@@ -171,6 +171,111 @@ func TestListUsageEventsWithFilterAppliesAuthIndexFilter(t *testing.T) {
 	}
 }
 
+func TestListUsageEventsWithFilterGroupsRetriesByRequestIDAndLatestStatus(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-retries.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	base := time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC)
+	events := []entities.UsageEvent{
+		{EventKey: "retry-1", RequestID: "req-retry", Model: "gpt-5", Timestamp: base, Source: "source-a", AuthIndex: "auth-a", Failed: true, LatencyMS: 6000},
+		{EventKey: "retry-2", RequestID: "req-retry", Model: "gpt-5", Timestamp: base.Add(time.Minute), Source: "source-b", AuthIndex: "auth-b", Failed: false, LatencyMS: 4000, TotalTokens: 20},
+		{EventKey: "single-1", RequestID: "req-single", Model: "claude-sonnet", Timestamp: base.Add(2 * time.Minute), Source: "source-c", AuthIndex: "auth-c", Failed: false, TotalTokens: 30},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20})
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if page.TotalCount != 2 || len(page.Events) != 2 {
+		t.Fatalf("expected two request groups, got %+v", page)
+	}
+	var retry dto.UsageEventRecord
+	for _, event := range page.Events {
+		if event.RequestID == "req-retry" {
+			retry = event
+		}
+	}
+	if retry.RequestID == "" {
+		t.Fatalf("expected retry request group in page: %+v", page.Events)
+	}
+	if retry.Failed {
+		t.Fatalf("expected latest retry attempt to mark request successful, got %+v", retry)
+	}
+	if retry.AttemptCount != 2 || len(retry.Attempts) != 2 {
+		t.Fatalf("expected retry attempt history, got %+v", retry)
+	}
+	if retry.Attempts[0].Failed || !retry.Attempts[1].Failed {
+		t.Fatalf("expected latest successful attempt before previous failure, got %+v", retry.Attempts)
+	}
+}
+
+func TestListUsageEventsWithFilterResultFilterUsesLatestRetryStatus(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-retry-result.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	base := time.Date(2026, 5, 28, 15, 0, 0, 0, time.UTC)
+	events := []entities.UsageEvent{
+		{EventKey: "success-after-fail-1", RequestID: "req-final-success", Model: "gpt-5", Timestamp: base, Failed: true},
+		{EventKey: "success-after-fail-2", RequestID: "req-final-success", Model: "gpt-5", Timestamp: base.Add(time.Minute), Failed: false},
+		{EventKey: "fail-after-success-1", RequestID: "req-final-failed", Model: "gpt-5", Timestamp: base.Add(2 * time.Minute), Failed: false},
+		{EventKey: "fail-after-success-2", RequestID: "req-final-failed", Model: "gpt-5", Timestamp: base.Add(3 * time.Minute), Failed: true},
+		{EventKey: "single-success", RequestID: "req-single-success", Model: "gpt-5", Timestamp: base.Add(4 * time.Minute), Failed: false},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20, Result: "failed"})
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Events) != 1 {
+		t.Fatalf("expected only final failed request group, got %+v", page)
+	}
+	if page.Events[0].RequestID != "req-final-failed" || !page.Events[0].Failed {
+		t.Fatalf("unexpected failed retry result row: %+v", page.Events[0])
+	}
+}
+
+func TestListUsageEventsWithFilterRetryHistoryIgnoresModelFilterForSameRequest(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-retry-history-filter.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+	base := time.Date(2026, 5, 28, 16, 0, 0, 0, time.UTC)
+	events := []entities.UsageEvent{
+		{EventKey: "cross-model-1", RequestID: "req-cross-model", Model: "claude-haiku", Timestamp: base, Failed: true},
+		{EventKey: "cross-model-2", RequestID: "req-cross-model", Model: "claude-sonnet", Timestamp: base.Add(time.Minute), Failed: false},
+		{EventKey: "other-model", RequestID: "req-other", Model: "claude-haiku", Timestamp: base.Add(2 * time.Minute), Failed: true},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	page, err := ListUsageEventsWithFilter(db, dto.UsageQueryFilter{Page: 1, PageSize: 20, Model: "claude-sonnet"})
+	if err != nil {
+		t.Fatalf("ListUsageEventsWithFilter returned error: %v", err)
+	}
+	if page.TotalCount != 1 || len(page.Events) != 1 {
+		t.Fatalf("expected one latest matching request group, got %+v", page)
+	}
+	retry := page.Events[0]
+	if retry.RequestID != "req-cross-model" || retry.AttemptCount != 2 || len(retry.Attempts) != 2 {
+		t.Fatalf("expected complete retry history for filtered latest request, got %+v", retry)
+	}
+	if retry.Attempts[0].Model != "claude-sonnet" || retry.Attempts[1].Model != "claude-haiku" {
+		t.Fatalf("expected retry attempts to preserve cross-model history, got %+v", retry.Attempts)
+	}
+}
+
 func TestListUsageEventFilterOptionsWithFilterReturnsStableModels(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-events-filter-options.db")})
 	if err != nil {

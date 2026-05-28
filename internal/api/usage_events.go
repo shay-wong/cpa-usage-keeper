@@ -49,18 +49,30 @@ type usageEventFilterOptionsResponse struct {
 }
 
 type usageEventPayload struct {
-	ID              string                 `json:"id,omitempty"`
-	RequestID       string                 `json:"request_id,omitempty"`
-	Timestamp       string                 `json:"timestamp"`
-	Model           string                 `json:"model"`
-	ReasoningEffort string                 `json:"reasoning_effort,omitempty"`
-	Source          string                 `json:"source"`
-	SourceRaw       string                 `json:"source_raw,omitempty"`
-	SourceType      string                 `json:"source_type,omitempty"`
-	IsDelete        bool                   `json:"isDelete,omitempty"`
-	Failed          bool                   `json:"failed"`
-	LatencyMS       int64                  `json:"latency_ms"`
-	Tokens          usageEventTokenPayload `json:"tokens"`
+	ID              string                     `json:"id,omitempty"`
+	RequestID       string                     `json:"request_id,omitempty"`
+	Timestamp       string                     `json:"timestamp"`
+	Model           string                     `json:"model"`
+	ReasoningEffort string                     `json:"reasoning_effort,omitempty"`
+	Source          string                     `json:"source"`
+	SourceRaw       string                     `json:"source_raw,omitempty"`
+	SourceType      string                     `json:"source_type,omitempty"`
+	IsDelete        bool                       `json:"isDelete,omitempty"`
+	Failed          bool                       `json:"failed"`
+	LatencyMS       int64                      `json:"latency_ms"`
+	Tokens          usageEventTokenPayload     `json:"tokens"`
+	AttemptCount    int                        `json:"attempt_count,omitempty"`
+	Attempts        []usageEventAttemptPayload `json:"attempts,omitempty"`
+}
+
+type usageEventAttemptPayload struct {
+	ID          string `json:"id,omitempty"`
+	Timestamp   string `json:"timestamp"`
+	Source      string `json:"source,omitempty"`
+	SourceType  string `json:"source_type,omitempty"`
+	Failed      bool   `json:"failed"`
+	LatencyMS   int64  `json:"latency_ms"`
+	TotalTokens int64  `json:"total_tokens"`
 }
 
 type usageEventTokenPayload struct {
@@ -231,6 +243,38 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 				CacheCreationTokens: row.CacheCreationTokens,
 				TotalTokens:         row.TotalTokens,
 			},
+			AttemptCount: row.AttemptCount,
+			Attempts:     buildUsageEventAttemptPayloads(row.Attempts, resolver),
+		})
+	}
+	return payload
+}
+
+func buildUsageEventAttemptPayloads(attempts []servicedto.UsageEventAttemptRecord, resolver usageIdentityResolver) []usageEventAttemptPayload {
+	if len(attempts) == 0 {
+		return nil
+	}
+	payload := make([]usageEventAttemptPayload, 0, len(attempts))
+	for _, attempt := range attempts {
+		identity, matched := resolver.resolveByAuthIndex(attempt.AuthIndex)
+		source, _ := usageEventPublicSource(servicedto.UsageEventRecord{
+			AuthType:  attempt.AuthType,
+			Provider:  attempt.Provider,
+			Source:    attempt.Source,
+			AuthIndex: attempt.AuthIndex,
+		}, identity, matched)
+		id := ""
+		if attempt.ID != 0 {
+			id = strconv.FormatInt(attempt.ID, 10)
+		}
+		payload = append(payload, usageEventAttemptPayload{
+			ID:          id,
+			Timestamp:   timeutil.FormatStorageTime(attempt.Timestamp),
+			Source:      source,
+			SourceType:  identity.Type,
+			Failed:      attempt.Failed,
+			LatencyMS:   attempt.LatencyMS,
+			TotalTokens: attempt.TotalTokens,
 		})
 	}
 	return payload

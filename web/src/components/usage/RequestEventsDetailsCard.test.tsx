@@ -144,6 +144,27 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('aria-label="Source"><span class="_triggerText_c80422 ">Provider B</span>');
   });
 
+  it('shows retry process while keeping latest attempt as the main status', () => {
+    const html = renderCard({
+      events: [{
+        ...events[0],
+        request_id: 'req-retry',
+        failed: false,
+        attempts: [
+          { id: '102', timestamp: '2026-04-23T02:01:00.000Z', failed: false, latency_ms: 120, total_tokens: 200 },
+          { id: '101', timestamp: '2026-04-23T02:00:00.000Z', failed: true, latency_ms: 6200, total_tokens: 0 },
+        ],
+        attempt_count: 2,
+      }],
+    });
+
+    expect(html).toContain('Success');
+    expect(html).toContain('Retry Process');
+    expect(html).toContain('2 attempts');
+    expect(html).toContain('2026/04/23 02:01:00');
+    expect(html).toContain('2026/04/23 02:00:00');
+  });
+
   it('renders a Result filter and no Credential filter control', () => {
     const html = renderCard({ resultFilter: 'failed' });
 

@@ -13,7 +13,8 @@ func TestRepositoryQueriesAvoidKnownFullEntityReads(t *testing.T) {
 		"var events []entities.UsageEvent\n\tif err := db.Find(&events)",
 	)
 	assertFileContains(t, "usage.go",
-		"Select(usageEventProjectionColumns).Order(\"timestamp DESC, id DESC\")",
+		"Select(usageEventProjectionColumns).",
+		"Order(\"timestamp DESC, id DESC\")",
 		"Select(usageEventProjectionColumns).Order(\"timestamp asc\")",
 	)
 

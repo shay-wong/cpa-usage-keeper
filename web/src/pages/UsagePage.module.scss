@@ -3353,6 +3353,122 @@
   white-space: nowrap;
 }
 
+.requestEventsRetryDetails {
+  --request-events-retry-accent: #f43f5e;
+
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.requestEventsRetrySummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+
+  &:focus-visible {
+    border-radius: $radius-full;
+    outline: 2px solid color-mix(in srgb, var(--primary-color) 62%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+.requestEventsRetryIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--request-events-retry-accent) 46%, var(--border-color));
+  border-radius: $radius-full;
+  background: color-mix(in srgb, var(--request-events-retry-accent) 12%, var(--bg-primary));
+  color: color-mix(in srgb, var(--request-events-retry-accent) 82%, var(--text-primary));
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+
+  &::before {
+    content: '>>';
+    font-family:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+      monospace;
+    letter-spacing: -0.12em;
+  }
+}
+
+.requestEventsRetryPanel {
+  --request-events-retry-accent: #f43f5e;
+
+  position: fixed;
+  z-index: 40;
+  width: min(360px, calc(100vw - 48px));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--request-events-retry-accent) 34%, var(--border-color));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-primary) 94%, #190713);
+  box-shadow:
+    0 16px 34px color-mix(in srgb, black 18%, transparent),
+    0 0 0 1px color-mix(in srgb, white 3%, transparent) inset;
+}
+
+.requestEventsRetryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--request-events-retry-accent) 13%, var(--bg-secondary));
+  color: color-mix(in srgb, var(--request-events-retry-accent) 76%, var(--text-primary));
+  font-size: 12px;
+  font-weight: 900;
+
+  strong {
+    color: var(--text-primary);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+}
+
+.requestEventsRetryList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+.requestEventsRetryAttempt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+}
+
+.requestEventsRetryAttemptMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+
+  strong {
+    max-width: 96px;
+    overflow: hidden;
+    color: var(--text-primary);
+    text-overflow: ellipsis;
+  }
+}
+
 .chartLineHeader {
   display: inline-flex;
   align-items: center;

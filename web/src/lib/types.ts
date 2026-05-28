@@ -252,6 +252,16 @@ export interface UsageEventTokens {
   total_tokens: number
 }
 
+export interface UsageEventAttempt {
+  id?: string
+  timestamp: string
+  source?: string
+  source_type?: string
+  failed: boolean
+  latency_ms: number
+  total_tokens: number
+}
+
 export interface UsageEvent {
   id?: string
   request_id?: string
@@ -266,6 +276,8 @@ export interface UsageEvent {
   failed: boolean
   latency_ms: number
   tokens: UsageEventTokens
+  attempt_count?: number
+  attempts?: UsageEventAttempt[]
 }
 
 export interface UsageEventRequestDetailResponse {

@@ -258,6 +258,24 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 }
 
 func mapUsageEventRecord(row repodto.UsageEventRecord) servicedto.UsageEventRecord {
+	var attempts []servicedto.UsageEventAttemptRecord
+	if len(row.Attempts) > 0 {
+		attempts = make([]servicedto.UsageEventAttemptRecord, 0, len(row.Attempts))
+		for _, attempt := range row.Attempts {
+			attempts = append(attempts, servicedto.UsageEventAttemptRecord{
+				ID:          attempt.ID,
+				Timestamp:   attempt.Timestamp,
+				Model:       attempt.Model,
+				AuthType:    attempt.AuthType,
+				Provider:    attempt.Provider,
+				Source:      attempt.Source,
+				AuthIndex:   attempt.AuthIndex,
+				Failed:      attempt.Failed,
+				LatencyMS:   attempt.LatencyMS,
+				TotalTokens: attempt.TotalTokens,
+			})
+		}
+	}
 	return servicedto.UsageEventRecord{
 		ID:                  row.ID,
 		Timestamp:           row.Timestamp,
@@ -265,10 +283,10 @@ func mapUsageEventRecord(row repodto.UsageEventRecord) servicedto.UsageEventReco
 		Model:               row.Model,
 		ReasoningEffort:     row.ReasoningEffort,
 		AuthType:            row.AuthType,
-		RequestID:           row.RequestID,
 		Provider:            row.Provider,
 		Source:              row.Source,
 		AuthIndex:           row.AuthIndex,
+		RequestID:           row.RequestID,
 		Failed:              row.Failed,
 		LatencyMS:           row.LatencyMS,
 		InputTokens:         row.InputTokens,
@@ -278,6 +296,8 @@ func mapUsageEventRecord(row repodto.UsageEventRecord) servicedto.UsageEventReco
 		CacheReadTokens:     row.CacheReadTokens,
 		CacheCreationTokens: row.CacheCreationTokens,
 		TotalTokens:         row.TotalTokens,
+		AttemptCount:        row.AttemptCount,
+		Attempts:            attempts,
 	}
 }
 
