@@ -1,11 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
 import { ApiError, fetchUsageEventRequestDetail } from '@/lib/api';
-import type { UsageEvent, UsageEventRequestDetailResponse, UsageSourceFilterOption } from '@/lib/types';
+import type { UsageEvent, UsageEventAttempt, UsageEventRequestDetailResponse, UsageSourceFilterOption } from '@/lib/types';
 import { buildRequestDetailViewModel, type RequestDetailViewModel } from './requestDetailViewModel';
 import {
   RequestDetailJsonBlock,
@@ -22,6 +23,7 @@ import {
   normalizeAuthIndex,
   type ModelPrice,
 } from '@/utils/usage';
+import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
 const ALL_FILTER = '__all__';
@@ -39,6 +41,17 @@ const appendSelectedOption = (
   return [...options, { value: selectedValue, label: selectedLabel }];
 };
 
+export type RequestEventAttemptRow = {
+  id: string;
+  timestamp: string;
+  timestampLabel: string;
+  source: string;
+  sourceType: string;
+  failed: boolean;
+  latencyMs: number | null;
+  totalTokens: number;
+};
+
 export type RequestEventTileRow = {
   id: string;
   usageEventID: string;
@@ -46,8 +59,11 @@ export type RequestEventTileRow = {
   timestamp: string;
   timestampMs: number;
   timestampLabel: string;
+  apiKey: string;
   model: string;
   reasoningEffort: string;
+  requestType: string;
+  endpoint: string;
   sourceRaw: string;
   source: string;
   sourceTitle?: string;
@@ -56,6 +72,7 @@ export type RequestEventTileRow = {
   isDelete: boolean;
   failed: boolean;
   latencyMs: number | null;
+  ttftMs: number | null;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -64,6 +81,8 @@ export type RequestEventTileRow = {
   cacheRate: string;
   cost: number;
   hasPrice: boolean;
+  attempts: RequestEventAttemptRow[];
+  attemptCount: number;
 };
 
 type RequestEventsTranslate = (key: string, options?: Record<string, unknown>) => string;
@@ -95,6 +114,28 @@ const toNumber = (value: unknown): number => {
   return parsed;
 };
 
+const mapRequestEventAttempts = (
+  attempts: UsageEventAttempt[] | undefined,
+): RequestEventAttemptRow[] => {
+  if (!Array.isArray(attempts)) return [];
+  return attempts.map((attempt, index) => {
+    const timestamp = String(attempt.timestamp ?? '').trim();
+    const source = String(attempt.source ?? '').trim() || '-';
+    const sourceType = String(attempt.source_type ?? '').trim();
+    const latencyMs = Number.isFinite(attempt.latency_ms) ? attempt.latency_ms : null;
+    return {
+      id: String(attempt.id ?? '').trim() || `${timestamp}-${index}`,
+      timestamp,
+      timestampLabel: formatRequestEventTimestamp(timestamp),
+      source,
+      sourceType,
+      failed: attempt.failed === true,
+      latencyMs,
+      totalTokens: Math.max(toNumber(attempt.total_tokens), 0),
+    };
+  });
+};
+
 export const formatRequestEventTimestamp = (timestamp: string): string => {
   const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2})[T\s](\d{2}):(\d{2}):(\d{2})/);
   if (!match) return timestamp || '-';
@@ -114,6 +155,34 @@ export const getRequestDetailErrorKey = (error: unknown): string => {
     return 'usage_stats.request_events_detail_missing';
   }
   return 'usage_stats.request_events_detail_load_failed';
+};
+
+const formatTTFTMs = (ttftMs: number | null): string => {
+  if (ttftMs === null || ttftMs <= 0) {
+    return '-';
+  }
+  return formatDurationMs(ttftMs);
+};
+
+const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endpoint: string } => {
+  const raw = String(rawEndpoint ?? '').trim().replace(/\s+/g, ' ');
+  if (!raw) {
+    return { requestType: '-', endpoint: '-' };
+  }
+  const [first, ...rest] = raw.split(' ');
+  const upperMethod = first.toUpperCase();
+  const hasMethod = ['GET', 'POST'].includes(upperMethod);
+  const requestType = upperMethod === 'POST' ? 'SSE' : upperMethod === 'GET' ? 'WS' : '-';
+  const path = hasMethod ? rest.join(' ').trim() : raw;
+  const normalizedPath = path.startsWith('/v1/') ? path.slice(3) : path === '/v1' ? '/' : path;
+  return { requestType, endpoint: normalizedPath || '-' };
+};
+
+const encodeCsv = (value: string | number): string => {
+  const text = String(value ?? '');
+  const trimmedLeft = text.replace(/^\s+/, '');
+  const safeText = trimmedLeft && /^[=+\-@]/.test(trimmedLeft) ? `'${text}` : text;
+  return `"${safeText.replace(/"/g, '""')}"`;
 };
 
 type RequestDetailContentPage = 'parsed' | 'raw';
@@ -265,6 +334,7 @@ interface RequestEventTableRowProps {
   row: RequestEventTileRow;
   canOpenDetail: boolean;
   showLatency: boolean;
+  showTTFT?: boolean;
   showCost?: boolean;
   t: RequestEventsTranslate;
   onOpenDetail?: (row: RequestEventTileRow) => void;
@@ -274,6 +344,7 @@ export function RequestEventTableRow({
   row,
   canOpenDetail,
   showLatency,
+  showTTFT = false,
   showCost = true,
   t,
   onOpenDetail,
@@ -300,8 +371,7 @@ export function RequestEventTableRow({
       <td title={row.timestamp} className={styles.requestEventsTimestamp}>
         {row.timestampLabel}
       </td>
-      <td className={styles.modelCell}>{row.model}</td>
-      <td>{row.reasoningEffort}</td>
+      <td className={styles.requestEventsAPIKeyCell} title={row.apiKey}>{row.apiKey}</td>
       <td className={styles.requestEventsSourceCell} title={row.sourceTitle ?? row.source}>
         <span className={styles.requestEventsSourceStack}>
           <span className={styles.requestEventsSourceValue}>{row.source}</span>
@@ -317,20 +387,19 @@ export function RequestEventTableRow({
           )}
         </span>
       </td>
+      <td className={styles.modelCell}>{row.model}</td>
+      <td>{row.reasoningEffort}</td>
       <td>
-        <span
-          className={
-            row.failed
-              ? styles.requestEventsResultFailed
-              : styles.requestEventsResultSuccess
-          }
-        >
-          {row.failed ? t('usage_stats.failure') : t('usage_stats.success')}
-        </span>
+        <RequestEventResultCell row={row} t={t} />
       </td>
+      {showTTFT && (
+        <td className={styles.durationCell}>{formatTTFTMs(row.ttftMs)}</td>
+      )}
       {showLatency && (
         <td className={styles.durationCell}>{formatDurationMs(row.latencyMs)}</td>
       )}
+      <td>{row.requestType}</td>
+      <td className={styles.requestEventsEndpointCell} title={row.endpoint}>{row.endpoint}</td>
       <td>{row.inputTokens.toLocaleString()}</td>
       <td>{row.outputTokens.toLocaleString()}</td>
       <td>{row.reasoningTokens.toLocaleString()}</td>
@@ -346,12 +415,133 @@ export function RequestEventTableRow({
   );
 }
 
+function RequestEventResultCell({ row, t }: { row: RequestEventTileRow; t: RequestEventsTranslate }) {
+  const retryPanelId = useId();
+  const retrySummaryRef = useRef<HTMLButtonElement | null>(null);
+  const retryPanelRef = useRef<HTMLDivElement | null>(null);
+  const [isRetryPanelOpen, setIsRetryPanelOpen] = useState(false);
+  const [retryPanelPosition, setRetryPanelPosition] = useState({ left: 0, top: 0, transform: 'none' });
+  const displayAttemptCount = Math.max(row.attemptCount, row.attempts.length);
+  const hasRetryProcess = displayAttemptCount > 1 && row.attempts.length > 0;
+  const resultClassName = row.failed
+    ? styles.requestEventsResultFailed
+    : styles.requestEventsResultSuccess;
+  const resultLabel = row.failed ? t('usage_stats.failure') : t('usage_stats.success');
+
+  const updateRetryPanelPosition = useCallback(() => {
+    if (typeof window === 'undefined' || !retrySummaryRef.current) return;
+    const rect = retrySummaryRef.current.getBoundingClientRect();
+    const margin = 12;
+    const panelWidth = 360;
+    const panelHeight = Math.min(320, 120 + row.attempts.length * 72);
+    const maxLeft = Math.max(margin, window.innerWidth - panelWidth - margin);
+    const left = Math.min(Math.max(rect.left, margin), maxLeft);
+    const opensAbove = rect.bottom + panelHeight + margin > window.innerHeight && rect.top > panelHeight;
+    setRetryPanelPosition({
+      left,
+      top: opensAbove ? rect.top - 8 : rect.bottom + 8,
+      transform: opensAbove ? 'translateY(-100%)' : 'none',
+    });
+  }, [row.attempts.length]);
+
+  useEffect(() => {
+    if (!isRetryPanelOpen || typeof document === 'undefined') return undefined;
+    updateRetryPanelPosition();
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (retrySummaryRef.current?.contains(target) || retryPanelRef.current?.contains(target)) return;
+      setIsRetryPanelOpen(false);
+    };
+    const reposition = () => updateRetryPanelPosition();
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointerDown);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
+  }, [isRetryPanelOpen, row.attempts.length, updateRetryPanelPosition]);
+
+  if (!hasRetryProcess) {
+    return <span className={resultClassName}>{resultLabel}</span>;
+  }
+
+  const handleRetryDetailsClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+  };
+  const handleRetrySummaryClick = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    updateRetryPanelPosition();
+    setIsRetryPanelOpen((open) => !open);
+  };
+  const handleRetrySummaryKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ' && event.key !== 'Escape') return;
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      setIsRetryPanelOpen(false);
+    }
+  };
+  const retryPanel = (
+    <div
+      id={retryPanelId}
+      ref={retryPanelRef}
+      className={styles.requestEventsRetryPanel}
+      role="group"
+      aria-label={t('usage_stats.request_events_retry_process')}
+      hidden={!isRetryPanelOpen}
+      style={typeof document === 'undefined' ? undefined : retryPanelPosition}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className={styles.requestEventsRetryHeader}>
+        <span>{t('usage_stats.request_events_retry_process')}</span>
+        <strong>{t('usage_stats.request_events_attempt_count', { count: displayAttemptCount })}</strong>
+      </div>
+      <div className={styles.requestEventsRetryList}>
+        {row.attempts.map((attempt) => (
+          <div key={attempt.id} className={styles.requestEventsRetryAttempt}>
+            <span className={attempt.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess}>
+              {attempt.failed ? t('usage_stats.failure') : t('usage_stats.success')}
+            </span>
+            <span className={styles.requestEventsRetryAttemptMeta}>
+              <strong>{attempt.source}</strong>
+              <span>{attempt.timestampLabel}</span>
+              <span>{formatDurationMs(attempt.latencyMs)}</span>
+              <span>{attempt.totalTokens.toLocaleString()}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className={styles.requestEventsRetryDetails} onClick={handleRetryDetailsClick}>
+      <span className={resultClassName}>{resultLabel}</span>
+      <button
+        ref={retrySummaryRef}
+        type="button"
+        className={styles.requestEventsRetrySummary}
+        aria-expanded={isRetryPanelOpen}
+        aria-controls={retryPanelId}
+        onClick={handleRetrySummaryClick}
+        onKeyDown={handleRetrySummaryKeyDown}
+      >
+        <span className={styles.requestEventsRetryIndicator}>{t('usage_stats.request_events_retry_indicator')}</span>
+      </button>
+      {typeof document === 'undefined' ? retryPanel : createPortal(retryPanel, document.body)}
+    </div>
+  );
+}
 interface RequestEventsTableProps {
   rows: RequestEventTileRow[];
   canOpenDetail: (row: RequestEventTileRow) => boolean;
   showLatency: boolean;
+  showTTFT?: boolean;
   showCost?: boolean;
   latencyHint?: string;
+  ttftHint?: string;
   t: RequestEventsTranslate;
   onOpenDetail?: (row: RequestEventTileRow) => void;
   footer?: React.ReactNode;
@@ -361,8 +551,10 @@ export function RequestEventsTable({
   rows,
   canOpenDetail,
   showLatency,
+  showTTFT = false,
   showCost = true,
   latencyHint,
+  ttftHint,
   t,
   onOpenDetail,
   footer,
@@ -374,11 +566,15 @@ export function RequestEventsTable({
           <thead>
             <tr>
               <th>{t('usage_stats.request_events_timestamp')}</th>
-              <th>{t('usage_stats.model_name')}</th>
-              <th>{t('usage_stats.reasoning_effort')}</th>
+              <th>{t('usage_stats.api_key_filter')}</th>
               <th>{t('usage_stats.request_events_source')}</th>
+              <th>{t('usage_stats.model_name')}</th>
+              <th title={t('usage_stats.reasoning_effort_hint')}>{t('usage_stats.reasoning_effort')}</th>
               <th>{t('usage_stats.request_events_result')}</th>
-              {showLatency && <th title={latencyHint}>{t('usage_stats.time')}</th>}
+              {showTTFT && <th title={ttftHint}>{t('usage_stats.ttft')}</th>}
+              {showLatency && <th title={latencyHint}>{t('usage_stats.latency')}</th>}
+              <th>{t('usage_stats.request_type')}</th>
+              <th>{t('usage_stats.request_endpoint')}</th>
               <th>{t('usage_stats.input_tokens')}</th>
               <th>{t('usage_stats.output_tokens')}</th>
               <th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>
@@ -395,6 +591,7 @@ export function RequestEventsTable({
                 row={row}
                 canOpenDetail={canOpenDetail(row)}
                 showLatency={showLatency}
+                showTTFT={showTTFT}
                 showCost={showCost}
                 t={t}
                 onOpenDetail={onOpenDetail}
@@ -438,6 +635,7 @@ export function RequestEventsDetailsCard({
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailErrorKey, setDetailErrorKey] = useState<string | null>(null);
   const requestDetailControllerRef = useRef<AbortController | null>(null);
+  const ttftHint = t('usage_stats.ttft_hint');
 
   const rows = useMemo<RequestEventTileRow[]>(() => {
     return events.map((event, index) => {
@@ -453,14 +651,17 @@ export function RequestEventsDetailsCard({
           : normalizeAuthIndex(authIndexRaw) || '-';
       const source = String(event.source ?? '').trim() || '-';
       const sourceType = String(event.source_type ?? '').trim();
+      const apiKey = String(event.api_key ?? '').trim() || '-';
       const model = String(event.model ?? '').trim() || '-';
       const reasoningEffort = String(event.reasoning_effort ?? '').trim() || '-';
+      const endpointFields = parseRequestEndpoint(event.endpoint);
       const inputTokens = Math.max(toNumber(event.tokens?.input_tokens), 0);
       const outputTokens = Math.max(toNumber(event.tokens?.output_tokens), 0);
       const reasoningTokens = Math.max(toNumber(event.tokens?.reasoning_tokens), 0);
       const cachedTokens = Math.max(toNumber(event.tokens?.cached_tokens), 0);
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
+      const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null;
       const pricing = modelPrices[model];
       const cost = calculateCost({
         timestamp,
@@ -487,8 +688,11 @@ export function RequestEventsDetailsCard({
         timestamp,
         timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
         timestampLabel: formatRequestEventTimestamp(timestamp),
+        apiKey,
         model,
         reasoningEffort,
+        requestType: endpointFields.requestType,
+        endpoint: endpointFields.endpoint,
         sourceRaw: sourceRaw || '-',
         source,
         sourceType,
@@ -496,6 +700,7 @@ export function RequestEventsDetailsCard({
         isDelete: event.isDelete === true,
         failed: event.failed === true,
         latencyMs,
+        ttftMs,
         inputTokens,
         outputTokens,
         reasoningTokens,
@@ -504,11 +709,14 @@ export function RequestEventsDetailsCard({
         cacheRate: formatCacheRateForSource(cachedTokens, inputTokens, sourceType),
         cost,
         hasPrice: Boolean(pricing),
+        attempts: mapRequestEventAttempts(event.attempts),
+        attemptCount: Math.max(toNumber(event.attempt_count), 1),
       };
     });
   }, [events, modelPrices]);
 
   const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
+  const hasTTFTData = true;
 
   const modelOptions = useMemo(() => {
     const options = [
@@ -616,6 +824,100 @@ export function RequestEventsDetailsCard({
     onSourceFilterChange(ALL_FILTER);
     onResultFilterChange(ALL_FILTER);
   };
+
+  const handleExportCsv = () => {
+    if (!rows.length) return;
+
+    const csvHeader = [
+      'timestamp',
+      'api_key',
+      'source',
+      'model',
+      'reasoning_effort',
+      'result',
+      ...(hasTTFTData ? ['ttft_ms'] : []),
+      ...(hasLatencyData ? ['latency_ms'] : []),
+      'request_type',
+      'endpoint',
+      'source_raw',
+      'auth_index',
+      'input_tokens',
+      'output_tokens',
+      'reasoning_tokens',
+      'cached_tokens',
+      'total_tokens',
+      'cost_usd',
+    ];
+
+    const csvRows = rows.map((row) =>
+      [
+        row.timestamp,
+        row.apiKey === '-' ? '' : row.apiKey,
+        row.source,
+        row.model,
+        row.reasoningEffort === '-' ? '' : row.reasoningEffort,
+        row.failed ? 'failed' : 'success',
+        ...(hasTTFTData ? [row.ttftMs ?? ''] : []),
+        ...(hasLatencyData ? [row.latencyMs ?? ''] : []),
+        row.requestType === '-' ? '' : row.requestType,
+        row.endpoint === '-' ? '' : row.endpoint,
+        row.sourceRaw,
+        row.authIndex,
+        row.inputTokens,
+        row.outputTokens,
+        row.reasoningTokens,
+        row.cachedTokens,
+        row.totalTokens,
+        row.hasPrice ? row.cost.toFixed(6) : '',
+      ]
+        .map((value) => encodeCsv(value))
+        .join(',')
+    );
+
+    const content = [csvHeader.map((value) => encodeCsv(value)).join(','), ...csvRows].join('\n');
+    const fileTime = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadBlob({
+      filename: `usage-events-${fileTime}.csv`,
+      blob: new Blob([content], { type: 'text/csv;charset=utf-8' }),
+    });
+  };
+
+  const handleExportJson = () => {
+    if (!rows.length) return;
+
+    const payload = rows.map((row) => ({
+      timestamp: row.timestamp,
+      api_key: row.apiKey === '-' ? '' : row.apiKey,
+      source: row.source,
+      model: row.model,
+      reasoning_effort: row.reasoningEffort === '-' ? '' : row.reasoningEffort,
+      failed: row.failed,
+      ...(hasTTFTData && row.ttftMs !== null ? { ttft_ms: row.ttftMs } : {}),
+      ...(hasLatencyData && row.latencyMs !== null ? { latency_ms: row.latencyMs } : {}),
+      request_type: row.requestType === '-' ? '' : row.requestType,
+      endpoint: row.endpoint === '-' ? '' : row.endpoint,
+      source_raw: row.sourceRaw,
+      auth_index: row.authIndex,
+      tokens: {
+        input_tokens: row.inputTokens,
+        output_tokens: row.outputTokens,
+        reasoning_tokens: row.reasoningTokens,
+        cached_tokens: row.cachedTokens,
+        total_tokens: row.totalTokens,
+      },
+      ...(row.hasPrice ? { cost_usd: Number(row.cost.toFixed(6)) } : {}),
+    }));
+
+    const content = JSON.stringify(payload, null, 2);
+    const fileTime = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadBlob({
+      filename: `usage-events-${fileTime}.json`,
+      blob: new Blob([content], { type: 'application/json;charset=utf-8' }),
+    });
+  };
+
+  void handleExportCsv;
+  void handleExportJson;
 
   const renderRequestDetail = () => {
     if (!selectedRow) return null;
@@ -756,7 +1058,9 @@ export function RequestEventsDetailsCard({
           rows={rows}
           canOpenDetail={canOpenRequestDetail}
           showLatency={hasLatencyData}
+          showTTFT={hasTTFTData}
           latencyHint={latencyHint}
+          ttftHint={ttftHint}
           t={t}
           onOpenDetail={handleOpenRequestDetail}
           footer={(

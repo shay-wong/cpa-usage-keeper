@@ -7,9 +7,10 @@ export const SUPPORTED_LANGUAGES = ['en', 'zh', 'zh-TW'] as const;
 
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 
-export const isSupportedLanguage = (language: string | null): language is SupportedLanguage => (
-  SUPPORTED_LANGUAGES.includes(language as SupportedLanguage)
-);
+export const isSupportedLanguage = (
+  language: string | null,
+): language is SupportedLanguage =>
+  SUPPORTED_LANGUAGES.includes(language as SupportedLanguage);
 
 const getInitialLanguage = (): SupportedLanguage => {
   if (typeof window === 'undefined') return DEFAULT_LANGUAGE;
@@ -27,24 +28,26 @@ const resources = {
         edit: 'Edit',
         delete: 'Delete',
         close: 'Close',
-        logout: 'Sign out'
+        logout: 'Sign out',
       },
       notification: {
         download_failed: 'Download failed',
         upload_failed: 'Upload failed',
-        refresh_failed: 'Refresh failed'
+        refresh_failed: 'Refresh failed',
       },
       status_bar: {
         success_short: 'OK',
         failure_short: 'Fail',
-        no_requests: 'No requests'
+        no_requests: 'No requests',
       },
       auth: {
         login_title: 'CPA Usage Statistics Dashboard',
-        login_subtitle: 'Preserve CPA request history, aggregate usage analytics, and inspect request health, model activity, and API statistics from a protected console.',
+        login_subtitle:
+          'Preserve CPA request history, aggregate usage analytics, and inspect request health, model activity, and API statistics from a protected console.',
         console_kicker: 'Access control',
         console_title: 'Choose your console',
-        console_hint: 'Administrators manage the full dashboard. API Key viewers see analytics scoped to their own key.',
+        console_hint:
+          'Administrators manage the full dashboard. API Key viewers see analytics scoped to their own key.',
         capabilities_label: 'Usage console capabilities',
         capability_persistence: 'Persistent CPA usage history',
         capability_analytics: 'Aggregation analytics by range',
@@ -55,44 +58,52 @@ const resources = {
         api_key_tab: 'API Key view',
         password_label: 'Admin password',
         password_placeholder: 'Enter admin password',
-        password_hint: 'Use the configured dashboard password for full administrative access.',
+        password_hint:
+          'Use the configured dashboard password for full administrative access.',
         api_key_label: 'CPA API Key',
         api_key_placeholder: 'Paste your CPA API Key',
-        api_key_hint: 'API Key access opens a read-only overview for that key only.',
+        api_key_hint:
+          'API Key access opens a read-only overview for that key only.',
         login_submit: 'Open admin console',
         api_key_login_submit: 'Open key overview',
         invalid_password: 'Incorrect password',
         invalid_api_key: 'API Key is incorrect',
-        login_rate_limited: 'Too many attempts. Please wait a moment and try again.',
+        login_rate_limited:
+          'Too many attempts. Please wait a moment and try again.',
         login_failed: 'Unable to complete login right now',
         api_key_login_failed: 'Unable to open the API Key overview right now',
-        session_expired: 'Your session expired. Please sign in again.'
+        session_expired: 'Your session expired. Please sign in again.',
       },
       key_overview: {
         eyebrow: 'Key overview',
         title: 'API Key usage overview',
-        subtitle: 'Read-only CPA usage analytics scoped to this key, including request volume, token mix, cost trend, and reliability timeline.',
+        subtitle:
+          'Read-only CPA usage analytics scoped to this key, including request volume, token mix, cost trend, and reliability timeline.',
         tabs_aria_label: 'API Key overview sections',
         identity_unknown: 'Current API Key',
         logout: 'Sign out',
         load_failed: 'Unable to load API Key overview',
-        rate_limited: 'The overview is refreshing too often. Please wait a moment before trying again.'
+        rate_limited:
+          'The overview is refreshing too often. Please wait a moment before trying again.',
       },
       usage_stats: {
         title: 'Usage',
         refresh: 'Refresh',
         sync_now: 'Sync Now',
         check_updates: 'Check Updates',
-        update_check_dev_build: 'This development build cannot be compared for updates.',
+        update_check_dev_build:
+          'This development build cannot be compared for updates.',
         update_check_new_version: 'New version available: {{version}}',
         update_check_latest: 'You are already on the latest version.',
-        update_check_failed: 'Unable to check for updates right now. Please try again later.',
+        update_check_failed:
+          'Unable to check for updates right now. Please try again later.',
         dismiss_notice: 'Close',
         export: 'Export',
         import: 'Import',
         export_success: 'Usage exported',
         import_invalid: 'Invalid import file',
-        import_success: 'Import complete: added {{added}}, skipped {{skipped}}, total {{total}}, failed {{failed}}',
+        import_success:
+          'Import complete: added {{added}}, skipped {{skipped}}, total {{total}}, failed {{failed}}',
         last_updated: 'Last Updated',
         back_to_cpa: 'Back to CPA',
         back_to_cpa_aria: 'Back to CPA management',
@@ -103,6 +114,8 @@ const resources = {
         tab_events: 'Request Events',
         tab_credentials: 'Credentials',
         tab_storage: 'Storage',
+        tab_auth_files: 'Auth Files',
+        tab_ai_provider: 'AI Provider',
         tab_settings: 'Settings',
         tab_pricing: 'Pricing',
         range_filter: 'Range',
@@ -121,7 +134,8 @@ const resources = {
         custom_start: 'Start Date',
         custom_end: 'End Date',
         custom_invalid: 'Start date must be earlier than or equal to end date',
-        custom_incomplete: 'Select both start and end dates to apply a custom range',
+        custom_incomplete:
+          'Select both start and end dates to apply a custom range',
         no_data: 'No Data',
         requests_trend: 'Requests Trend',
         tokens_trend: 'Tokens Trend',
@@ -134,10 +148,15 @@ const resources = {
         total_time: 'Total Time',
         time: 'Time',
         total_tokens: 'Total Tokens',
+        ttft: 'TTFT',
+        ttft_hint: 'Time to First Token',
+        request_type: 'Type',
+        request_endpoint: 'Endpoint',
         cache_rate: 'Cache Rate',
         cached_tokens: 'Cached',
         reasoning_tokens: 'Reasoning',
-        reasoning_effort: 'Reasoning Level',
+        reasoning_effort: 'Effort',
+        reasoning_effort_hint: 'Reasoning Effort',
         rpm: 'RPM',
         tpm: 'TPM',
         rpm_30m: 'RPM (30m)',
@@ -157,7 +176,8 @@ const resources = {
         export_json: 'Export JSON',
         request_events_title: 'Request Event Log',
         request_events_eyebrow: 'Event Stream',
-        request_events_subtitle: 'Filter, inspect, and export the raw request events behind every aggregate on the page.',
+        request_events_subtitle:
+          'Filter, inspect, and export the raw request events behind every aggregate on the page.',
         request_events_showing: 'Showing {{shown}} of {{total}}',
         request_events_filtered: '{{count}} filtered',
         request_events_filter_model: 'Model',
@@ -165,9 +185,11 @@ const resources = {
         request_events_filter_result: 'Result',
         request_events_filter_auth_index: 'Credential',
         request_events_empty_title: 'No Request Events Yet',
-        request_events_empty_desc: 'Request events will appear here after traffic is recorded.',
+        request_events_empty_desc:
+          'Request events will appear here after traffic is recorded.',
         request_events_no_result_title: 'No Matching Request Events',
-        request_events_no_result_desc: 'Try clearing filters or broadening the selected criteria.',
+        request_events_no_result_desc:
+          'Try clearing filters or broadening the selected criteria.',
         request_events_count: '{{count}} events on this page',
         request_events_total_count: '{{count}} total events',
         request_events_rows_per_page: 'Size',
@@ -180,6 +202,9 @@ const resources = {
         request_events_source: 'Source',
         request_events_auth_index: 'Credential',
         request_events_result: 'Result',
+        request_events_retry_indicator: 'Retry',
+        request_events_retry_process: 'Retry Process',
+        request_events_attempt_count: '{{count}} attempts',
         request_events_view_detail: 'View request detail for {{requestId}}',
         request_events_back_to_list: 'Back to list',
         request_events_detail_title: 'Request Detail',
@@ -188,9 +213,12 @@ const resources = {
         request_events_detail_cached_yes: 'Cache hit',
         request_events_detail_cached_no: 'Fetched upstream',
         request_events_detail_fetched_at: 'Fetched At',
-        request_events_detail_load_failed: 'Unable to load request detail. Please try again later.',
-        request_events_detail_missing: 'Request detail is unavailable or has been cleaned upstream.',
-        request_events_detail_too_large: 'Request detail is too large to cache locally.',
+        request_events_detail_load_failed:
+          'Unable to load request detail. Please try again later.',
+        request_events_detail_missing:
+          'Request detail is unavailable or has been cleaned upstream.',
+        request_events_detail_too_large:
+          'Request detail is too large to cache locally.',
         request_events_detail_method: 'Method',
         request_events_detail_path: 'Path',
         request_events_detail_status: 'Status',
@@ -228,9 +256,19 @@ const resources = {
         credential_stats: 'Credential Stats',
         credential_name: 'Credential',
         credentials_count: '{{count}} credentials',
+        credentials_filter_aria_label: 'Credential provider filters',
+        credentials_filter_all: 'All',
+        credentials_filter_antigravity: 'Antigravity',
+        credentials_filter_claude: 'Claude',
+        credentials_filter_codex: 'Codex',
+        credentials_filter_gemini: 'Gemini',
+        credentials_filter_gemini_cli: 'GeminiCLI',
+        credentials_filter_iflow: 'iFlow',
+        credentials_filter_openai: 'OpenAI',
         credentials_auth_files_eyebrow: 'Credentials',
         credentials_auth_files_title: 'Auth Files',
-        credentials_auth_files_subtitle: 'View request activity and quota status for local auth files.',
+        credentials_auth_files_subtitle:
+          'View request activity and quota status for local auth files.',
         credentials_auth_files_empty: 'No auth file credentials on this page.',
         credentials_auth_files_active_only: 'Enabled only',
         credentials_sort_label: 'Sort',
@@ -239,20 +277,39 @@ const resources = {
         credentials_sort_total_tokens: 'Tokens',
         credentials_ai_providers_eyebrow: 'Credentials',
         credentials_ai_providers_title: 'AI Provider',
-        credentials_ai_providers_subtitle: 'View request activity for AI providers.',
-        credentials_ai_providers_empty: 'No AI provider credentials on this page.',
+        credentials_ai_providers_subtitle:
+          'View request activity for AI providers.',
+        credentials_ai_providers_empty:
+          'No AI provider credentials on this page.',
         credentials_quota_refresh_current_page: 'Update Quotas',
         credentials_quota_refreshing: 'Refreshing quotas',
         credentials_quota_loading: 'Checking quota',
         credentials_quota_unavailable: 'No quota data',
         credentials_quota_remaining: '{{count}} left',
         credentials_quota_percent_used: '{{percent}} used',
-        credentials_quota_percent_remaining: '{{percent}} remaining',
         credentials_refresh_status: 'Refresh',
         credentials_refresh_status_queued: 'Queued',
         credentials_refresh_status_running: 'Running',
         credentials_refresh_status_completed: 'Completed',
         credentials_refresh_status_failed: 'Failed',
+        credentials_refresh_error_unauthorized:
+          'Please sign in again to refresh quota.',
+        credentials_refresh_error_duplicate:
+          'Quota refresh is already running for this credential.',
+        credentials_refresh_error_duplicate_request:
+          'This credential was already included in the refresh request.',
+        credentials_refresh_error_not_auth_file:
+          'Quota refresh only supports local auth files.',
+        credentials_refresh_error_unsupported:
+          'Quota refresh is not supported for this credential type.',
+        credentials_refresh_error_not_found:
+          'This credential is no longer available.',
+        credentials_refresh_error_invalid:
+          'This credential cannot be refreshed.',
+        credentials_refresh_error_failed:
+          'Quota refresh failed. Please try again later.',
+        credentials_quota_window_usage_aria:
+          'Tokens: {{tokens}}, Cost: {{cost}}',
         credentials_last_used: 'Last used',
         credentials_stats_updated: 'Stats updated',
         previous_page: 'Previous',
@@ -266,7 +323,8 @@ const resources = {
         model_stats: 'Model Stats',
         api_key_settings_eyebrow: 'API Key Settings',
         api_key_settings_title: 'API Key Settings',
-        api_key_settings_subtitle: 'Set display aliases for synced CPA API keys without exposing the full key.',
+        api_key_settings_subtitle:
+          'Set display aliases for synced CPA API keys without exposing the full key.',
         api_key_settings_empty: 'No CPA API keys synced yet.',
         api_key_settings_id: 'Local ID',
         api_key_settings_display_key: 'API Key',
@@ -274,74 +332,99 @@ const resources = {
         api_key_settings_saving: 'Saving',
         database_cleanup_eyebrow: 'Database',
         database_cleanup_title: 'Database Cleanup',
-        database_cleanup_subtitle: 'Configure automatic cleanup for cached request details and SQLite size pressure.',
+        database_cleanup_subtitle:
+          'Configure automatic cleanup for cached request details and SQLite size pressure.',
         database_cleanup_retention_days: 'Request log detail retention',
         database_cleanup_retention_hint: 'Unit: days. 0 disables cleanup.',
         database_cleanup_max_size_mb: 'Maximum database size (MB)',
         database_cleanup_current_size: 'Current database size: {{size}}',
         database_cleanup_current_size_label: 'Current database size',
-        database_cleanup_current_size_hint: 'Read-only live SQLite file size from the current backend instance.',
+        database_cleanup_current_size_hint:
+          'Read-only live SQLite file size from the current backend instance.',
         database_cleanup_disabled_hint: '0 disables cleanup',
-        database_cleanup_size_hint: 'Unit: MB. 0 disables size-based cleanup; checked during daily maintenance.',
+        database_cleanup_size_hint:
+          'Unit: MB. 0 disables size-based cleanup; checked during daily maintenance.',
         database_cleanup_invalid: 'Use non-negative whole numbers.',
         database_cleanup_saving: 'Saving',
         storage_page_title: 'Storage, Cleanup & Backup',
-        storage_page_subtitle: 'Inspect database and backup usage, and choose the data scope for cleanup, backup, and restore.',
+        storage_page_subtitle:
+          'Inspect database and backup usage, and choose the data scope for cleanup, backup, and restore.',
         storage_overview_eyebrow: 'Overview',
         storage_overview_title: 'Storage Overview',
-        storage_overview_subtitle: 'View current database, backup directory, and per-domain storage usage.',
+        storage_overview_subtitle:
+          'View current database, backup directory, and per-domain storage usage.',
         storage_current_database_size_label: 'Current database size',
-        storage_current_database_size_hint: 'Current backend database size; PostgreSQL uses pg_database_size, SQLite uses local file size.',
+        storage_current_database_size_hint:
+          'Current backend database size; PostgreSQL uses pg_database_size, SQLite uses local file size.',
         storage_backup_size_label: 'Current backup size',
         storage_backup_count_hint: '{{count}} backup files.',
         storage_rows_size_summary: '{{rows}} rows · {{size}}',
         storage_table_list_label: 'Affected tables',
         storage_cleanup_eyebrow: 'Cleanup',
         storage_cleanup_title: 'Recording & Cleanup',
-        storage_cleanup_subtitle: 'Control request detail recording and choose cleanup ranges for request and usage logs.',
+        storage_cleanup_subtitle:
+          'Control request detail recording and choose cleanup ranges for request and usage logs.',
         storage_record_request_details_label: 'Record request details',
-        storage_record_request_details_hint: 'When off, request detail cache is no longer prefetched or lazy-loaded.',
+        storage_record_request_details_hint:
+          'When off, request detail cache is no longer prefetched or lazy-loaded.',
         storage_cleanup_request_logs_label: 'Cleanup request logs',
         storage_cleanup_request_logs_hint: 'Cleanup usage_request_details.',
         storage_cleanup_usage_logs_label: 'Cleanup usage logs',
-        storage_cleanup_usage_logs_hint: 'Cleanup usage_events and rebuild Overview stats cache.',
+        storage_cleanup_usage_logs_hint:
+          'Cleanup usage_events and rebuild Overview stats cache.',
         storage_request_log_retention_label: 'Request log retention days',
-        storage_request_log_retention_hint: '0 disables time-based request log cleanup.',
+        storage_request_log_retention_hint:
+          '0 disables time-based request log cleanup.',
         storage_usage_log_retention_label: 'Usage log retention days',
-        storage_usage_log_retention_hint: '0 disables time-based usage log cleanup.',
+        storage_usage_log_retention_hint:
+          '0 disables time-based usage log cleanup.',
         storage_max_database_size_label: 'Maximum database size (MB)',
-        storage_max_database_size_hint: '0 disables size-based cleanup; oldest data is deleted from enabled cleanup domains.',
+        storage_max_database_size_hint:
+          '0 disables size-based cleanup; oldest data is deleted from enabled cleanup domains.',
         storage_backup_eyebrow: 'Backup',
         storage_backup_title: 'Backup Settings',
-        storage_backup_subtitle: 'Choose backup data scope, retention count, and daily backup time.',
+        storage_backup_subtitle:
+          'Choose backup data scope, retention count, and daily backup time.',
         storage_max_backup_count_label: 'Maximum backup count',
-        storage_max_backup_count_hint: 'Default keeps 1 backup; 0 disables count-based backup cleanup.',
+        storage_max_backup_count_hint:
+          'Default keeps 1 backup; 0 disables count-based backup cleanup.',
         storage_backup_time_label: 'Daily backup time',
         storage_backup_time_hint: 'Runs once daily at this local time.',
         storage_restore_eyebrow: 'Restore',
         storage_restore_title: 'Restore Backup',
-        storage_restore_subtitle: 'Choose an existing backup and the data domains to restore.',
+        storage_restore_subtitle:
+          'Choose an existing backup and the data domains to restore.',
         storage_restore_select_label: 'Backup to restore',
         storage_restore_select_placeholder: 'Select backup file',
-        storage_restore_safe_hint: 'A safety backup is created automatically before restore.',
-        storage_restore_skip_hint: 'Safety backup is skipped; confirm current data may be overwritten.',
+        storage_restore_safe_hint:
+          'A safety backup is created automatically before restore.',
+        storage_restore_skip_hint:
+          'Safety backup is skipped; confirm current data may be overwritten.',
         storage_skip_safety_backup_label: 'Skip safety backup',
-        storage_skip_safety_backup_hint: 'When on, current database is not backed up before restore.',
-        storage_restore_skip_confirm: 'Restore will overwrite selected data without creating a safety backup. Continue?',
+        storage_skip_safety_backup_hint:
+          'When on, current database is not backed up before restore.',
+        storage_restore_skip_confirm:
+          'Restore will overwrite selected data without creating a safety backup. Continue?',
         storage_domain_request_logs_label: 'Request logs',
-        storage_domain_request_logs_hint: 'usage_request_details. Request details are not backed up by default.',
+        storage_domain_request_logs_hint:
+          'usage_request_details. Request details are not backed up by default.',
         storage_domain_usage_logs_label: 'Usage logs',
-        storage_domain_usage_logs_hint: 'usage_events and Overview stats cache.',
+        storage_domain_usage_logs_hint:
+          'usage_events and Overview stats cache.',
         storage_domain_usage_identities_label: 'Credentials & identities',
-        storage_domain_usage_identities_hint: 'Auth File / AI Provider identities and accumulated stats.',
+        storage_domain_usage_identities_hint:
+          'Auth File / AI Provider identities and accumulated stats.',
         storage_domain_api_keys_label: 'API Key',
         storage_domain_api_keys_hint: 'CPA API Key list and local aliases.',
         storage_domain_redis_inbox_label: 'Redis inbox cache',
-        storage_domain_redis_inbox_hint: 'Unprocessed or failed raw Redis messages.',
+        storage_domain_redis_inbox_hint:
+          'Unprocessed or failed raw Redis messages.',
         storage_domain_model_prices_label: 'Model prices',
-        storage_domain_model_prices_hint: 'Pricing config used for model cost calculation.',
+        storage_domain_model_prices_hint:
+          'Pricing config used for model cost calculation.',
         storage_error_non_negative_integer: 'Use non-negative whole numbers.',
-        storage_error_backup_time: 'Backup time must be between 00:00 and 23:59.',
+        storage_error_backup_time:
+          'Backup time must be between 00:00 and 23:59.',
         storage_error_backup_domain: 'Select at least one backup data type.',
         storage_error_restore_backup: 'Select a backup to restore.',
         storage_error_restore_domain: 'Select at least one restore data type.',
@@ -354,18 +437,24 @@ const resources = {
         storage_settings_save_failed: 'Unable to save storage settings.',
         storage_backup_create_failed: 'Unable to create backup.',
         storage_backup_restore_failed: 'Unable to restore backup.',
-        storage_backup_running: 'Creating backup. Large PostgreSQL dumps may take several minutes; keep this page open.',
+        storage_backup_running:
+          'Creating backup. Large PostgreSQL dumps may take several minutes; keep this page open.',
         storage_backup_running_button: 'Backing up...',
-        storage_restore_running: 'Restoring backup. Selected data is being replaced inside a transaction.',
+        storage_restore_running:
+          'Restoring backup. Selected data is being replaced inside a transaction.',
         storage_restore_running_button: 'Restoring...',
-        storage_retention_disabled_hint: 'Enable cleanup for this log type before setting retention days.',
+        storage_retention_disabled_hint:
+          'Enable cleanup for this log type before setting retention days.',
         storage_create_backup: 'Back up now',
         storage_restore_selected: 'Restore selected backup',
-        storage_backup_unavailable: 'Database backups are not available for the current storage backend.',
-        storage_restore_unavailable: 'Database restore is not available for the current storage backend.',
+        storage_backup_unavailable:
+          'Database backups are not available for the current storage backend.',
+        storage_restore_unavailable:
+          'Database restore is not available for the current storage backend.',
         model_price_settings: 'Price Settings',
         model_price_settings_title: 'Model Pricing Settings',
-        model_price_settings_subtitle: 'Configure each model token unit price for cost analytics.',
+        model_price_settings_subtitle:
+          'Configure each model token unit price for cost analytics.',
         model_price_settings_eyebrow: 'Pricing Settings',
         model_price_select_placeholder: 'Select Model',
         model_price_configured: 'Configured',
@@ -380,7 +469,8 @@ const resources = {
         cost_trend_title: 'Cost Trend',
         service_health: 'Service Health',
         service_health_title: 'Request Health Timeline',
-        service_health_subtitle: 'A compact reliability strip mapped to the selected range, with timeline detail capped at 7 days.',
+        service_health_subtitle:
+          'A compact reliability strip mapped to the selected range, with timeline detail capped at 7 days.',
         service_health_eyebrow: 'Reliability',
         service_health_window: 'Last 7 Days',
         service_health_oldest: 'Oldest',
@@ -391,7 +481,8 @@ const resources = {
         chart_line_title: 'Chart Line Selection',
         chart_line_add: 'Add Line',
         chart_line_delete: 'Remove',
-        chart_line_hint: 'Choose the model lines you want to compare in the trend charts.',
+        chart_line_hint:
+          'Choose the model lines you want to compare in the trend charts.',
         chart_line_label: 'Line {{index}}',
         chart_line_all_traffic: 'All Traffic',
         theme_white: 'White',
@@ -401,36 +492,44 @@ const resources = {
         theme_switch: 'Theme',
         language_switch: 'Language',
         analysis_token_usage_title: 'Token Usage Over Time',
-        analysis_token_usage_subtitle: 'Input, output, cached and reasoning tokens with request trend.',
+        analysis_token_usage_subtitle:
+          'Input, output, cached and reasoning tokens with request trend.',
         analysis_api_key_composition_title: 'API Key Composition',
         analysis_model_composition_title: 'Model Composition',
         analysis_auth_files_composition_title: 'Auth Files Composition',
         analysis_ai_provider_composition_title: 'AI Provider Composition',
         analysis_composition_subtitle: 'Top usage share by total tokens.',
         analysis_heatmap_title: 'API Key & Models Heatmap',
-        analysis_heatmap_subtitle: 'Token distribution across API keys and models.',
+        analysis_heatmap_subtitle:
+          'Token distribution across API keys and models.',
         analysis_heatmap_api_key: 'API Key',
         analysis_heatmap_low: 'Low',
         analysis_heatmap_high: 'High',
         analysis_heatmap_legend: 'Heatmap intensity legend',
-        analysis_heatmap_cell_title: '{{model}}: {{tokens}} Tokens, {{requests}} Requests',
+        analysis_heatmap_cell_title:
+          '{{model}}: {{tokens}} Tokens, {{requests}} Requests',
         analysis_heatmap_tokens_prefix: 'T',
         analysis_heatmap_requests_prefix: 'R',
         analysis_others: 'Others',
         api_details_title: 'API Usage Breakdown',
-        api_details_subtitle: 'Compare request volume, token load, and estimated spend across API surfaces.',
+        api_details_subtitle:
+          'Compare request volume, token load, and estimated spend across API surfaces.',
         api_details_eyebrow: 'API View',
         model_stats_title: 'Model Performance Table',
-        model_stats_subtitle: 'Inspect throughput, latency, reliability, and cost concentration by model.',
+        model_stats_subtitle:
+          'Inspect throughput, latency, reliability, and cost concentration by model.',
         model_stats_eyebrow: 'Model View',
         credential_stats_title: 'Credential Traffic Table',
-        credential_stats_subtitle: 'Review request reliability by credential identity and provider source.',
+        credential_stats_subtitle:
+          'Review request reliability by credential identity and provider source.',
         credential_stats_eyebrow: 'Credential View',
         credential_top_chart_eyebrow: 'Credential Ranking',
         credential_top_chart_title: 'Credential Requests',
-        credential_top_chart_hint: 'Top 10 credentials ranked by request volume, split by success and failure count',
+        credential_top_chart_hint:
+          'Top 10 credentials ranked by request volume, split by success and failure count',
         monitoring_empty_title: 'No monitoring data yet',
-        monitoring_empty_desc: 'Monitoring data will appear after request events are recorded for the selected range.',
+        monitoring_empty_desc:
+          'Monitoring data will appear after request events are recorded for the selected range.',
         monitoring_cost_available: 'Pricing configured',
         monitoring_rpd: 'Avg RPD',
         monitoring_rpd_window: '{{count}} day average',
@@ -445,22 +544,28 @@ const resources = {
         monitoring_hourly_custom: 'Custom',
         monitoring_model_distribution: 'Model Distribution',
         monitoring_model_distribution_empty: 'No model distribution data.',
-        monitoring_model_distribution_summary: 'Top model {{model}} handled {{requests}} requests at {{successRate}} success rate.',
+        monitoring_model_distribution_summary:
+          'Top model {{model}} handled {{requests}} requests at {{successRate}} success rate.',
         monitoring_daily_trend: 'Daily Trend',
         monitoring_daily_trend_empty: 'No daily trend data.',
-        monitoring_daily_trend_summary: '{{count}} day trend from {{start}} to {{end}}; peak {{peakDate}} with {{peakRequests}} requests and {{peakTokens}} tokens.',
+        monitoring_daily_trend_summary:
+          '{{count}} day trend from {{start}} to {{end}}; peak {{peakDate}} with {{peakRequests}} requests and {{peakTokens}} tokens.',
         monitoring_recent_requests_count: '{{count}} recent requests',
         monitoring_recent_request_item: '{{time}} {{result}}',
-        monitoring_recent_request_buckets_count: '{{count}} recent request windows',
-        monitoring_recent_request_bucket_item: '{{start}} - {{end}} · {{success}} success / {{failed}} failed · {{total}} total',
+        monitoring_recent_request_buckets_count:
+          '{{count}} recent request windows',
+        monitoring_recent_request_bucket_item:
+          '{{start}} - {{end}} · {{success}} success / {{failed}} failed · {{total}} total',
         monitoring_channels: 'Channel Stats',
         monitoring_recent_requests: 'Recent Requests',
         monitoring_failures: 'Failure Analysis',
         monitoring_no_failures: 'No failures in this range',
         monitoring_request_logs: 'Recent Request Logs',
-        monitoring_request_logs_empty: 'No request logs match the current filters.',
+        monitoring_request_logs_empty:
+          'No request logs match the current filters.',
         monitoring_title: 'Monitoring Center',
-        monitoring_subtitle: 'Track request volume, channel quality, model concentration, and recent failures in a CPAMC-style operational view.',
+        monitoring_subtitle:
+          'Track request volume, channel quality, model concentration, and recent failures in a CPAMC-style operational view.',
         monitoring_range_summary: '{{start}} to {{end}} · {{timezone}}',
         monitoring_query_results: '{{count}} matched items',
         monitoring_time_14d: '14d',
@@ -468,11 +573,14 @@ const resources = {
         monitoring_search_placeholder: 'Search channel, source, or model',
         monitoring_search_apply: 'View',
         monitoring_custom_window: 'Custom Window',
-        monitoring_no_matching_data: 'No monitoring data matches the current query.',
+        monitoring_no_matching_data:
+          'No monitoring data matches the current query.',
         monitoring_hourly_models: 'Hourly Model Requests',
-        monitoring_hourly_models_empty: 'No hourly model data for the current query.',
+        monitoring_hourly_models_empty:
+          'No hourly model data for the current query.',
         monitoring_hourly_tokens: 'Hourly Token Usage',
-        monitoring_hourly_tokens_empty: 'No hourly token data for the selected range.',
+        monitoring_hourly_tokens_empty:
+          'No hourly token data for the selected range.',
         monitoring_table_models: 'Models',
         monitoring_table_recent_status: 'Recent Status',
         monitoring_table_failed_requests: 'Failed Requests',
@@ -482,9 +590,9 @@ const resources = {
         monitoring_primary_failure_models: 'Primary Failure Models',
         monitoring_page_size: '{{count}} / page',
         last_request: 'Last Request',
-        last_failure: 'Last Failure'
-      }
-    }
+        last_failure: 'Last Failure',
+      },
+    },
   },
   zh: {
     translation: {
@@ -495,24 +603,26 @@ const resources = {
         edit: '编辑',
         delete: '删除',
         close: '关闭',
-        logout: '退出登录'
+        logout: '退出登录',
       },
       notification: {
         download_failed: '下载失败',
         upload_failed: '上传失败',
-        refresh_failed: '刷新失败'
+        refresh_failed: '刷新失败',
       },
       status_bar: {
         success_short: '成功',
         failure_short: '失败',
-        no_requests: '暂无请求'
+        no_requests: '暂无请求',
       },
       auth: {
         login_title: 'CPA 用量统计仪表盘',
-        login_subtitle: '持续保存 CPA 请求记录，聚合用量分析，并在受保护的控制台中查看请求健康、模型活动与 API 统计。',
+        login_subtitle:
+          '持续保存 CPA 请求记录，聚合用量分析，并在受保护的控制台中查看请求健康、模型活动与 API 统计。',
         console_kicker: '访问控制',
         console_title: '选择访问方式',
-        console_hint: '管理员可进入完整控制台；API Key 查看者只能查看该 API Key 对应的只读概览。',
+        console_hint:
+          '管理员可进入完整控制台；API Key 查看者只能查看该 API Key 对应的只读概览。',
         capabilities_label: '用量控制台能力',
         capability_persistence: 'CPA 用量记录持久保存',
         capability_analytics: '按时间范围聚合分析',
@@ -534,17 +644,18 @@ const resources = {
         login_rate_limited: '尝试次数过多，请稍后再试。',
         login_failed: '当前无法完成登录',
         api_key_login_failed: '当前无法打开 API Key 概览',
-        session_expired: '登录状态已失效，请重新登录。'
+        session_expired: '登录状态已失效，请重新登录。',
       },
       key_overview: {
         eyebrow: 'API Key 概览',
         title: 'API Key 用量概览',
-        subtitle: '只读查看当前 API Key 的 CPA 用量分析，包括请求量、Token 构成、成本趋势与稳定性时间线。',
+        subtitle:
+          '只读查看当前 API Key 的 CPA 用量分析，包括请求量、Token 构成、成本趋势与稳定性时间线。',
         tabs_aria_label: 'API Key 概览分区',
         identity_unknown: '当前 API Key',
         logout: '退出登录',
         load_failed: '无法加载 API Key 概览',
-        rate_limited: '概览刷新过于频繁，请稍候再试。'
+        rate_limited: '概览刷新过于频繁，请稍候再试。',
       },
       usage_stats: {
         title: '用量',
@@ -560,7 +671,8 @@ const resources = {
         import: '导入',
         export_success: '用量已导出',
         import_invalid: '导入文件无效',
-        import_success: '导入完成：新增 {{added}}，跳过 {{skipped}}，总计 {{total}}，失败 {{failed}}',
+        import_success:
+          '导入完成：新增 {{added}}，跳过 {{skipped}}，总计 {{total}}，失败 {{failed}}',
         last_updated: '最近更新',
         back_to_cpa: '返回CPA',
         back_to_cpa_aria: '返回CPA管理界面',
@@ -571,6 +683,8 @@ const resources = {
         tab_events: '请求事件',
         tab_credentials: '凭证',
         tab_storage: '存储',
+        tab_auth_files: '认证文件',
+        tab_ai_provider: 'AI 供应商',
         tab_settings: '设置',
         tab_pricing: '定价',
         range_filter: '范围',
@@ -602,10 +716,15 @@ const resources = {
         total_time: '总耗时',
         time: '耗时',
         total_tokens: 'Token 总数',
+        ttft: '首字延迟',
+        ttft_hint: '首字延迟',
+        request_type: '类型',
+        request_endpoint: '端点',
         cache_rate: '缓存率',
         cached_tokens: '缓存',
         reasoning_tokens: '推理',
-        reasoning_effort: '推理等级',
+        reasoning_effort: '推理强度',
+        reasoning_effort_hint: '推理强度',
         rpm: 'RPM',
         tpm: 'TPM',
         rpm_30m: 'RPM（30 分钟）',
@@ -625,7 +744,8 @@ const resources = {
         export_json: '导出 JSON',
         request_events_title: '请求事件日志',
         request_events_eyebrow: '事件流',
-        request_events_subtitle: '筛选、查看并导出页面中各项聚合数据背后的原始请求事件。',
+        request_events_subtitle:
+          '筛选、查看并导出页面中各项聚合数据背后的原始请求事件。',
         request_events_showing: '显示 {{shown}} / {{total}}',
         request_events_filtered: '已筛选 {{count}} 条',
         request_events_filter_model: '模型',
@@ -648,6 +768,9 @@ const resources = {
         request_events_source: '来源',
         request_events_auth_index: '凭证',
         request_events_result: '结果',
+        request_events_retry_indicator: '重试',
+        request_events_retry_process: '重试过程',
+        request_events_attempt_count: '{{count}} 次尝试',
         request_events_view_detail: '查看 {{requestId}} 的请求详情',
         request_events_back_to_list: '返回列表',
         request_events_detail_title: '请求详情',
@@ -692,13 +815,23 @@ const resources = {
         tokens_count: 'Token 数',
         input_tokens: '输入',
         output_tokens: '输出',
-        latency: '延迟',
+        latency: '总延迟',
         credential_stats: '凭证统计',
         credential_name: '凭证',
         credentials_count: '{{count}} 个凭证',
+        credentials_filter_aria_label: '凭证供应商筛选',
+        credentials_filter_all: '全部',
+        credentials_filter_antigravity: 'Antigravity',
+        credentials_filter_claude: 'Claude',
+        credentials_filter_codex: 'Codex',
+        credentials_filter_gemini: 'Gemini',
+        credentials_filter_gemini_cli: 'GeminiCLI',
+        credentials_filter_iflow: 'iFlow',
+        credentials_filter_openai: 'OpenAI',
         credentials_auth_files_eyebrow: '凭证',
         credentials_auth_files_title: '认证文件',
-        credentials_auth_files_subtitle: '查看本地认证文件的请求活动及限额情况。',
+        credentials_auth_files_subtitle:
+          '查看本地认证文件的请求活动及限额情况。',
         credentials_auth_files_empty: '当前页没有认证文件凭证。',
         credentials_auth_files_active_only: '仅启用',
         credentials_sort_label: '排序',
@@ -715,12 +848,22 @@ const resources = {
         credentials_quota_unavailable: '暂无限额数据',
         credentials_quota_remaining: '剩余 {{count}}',
         credentials_quota_percent_used: '已用 {{percent}}',
-        credentials_quota_percent_remaining: '剩余 {{percent}}',
         credentials_refresh_status: '刷新',
         credentials_refresh_status_queued: '排队中',
         credentials_refresh_status_running: '运行中',
         credentials_refresh_status_completed: '已完成',
         credentials_refresh_status_failed: '失败',
+        credentials_refresh_error_unauthorized: '请重新登录后刷新限额。',
+        credentials_refresh_error_duplicate: '该凭证的限额刷新正在运行。',
+        credentials_refresh_error_duplicate_request:
+          '该凭证已包含在本次刷新请求中。',
+        credentials_refresh_error_not_auth_file: '限额刷新仅支持本地认证文件。',
+        credentials_refresh_error_unsupported: '该凭证类型不支持限额刷新。',
+        credentials_refresh_error_not_found: '该凭证已不可用。',
+        credentials_refresh_error_invalid: '该凭证无法刷新。',
+        credentials_refresh_error_failed: '限额刷新失败，请稍后重试。',
+        credentials_quota_window_usage_aria:
+          'Token：{{tokens}}，成本：{{cost}}',
         credentials_last_used: '最后使用',
         credentials_stats_updated: '统计更新',
         previous_page: '上一页',
@@ -734,7 +877,8 @@ const resources = {
         model_stats: '模型统计',
         api_key_settings_eyebrow: 'API Key 设置',
         api_key_settings_title: 'API Key 设置',
-        api_key_settings_subtitle: '为已同步的 CPA API Key 设置展示别名，前端不会暴露完整 API Key。',
+        api_key_settings_subtitle:
+          '为已同步的 CPA API Key 设置展示别名，前端不会暴露完整 API Key。',
         api_key_settings_empty: '暂无已同步的 CPA API Key。',
         api_key_settings_id: '本地 ID',
         api_key_settings_display_key: 'API Key',
@@ -742,48 +886,59 @@ const resources = {
         api_key_settings_saving: '保存中',
         database_cleanup_eyebrow: '数据库',
         database_cleanup_title: '数据库自动清理',
-        database_cleanup_subtitle: '配置请求详情日志缓存保留时间，以及 SQLite 数据库大小压力清理。',
+        database_cleanup_subtitle:
+          '配置请求详情日志缓存保留时间，以及 SQLite 数据库大小压力清理。',
         database_cleanup_retention_days: '请求详情日志保留天数',
         database_cleanup_retention_hint: '单位：天。填 0 表示关闭清理。',
         database_cleanup_max_size_mb: '数据库最大占用 (MB)',
         database_cleanup_current_size: '当前数据库占用：{{size}}',
         database_cleanup_current_size_label: '当前数据库占用',
-        database_cleanup_current_size_hint: '只读显示当前后端实例对应的 SQLite 数据文件大小。',
+        database_cleanup_current_size_hint:
+          '只读显示当前后端实例对应的 SQLite 数据文件大小。',
         database_cleanup_disabled_hint: '填 0 表示关闭清理',
-        database_cleanup_size_hint: '单位：MB。填 0 表示关闭按大小清理；每日维护任务检查。',
+        database_cleanup_size_hint:
+          '单位：MB。填 0 表示关闭按大小清理；每日维护任务检查。',
         database_cleanup_invalid: '请输入非负整数。',
         database_cleanup_saving: '保存中',
         storage_page_title: '存储、清理与备份',
-        storage_page_subtitle: '查看数据库和备份占用，选择清理、备份和恢复的数据范围。',
+        storage_page_subtitle:
+          '查看数据库和备份占用，选择清理、备份和恢复的数据范围。',
         storage_overview_eyebrow: 'Overview',
         storage_overview_title: '存储概览',
         storage_overview_subtitle: '查看当前数据库、备份目录和各数据域的占用。',
         storage_current_database_size_label: '当前数据库占用',
-        storage_current_database_size_hint: '当前后端数据库占用；PostgreSQL 使用 pg_database_size，SQLite 使用本地文件大小。',
+        storage_current_database_size_hint:
+          '当前后端数据库占用；PostgreSQL 使用 pg_database_size，SQLite 使用本地文件大小。',
         storage_backup_size_label: '当前备份占用',
         storage_backup_count_hint: '{{count}} 个备份文件。',
         storage_rows_size_summary: '{{rows}} 行 · {{size}}',
         storage_table_list_label: '影响表',
         storage_cleanup_eyebrow: 'Cleanup',
         storage_cleanup_title: '记录与清理',
-        storage_cleanup_subtitle: '控制请求详情记录，并选择请求日志和用量日志的清理范围。',
+        storage_cleanup_subtitle:
+          '控制请求详情记录，并选择请求日志和用量日志的清理范围。',
         storage_record_request_details_label: '记录请求详情',
-        storage_record_request_details_hint: '关闭后不再预取或懒加载请求详情缓存。',
+        storage_record_request_details_hint:
+          '关闭后不再预取或懒加载请求详情缓存。',
         storage_cleanup_request_logs_label: '清理请求日志',
         storage_cleanup_request_logs_hint: '清理 usage_request_details。',
         storage_cleanup_usage_logs_label: '清理用量日志',
-        storage_cleanup_usage_logs_hint: '清理 usage_events，并重建 Overview 统计缓存。',
+        storage_cleanup_usage_logs_hint:
+          '清理 usage_events，并重建 Overview 统计缓存。',
         storage_request_log_retention_label: '请求日志保留天数',
         storage_request_log_retention_hint: '0 表示不按时间清理请求日志。',
         storage_usage_log_retention_label: '用量日志保留天数',
         storage_usage_log_retention_hint: '0 表示不按时间清理用量日志。',
         storage_max_database_size_label: '数据库最大占用 (MB)',
-        storage_max_database_size_hint: '0 表示不按大小清理；按开启的清理范围删除最旧数据。',
+        storage_max_database_size_hint:
+          '0 表示不按大小清理；按开启的清理范围删除最旧数据。',
         storage_backup_eyebrow: 'Backup',
         storage_backup_title: '备份设置',
-        storage_backup_subtitle: '选择备份数据范围、保留数量和每日自动备份时间。',
+        storage_backup_subtitle:
+          '选择备份数据范围、保留数量和每日自动备份时间。',
         storage_max_backup_count_label: '最大备份数量',
-        storage_max_backup_count_hint: '默认保留 1 个；0 表示不按数量清理备份。',
+        storage_max_backup_count_hint:
+          '默认保留 1 个；0 表示不按数量清理备份。',
         storage_backup_time_label: '每日备份时间',
         storage_backup_time_hint: '按本机时区每天在该时间点执行。',
         storage_restore_eyebrow: 'Restore',
@@ -792,16 +947,20 @@ const resources = {
         storage_restore_select_label: '恢复备份',
         storage_restore_select_placeholder: '选择备份文件',
         storage_restore_safe_hint: '恢复前会自动生成一次安全备份。',
-        storage_restore_skip_hint: '已选择跳过恢复前安全备份，请确认当前数据可覆盖。',
+        storage_restore_skip_hint:
+          '已选择跳过恢复前安全备份，请确认当前数据可覆盖。',
         storage_skip_safety_backup_label: '跳过安全备份',
         storage_skip_safety_backup_hint: '开启后恢复前不再自动备份当前数据库。',
-        storage_restore_skip_confirm: '恢复会覆盖所选数据，且不会先创建安全备份。确认继续？',
+        storage_restore_skip_confirm:
+          '恢复会覆盖所选数据，且不会先创建安全备份。确认继续？',
         storage_domain_request_logs_label: '请求日志',
-        storage_domain_request_logs_hint: 'usage_request_details，请求详情内容默认不备份。',
+        storage_domain_request_logs_hint:
+          'usage_request_details，请求详情内容默认不备份。',
         storage_domain_usage_logs_label: '用量日志',
         storage_domain_usage_logs_hint: 'usage_events 和 Overview 统计缓存。',
         storage_domain_usage_identities_label: '凭证与身份',
-        storage_domain_usage_identities_hint: 'Auth File / AI Provider 身份和累计统计。',
+        storage_domain_usage_identities_hint:
+          'Auth File / AI Provider 身份和累计统计。',
         storage_domain_api_keys_label: 'API Key',
         storage_domain_api_keys_hint: 'CPA API Key 列表与本地别名。',
         storage_domain_redis_inbox_label: 'Redis 队列缓存',
@@ -822,18 +981,21 @@ const resources = {
         storage_settings_save_failed: '保存存储设置失败。',
         storage_backup_create_failed: '创建备份失败。',
         storage_backup_restore_failed: '恢复备份失败。',
-        storage_backup_running: '正在创建备份。PostgreSQL 数据量较大时可能需要几分钟，请保持页面打开。',
+        storage_backup_running:
+          '正在创建备份。PostgreSQL 数据量较大时可能需要几分钟，请保持页面打开。',
         storage_backup_running_button: '备份中...',
         storage_restore_running: '正在恢复备份。所选数据会在事务内替换。',
         storage_restore_running_button: '恢复中...',
-        storage_retention_disabled_hint: '先开启该日志类型清理后，才可设置保留天数。',
+        storage_retention_disabled_hint:
+          '先开启该日志类型清理后，才可设置保留天数。',
         storage_create_backup: '立即备份',
         storage_restore_selected: '恢复所选备份',
         storage_backup_unavailable: '当前存储后端不可用数据库备份。',
         storage_restore_unavailable: '当前存储后端不可用数据库恢复。',
         model_price_settings: '价格设置',
         model_price_settings_title: '模型价格设置',
-        model_price_settings_subtitle: '配置每个模型的 token 单价，用于成本统计。',
+        model_price_settings_subtitle:
+          '配置每个模型的 token 单价，用于成本统计。',
         model_price_settings_eyebrow: '价格设置',
         model_price_select_placeholder: '选择模型',
         model_price_configured: '已设置',
@@ -848,7 +1010,8 @@ const resources = {
         cost_trend_title: '成本趋势',
         service_health: '服务健康',
         service_health_title: '请求健康时间线',
-        service_health_subtitle: '用紧凑的可靠性条带展示当前筛选范围内的请求结果，时间线最多展示 7 天细节。',
+        service_health_subtitle:
+          '用紧凑的可靠性条带展示当前筛选范围内的请求结果，时间线最多展示 7 天细节。',
         service_health_eyebrow: '稳定性',
         service_health_window: '最近 7 天',
         service_health_oldest: '最早',
@@ -869,7 +1032,8 @@ const resources = {
         theme_switch: '主题切换',
         language_switch: '语言切换',
         analysis_token_usage_title: 'Token 用量趋势',
-        analysis_token_usage_subtitle: '按时间展示输入、输出、缓存、推理 Token，并叠加请求趋势。',
+        analysis_token_usage_subtitle:
+          '按时间展示输入、输出、缓存、推理 Token，并叠加请求趋势。',
         analysis_api_key_composition_title: 'API Key 构成',
         analysis_model_composition_title: '模型构成',
         analysis_auth_files_composition_title: '认证文件构成',
@@ -881,7 +1045,8 @@ const resources = {
         analysis_heatmap_low: '低',
         analysis_heatmap_high: '高',
         analysis_heatmap_legend: '热力强度示例',
-        analysis_heatmap_cell_title: '{{model}}：{{tokens}} Token，{{requests}} 次请求',
+        analysis_heatmap_cell_title:
+          '{{model}}：{{tokens}} Token，{{requests}} 次请求',
         analysis_heatmap_tokens_prefix: 'T',
         analysis_heatmap_requests_prefix: 'R',
         analysis_others: '其他',
@@ -896,9 +1061,11 @@ const resources = {
         credential_stats_eyebrow: '凭证视图',
         credential_top_chart_eyebrow: '凭证排行',
         credential_top_chart_title: '凭证请求',
-        credential_top_chart_hint: '按请求量排名前 10 的凭证，并拆分展示成功与失败请求数',
+        credential_top_chart_hint:
+          '按请求量排名前 10 的凭证，并拆分展示成功与失败请求数',
         monitoring_empty_title: '暂无监控数据',
-        monitoring_empty_desc: '当前范围内记录请求事件后，监控数据会显示在这里。',
+        monitoring_empty_desc:
+          '当前范围内记录请求事件后，监控数据会显示在这里。',
         monitoring_cost_available: '价格已配置',
         monitoring_rpd: '日均 RPD',
         monitoring_rpd_window: '{{count}} 天平均',
@@ -913,14 +1080,17 @@ const resources = {
         monitoring_hourly_custom: '自定义',
         monitoring_model_distribution: '模型分布',
         monitoring_model_distribution_empty: '暂无模型分布数据。',
-        monitoring_model_distribution_summary: '请求数最高的模型是 {{model}}，处理 {{requests}} 个请求，成功率 {{successRate}}。',
+        monitoring_model_distribution_summary:
+          '请求数最高的模型是 {{model}}，处理 {{requests}} 个请求，成功率 {{successRate}}。',
         monitoring_daily_trend: '每日趋势',
         monitoring_daily_trend_empty: '暂无每日趋势数据。',
-        monitoring_daily_trend_summary: '{{count}} 天趋势，从 {{start}} 到 {{end}}；峰值为 {{peakDate}}，{{peakRequests}} 个请求、{{peakTokens}} 个 Token。',
+        monitoring_daily_trend_summary:
+          '{{count}} 天趋势，从 {{start}} 到 {{end}}；峰值为 {{peakDate}}，{{peakRequests}} 个请求、{{peakTokens}} 个 Token。',
         monitoring_recent_requests_count: '最近 {{count}} 个请求',
         monitoring_recent_request_item: '{{time}} {{result}}',
         monitoring_recent_request_buckets_count: '最近 {{count}} 个请求时间段',
-        monitoring_recent_request_bucket_item: '{{start}} - {{end}} · 成功 {{success}} / 失败 {{failed}} · 总计 {{total}}',
+        monitoring_recent_request_bucket_item:
+          '{{start}} - {{end}} · 成功 {{success}} / 失败 {{failed}} · 总计 {{total}}',
         monitoring_channels: '渠道统计',
         monitoring_recent_requests: '最近请求',
         monitoring_failures: '失败分析',
@@ -928,7 +1098,8 @@ const resources = {
         monitoring_request_logs: '最近请求日志',
         monitoring_request_logs_empty: '当前筛选条件下没有匹配的请求日志。',
         monitoring_title: '监控中心',
-        monitoring_subtitle: '以 CPAMC 风格的运营视图跟踪请求量、渠道质量、模型集中度与最近失败情况。',
+        monitoring_subtitle:
+          '以 CPAMC 风格的运营视图跟踪请求量、渠道质量、模型集中度与最近失败情况。',
         monitoring_range_summary: '{{start}} 至 {{end}} · {{timezone}}',
         monitoring_query_results: '匹配 {{count}} 项',
         monitoring_time_14d: '14天',
@@ -950,9 +1121,9 @@ const resources = {
         monitoring_primary_failure_models: '主要失败模型',
         monitoring_page_size: '每页 {{count}} 条',
         last_request: '最近请求',
-        last_failure: '最近失败'
-      }
-    }
+        last_failure: '最近失败',
+      },
+    },
   },
   'zh-TW': {
     translation: {
@@ -963,24 +1134,26 @@ const resources = {
         edit: '編輯',
         delete: '刪除',
         close: '關閉',
-        logout: '登出'
+        logout: '登出',
       },
       notification: {
         download_failed: '下載失敗',
         upload_failed: '上傳失敗',
-        refresh_failed: '重新整理失敗'
+        refresh_failed: '重新整理失敗',
       },
       status_bar: {
         success_short: '成功',
         failure_short: '失敗',
-        no_requests: '尚無請求'
+        no_requests: '尚無請求',
       },
       auth: {
         login_title: 'CPA 用量統計儀表板',
-        login_subtitle: '持續保存 CPA 請求記錄，彙整用量分析，並在受保護的控制台中查看請求健康、模型活動與 API 統計。',
+        login_subtitle:
+          '持續保存 CPA 請求記錄，彙整用量分析，並在受保護的控制台中查看請求健康、模型活動與 API 統計。',
         console_kicker: '存取控制',
         console_title: '選擇存取方式',
-        console_hint: '管理員可進入完整控制台；API Key 檢視者只能查看該 API Key 對應的唯讀總覽。',
+        console_hint:
+          '管理員可進入完整控制台；API Key 檢視者只能查看該 API Key 對應的唯讀總覽。',
         capabilities_label: '用量控制台能力',
         capability_persistence: 'CPA 用量記錄持續保存',
         capability_analytics: '依時間範圍彙整分析',
@@ -1002,17 +1175,18 @@ const resources = {
         login_rate_limited: '嘗試次數過多，請稍後再試。',
         login_failed: '目前無法完成登入',
         api_key_login_failed: '目前無法開啟 API Key 總覽',
-        session_expired: '登入狀態已失效，請重新登入。'
+        session_expired: '登入狀態已失效，請重新登入。',
       },
       key_overview: {
         eyebrow: 'API Key 總覽',
         title: 'API Key 用量總覽',
-        subtitle: '唯讀查看目前 API Key 的 CPA 用量分析，包括請求量、Token 組成、成本趨勢與穩定性時間軸。',
+        subtitle:
+          '唯讀查看目前 API Key 的 CPA 用量分析，包括請求量、Token 組成、成本趨勢與穩定性時間軸。',
         tabs_aria_label: 'API Key 總覽分區',
         identity_unknown: '目前 API Key',
         logout: '登出',
         load_failed: '無法載入 API Key 總覽',
-        rate_limited: '總覽重新整理過於頻繁，請稍候再試。'
+        rate_limited: '總覽重新整理過於頻繁，請稍候再試。',
       },
       usage_stats: {
         title: '用量',
@@ -1028,7 +1202,8 @@ const resources = {
         import: '匯入',
         export_success: '用量已匯出',
         import_invalid: '匯入檔案無效',
-        import_success: '匯入完成：新增 {{added}}，略過 {{skipped}}，總計 {{total}}，失敗 {{failed}}',
+        import_success:
+          '匯入完成：新增 {{added}}，略過 {{skipped}}，總計 {{total}}，失敗 {{failed}}',
         last_updated: '最近更新',
         back_to_cpa: '返回CPA',
         back_to_cpa_aria: '返回CPA管理介面',
@@ -1039,6 +1214,8 @@ const resources = {
         tab_events: '請求事件',
         tab_credentials: '憑證',
         tab_storage: '儲存',
+        tab_auth_files: '認證檔案',
+        tab_ai_provider: 'AI 供應商',
         tab_settings: '設定',
         tab_pricing: '定價',
         range_filter: '範圍',
@@ -1070,10 +1247,15 @@ const resources = {
         total_time: '總耗時',
         time: '耗時',
         total_tokens: 'Token 總數',
+        ttft: '首字延遲',
+        ttft_hint: '首字延遲',
+        request_type: '類型',
+        request_endpoint: '端點',
         cache_rate: '快取率',
         cached_tokens: '快取',
         reasoning_tokens: '推理',
-        reasoning_effort: '推理等級',
+        reasoning_effort: '推理強度',
+        reasoning_effort_hint: '推理強度',
         rpm: 'RPM',
         tpm: 'TPM',
         rpm_30m: 'RPM（30 分鐘）',
@@ -1093,7 +1275,8 @@ const resources = {
         export_json: '匯出 JSON',
         request_events_title: '請求事件記錄',
         request_events_eyebrow: '事件流',
-        request_events_subtitle: '篩選、查看並匯出頁面中各項彙總資料背後的原始請求事件。',
+        request_events_subtitle:
+          '篩選、查看並匯出頁面中各項彙總資料背後的原始請求事件。',
         request_events_showing: '顯示 {{shown}} / {{total}}',
         request_events_filtered: '已篩選 {{count}} 筆',
         request_events_filter_model: '模型',
@@ -1116,6 +1299,9 @@ const resources = {
         request_events_source: '來源',
         request_events_auth_index: '憑證',
         request_events_result: '結果',
+        request_events_retry_indicator: '重試',
+        request_events_retry_process: '重試過程',
+        request_events_attempt_count: '{{count}} 次嘗試',
         request_events_view_detail: '查看 {{requestId}} 的請求詳情',
         request_events_back_to_list: '返回列表',
         request_events_detail_title: '請求詳情',
@@ -1160,13 +1346,23 @@ const resources = {
         tokens_count: 'Token 數',
         input_tokens: '輸入',
         output_tokens: '輸出',
-        latency: '延遲',
+        latency: '總延遲',
         credential_stats: '憑證統計',
         credential_name: '憑證',
         credentials_count: '{{count}} 個憑證',
+        credentials_filter_aria_label: '憑證供應商篩選',
+        credentials_filter_all: '全部',
+        credentials_filter_antigravity: 'Antigravity',
+        credentials_filter_claude: 'Claude',
+        credentials_filter_codex: 'Codex',
+        credentials_filter_gemini: 'Gemini',
+        credentials_filter_gemini_cli: 'GeminiCLI',
+        credentials_filter_iflow: 'iFlow',
+        credentials_filter_openai: 'OpenAI',
         credentials_auth_files_eyebrow: '憑證',
         credentials_auth_files_title: '認證檔案',
-        credentials_auth_files_subtitle: '查看本機認證檔案的請求活動與限額狀態。',
+        credentials_auth_files_subtitle:
+          '查看本機認證檔案的請求活動與限額狀態。',
         credentials_auth_files_empty: '目前頁面沒有認證檔案憑證。',
         credentials_auth_files_active_only: '僅啟用',
         credentials_sort_label: '排序',
@@ -1183,12 +1379,23 @@ const resources = {
         credentials_quota_unavailable: '暫無限額資料',
         credentials_quota_remaining: '剩餘 {{count}}',
         credentials_quota_percent_used: '已用 {{percent}}',
-        credentials_quota_percent_remaining: '剩餘 {{percent}}',
         credentials_refresh_status: '重新整理',
         credentials_refresh_status_queued: '排隊中',
         credentials_refresh_status_running: '執行中',
         credentials_refresh_status_completed: '已完成',
         credentials_refresh_status_failed: '失敗',
+        credentials_refresh_error_unauthorized: '請重新登入後重新整理限額。',
+        credentials_refresh_error_duplicate: '此憑證的限額重新整理正在執行。',
+        credentials_refresh_error_duplicate_request:
+          '此憑證已包含在本次重新整理請求中。',
+        credentials_refresh_error_not_auth_file:
+          '限額重新整理僅支援本機認證檔案。',
+        credentials_refresh_error_unsupported: '此憑證類型不支援限額重新整理。',
+        credentials_refresh_error_not_found: '此憑證已不可用。',
+        credentials_refresh_error_invalid: '此憑證無法重新整理。',
+        credentials_refresh_error_failed: '限額重新整理失敗，請稍後再試。',
+        credentials_quota_window_usage_aria:
+          'Token：{{tokens}}，成本：{{cost}}',
         credentials_last_used: '最後使用',
         credentials_stats_updated: '統計更新',
         previous_page: '上一頁',
@@ -1202,7 +1409,8 @@ const resources = {
         model_stats: '模型統計',
         api_key_settings_eyebrow: 'API Key 設定',
         api_key_settings_title: 'API Key 設定',
-        api_key_settings_subtitle: '為已同步的 CPA API Key 設定顯示別名，前端不會暴露完整 API Key。',
+        api_key_settings_subtitle:
+          '為已同步的 CPA API Key 設定顯示別名，前端不會暴露完整 API Key。',
         api_key_settings_empty: '尚無已同步的 CPA API Key。',
         api_key_settings_id: '本機 ID',
         api_key_settings_display_key: 'API Key',
@@ -1210,48 +1418,59 @@ const resources = {
         api_key_settings_saving: '儲存中',
         database_cleanup_eyebrow: '資料庫',
         database_cleanup_title: '資料庫自動清理',
-        database_cleanup_subtitle: '設定請求詳情記錄快取保留時間，以及 SQLite 資料庫大小壓力清理。',
+        database_cleanup_subtitle:
+          '設定請求詳情記錄快取保留時間，以及 SQLite 資料庫大小壓力清理。',
         database_cleanup_retention_days: '請求詳情記錄保留天數',
         database_cleanup_retention_hint: '單位：天。填 0 表示關閉清理。',
         database_cleanup_max_size_mb: '資料庫最大占用 (MB)',
         database_cleanup_current_size: '目前資料庫占用：{{size}}',
         database_cleanup_current_size_label: '目前資料庫占用',
-        database_cleanup_current_size_hint: '唯讀顯示目前後端實例對應的 SQLite 資料檔案大小。',
+        database_cleanup_current_size_hint:
+          '唯讀顯示目前後端實例對應的 SQLite 資料檔案大小。',
         database_cleanup_disabled_hint: '填 0 表示關閉清理',
-        database_cleanup_size_hint: '單位：MB。填 0 表示關閉按大小清理；每日維護任務檢查。',
+        database_cleanup_size_hint:
+          '單位：MB。填 0 表示關閉按大小清理；每日維護任務檢查。',
         database_cleanup_invalid: '請輸入非負整數。',
         database_cleanup_saving: '儲存中',
         storage_page_title: '儲存、清理與備份',
-        storage_page_subtitle: '查看資料庫和備份占用，選擇清理、備份和復原的資料範圍。',
+        storage_page_subtitle:
+          '查看資料庫和備份占用，選擇清理、備份和復原的資料範圍。',
         storage_overview_eyebrow: 'Overview',
         storage_overview_title: '儲存概覽',
         storage_overview_subtitle: '查看目前資料庫、備份目錄和各資料域的占用。',
         storage_current_database_size_label: '目前資料庫占用',
-        storage_current_database_size_hint: '目前後端資料庫占用；PostgreSQL 使用 pg_database_size，SQLite 使用本機檔案大小。',
+        storage_current_database_size_hint:
+          '目前後端資料庫占用；PostgreSQL 使用 pg_database_size，SQLite 使用本機檔案大小。',
         storage_backup_size_label: '目前備份占用',
         storage_backup_count_hint: '{{count}} 個備份檔案。',
         storage_rows_size_summary: '{{rows}} 列 · {{size}}',
         storage_table_list_label: '影響資料表',
         storage_cleanup_eyebrow: 'Cleanup',
         storage_cleanup_title: '記錄與清理',
-        storage_cleanup_subtitle: '控制請求詳情記錄，並選擇請求記錄和用量記錄的清理範圍。',
+        storage_cleanup_subtitle:
+          '控制請求詳情記錄，並選擇請求記錄和用量記錄的清理範圍。',
         storage_record_request_details_label: '記錄請求詳情',
-        storage_record_request_details_hint: '關閉後不再預取或延遲載入請求詳情快取。',
+        storage_record_request_details_hint:
+          '關閉後不再預取或延遲載入請求詳情快取。',
         storage_cleanup_request_logs_label: '清理請求記錄',
         storage_cleanup_request_logs_hint: '清理 usage_request_details。',
         storage_cleanup_usage_logs_label: '清理用量記錄',
-        storage_cleanup_usage_logs_hint: '清理 usage_events，並重建 Overview 統計快取。',
+        storage_cleanup_usage_logs_hint:
+          '清理 usage_events，並重建 Overview 統計快取。',
         storage_request_log_retention_label: '請求記錄保留天數',
         storage_request_log_retention_hint: '0 表示不按時間清理請求記錄。',
         storage_usage_log_retention_label: '用量記錄保留天數',
         storage_usage_log_retention_hint: '0 表示不按時間清理用量記錄。',
         storage_max_database_size_label: '資料庫最大占用 (MB)',
-        storage_max_database_size_hint: '0 表示不按大小清理；按啟用的清理範圍刪除最舊資料。',
+        storage_max_database_size_hint:
+          '0 表示不按大小清理；按啟用的清理範圍刪除最舊資料。',
         storage_backup_eyebrow: 'Backup',
         storage_backup_title: '備份設定',
-        storage_backup_subtitle: '選擇備份資料範圍、保留數量和每日自動備份時間。',
+        storage_backup_subtitle:
+          '選擇備份資料範圍、保留數量和每日自動備份時間。',
         storage_max_backup_count_label: '最大備份數量',
-        storage_max_backup_count_hint: '預設保留 1 個；0 表示不按數量清理備份。',
+        storage_max_backup_count_hint:
+          '預設保留 1 個；0 表示不按數量清理備份。',
         storage_backup_time_label: '每日備份時間',
         storage_backup_time_hint: '按本機時區每天在該時間點執行。',
         storage_restore_eyebrow: 'Restore',
@@ -1260,16 +1479,20 @@ const resources = {
         storage_restore_select_label: '復原備份',
         storage_restore_select_placeholder: '選擇備份檔案',
         storage_restore_safe_hint: '復原前會自動產生一次安全備份。',
-        storage_restore_skip_hint: '已選擇跳過復原前安全備份，請確認目前資料可被覆蓋。',
+        storage_restore_skip_hint:
+          '已選擇跳過復原前安全備份，請確認目前資料可被覆蓋。',
         storage_skip_safety_backup_label: '跳過安全備份',
         storage_skip_safety_backup_hint: '開啟後復原前不再自動備份目前資料庫。',
-        storage_restore_skip_confirm: '復原會覆蓋所選資料，且不會先建立安全備份。確認繼續？',
+        storage_restore_skip_confirm:
+          '復原會覆蓋所選資料，且不會先建立安全備份。確認繼續？',
         storage_domain_request_logs_label: '請求記錄',
-        storage_domain_request_logs_hint: 'usage_request_details，請求詳情內容預設不備份。',
+        storage_domain_request_logs_hint:
+          'usage_request_details，請求詳情內容預設不備份。',
         storage_domain_usage_logs_label: '用量記錄',
         storage_domain_usage_logs_hint: 'usage_events 和 Overview 統計快取。',
         storage_domain_usage_identities_label: '憑證與身份',
-        storage_domain_usage_identities_hint: 'Auth File / AI Provider 身份和累計統計。',
+        storage_domain_usage_identities_hint:
+          'Auth File / AI Provider 身份和累計統計。',
         storage_domain_api_keys_label: 'API Key',
         storage_domain_api_keys_hint: 'CPA API Key 清單與本機別名。',
         storage_domain_redis_inbox_label: 'Redis 佇列快取',
@@ -1290,18 +1513,21 @@ const resources = {
         storage_settings_save_failed: '儲存儲存設定失敗。',
         storage_backup_create_failed: '建立備份失敗。',
         storage_backup_restore_failed: '復原備份失敗。',
-        storage_backup_running: '正在建立備份。PostgreSQL 資料量較大時可能需要幾分鐘，請保持頁面開啟。',
+        storage_backup_running:
+          '正在建立備份。PostgreSQL 資料量較大時可能需要幾分鐘，請保持頁面開啟。',
         storage_backup_running_button: '備份中...',
         storage_restore_running: '正在復原備份。所選資料會在交易內替換。',
         storage_restore_running_button: '復原中...',
-        storage_retention_disabled_hint: '先開啟該記錄類型清理後，才可設定保留天數。',
+        storage_retention_disabled_hint:
+          '先開啟該記錄類型清理後，才可設定保留天數。',
         storage_create_backup: '立即備份',
         storage_restore_selected: '復原所選備份',
         storage_backup_unavailable: '目前儲存後端不可用資料庫備份。',
         storage_restore_unavailable: '目前儲存後端不可用資料庫復原。',
         model_price_settings: '價格設定',
         model_price_settings_title: '模型價格設定',
-        model_price_settings_subtitle: '設定每個模型的 token 單價，用於成本統計。',
+        model_price_settings_subtitle:
+          '設定每個模型的 token 單價，用於成本統計。',
         model_price_settings_eyebrow: '價格設定',
         model_price_select_placeholder: '選擇模型',
         model_price_configured: '已設定',
@@ -1316,7 +1542,8 @@ const resources = {
         cost_trend_title: '成本趨勢',
         service_health: '服務健康',
         service_health_title: '請求健康時間軸',
-        service_health_subtitle: '用緊湊的可靠性條帶呈現目前篩選範圍內的請求結果，時間軸最多顯示 7 天細節。',
+        service_health_subtitle:
+          '用緊湊的可靠性條帶呈現目前篩選範圍內的請求結果，時間軸最多顯示 7 天細節。',
         service_health_eyebrow: '穩定性',
         service_health_window: '最近 7 天',
         service_health_oldest: '最早',
@@ -1337,7 +1564,8 @@ const resources = {
         theme_switch: '主題切換',
         language_switch: '語言切換',
         analysis_token_usage_title: 'Token 用量趨勢',
-        analysis_token_usage_subtitle: '按時間顯示輸入、輸出、快取、推理 Token，並疊加請求趨勢。',
+        analysis_token_usage_subtitle:
+          '按時間顯示輸入、輸出、快取、推理 Token，並疊加請求趨勢。',
         analysis_api_key_composition_title: 'API Key 組成',
         analysis_model_composition_title: '模型組成',
         analysis_auth_files_composition_title: '認證檔案組成',
@@ -1349,7 +1577,8 @@ const resources = {
         analysis_heatmap_low: '低',
         analysis_heatmap_high: '高',
         analysis_heatmap_legend: '熱力強度示例',
-        analysis_heatmap_cell_title: '{{model}}：{{tokens}} Token，{{requests}} 次請求',
+        analysis_heatmap_cell_title:
+          '{{model}}：{{tokens}} Token，{{requests}} 次請求',
         analysis_heatmap_tokens_prefix: 'T',
         analysis_heatmap_requests_prefix: 'R',
         analysis_others: '其他',
@@ -1364,9 +1593,11 @@ const resources = {
         credential_stats_eyebrow: '憑證視圖',
         credential_top_chart_eyebrow: '憑證排行',
         credential_top_chart_title: '憑證請求',
-        credential_top_chart_hint: '按請求量排名前 10 的憑證，並拆分顯示成功與失敗請求數',
+        credential_top_chart_hint:
+          '按請求量排名前 10 的憑證，並拆分顯示成功與失敗請求數',
         monitoring_empty_title: '暫無監控資料',
-        monitoring_empty_desc: '目前範圍內記錄請求事件後，監控資料會顯示在這裡。',
+        monitoring_empty_desc:
+          '目前範圍內記錄請求事件後，監控資料會顯示在這裡。',
         monitoring_cost_available: '價格已設定',
         monitoring_rpd: '日均 RPD',
         monitoring_rpd_window: '{{count}} 天平均',
@@ -1381,14 +1612,17 @@ const resources = {
         monitoring_hourly_custom: '自訂',
         monitoring_model_distribution: '模型分布',
         monitoring_model_distribution_empty: '暫無模型分布資料。',
-        monitoring_model_distribution_summary: '請求數最高的模型是 {{model}}，處理 {{requests}} 個請求，成功率 {{successRate}}。',
+        monitoring_model_distribution_summary:
+          '請求數最高的模型是 {{model}}，處理 {{requests}} 個請求，成功率 {{successRate}}。',
         monitoring_daily_trend: '每日趨勢',
         monitoring_daily_trend_empty: '暫無每日趨勢資料。',
-        monitoring_daily_trend_summary: '{{count}} 天趨勢，從 {{start}} 到 {{end}}；峰值為 {{peakDate}}，{{peakRequests}} 個請求、{{peakTokens}} 個 Token。',
+        monitoring_daily_trend_summary:
+          '{{count}} 天趨勢，從 {{start}} 到 {{end}}；峰值為 {{peakDate}}，{{peakRequests}} 個請求、{{peakTokens}} 個 Token。',
         monitoring_recent_requests_count: '最近 {{count}} 個請求',
         monitoring_recent_request_item: '{{time}} {{result}}',
         monitoring_recent_request_buckets_count: '最近 {{count}} 個請求時段',
-        monitoring_recent_request_bucket_item: '{{start}} - {{end}} · 成功 {{success}} / 失敗 {{failed}} · 總計 {{total}}',
+        monitoring_recent_request_bucket_item:
+          '{{start}} - {{end}} · 成功 {{success}} / 失敗 {{failed}} · 總計 {{total}}',
         monitoring_channels: '渠道統計',
         monitoring_recent_requests: '最近請求',
         monitoring_failures: '失敗分析',
@@ -1396,7 +1630,8 @@ const resources = {
         monitoring_request_logs: '最近請求記錄',
         monitoring_request_logs_empty: '目前篩選條件下沒有符合的請求記錄。',
         monitoring_title: '監控中心',
-        monitoring_subtitle: '以 CPAMC 風格的營運視圖追蹤請求量、渠道品質、模型集中度與最近失敗情況。',
+        monitoring_subtitle:
+          '以 CPAMC 風格的營運視圖追蹤請求量、渠道品質、模型集中度與最近失敗情況。',
         monitoring_range_summary: '{{start}} 至 {{end}} · {{timezone}}',
         monitoring_query_results: '符合 {{count}} 項',
         monitoring_time_14d: '14 天',
@@ -1418,10 +1653,10 @@ const resources = {
         monitoring_primary_failure_models: '主要失敗模型',
         monitoring_page_size: '每頁 {{count}} 筆',
         last_request: '最近請求',
-        last_failure: '最近失敗'
-      }
-    }
-  }
+        last_failure: '最近失敗',
+      },
+    },
+  },
 };
 
 if (!i18n.isInitialized) {
@@ -1429,7 +1664,7 @@ if (!i18n.isInitialized) {
     resources,
     lng: getInitialLanguage(),
     fallbackLng: DEFAULT_LANGUAGE,
-    interpolation: { escapeValue: false }
+    interpolation: { escapeValue: false },
   });
 }
 

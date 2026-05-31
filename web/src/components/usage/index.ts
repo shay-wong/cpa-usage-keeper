@@ -6,7 +6,7 @@ export { ApiKeySettingsCard } from './ApiKeySettingsCard';
 export { DatabaseCleanupSettingsCard } from './DatabaseCleanupSettingsCard';
 export { StorageSettingsCard, type StorageOperationNotice } from './StorageSettingsCard';
 export { PriceSettingsCard } from './PriceSettingsCard';
-export { AiProviderCredentialsSection, AuthFileCredentialsSection, useCredentialsTabData } from './credentials';
+export { AiProviderCredentialsSection, AuthFileCredentialsSection, CredentialProviderFilterBar, useCredentialsTabData } from './credentials';
 export { RequestEventsDetailsCard } from './RequestEventsDetailsCard';
 export { TokenBreakdownChart } from './TokenBreakdownChart';
 export { CostTrendChart } from './CostTrendChart';

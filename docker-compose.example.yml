@@ -21,6 +21,8 @@ services:
     image: ghcr.io/shay-wong/cpa-usage-keeper:latest
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
       CPA_BASE_URL: ${CPA_BASE_URL}
       CPA_MANAGEMENT_KEY: ${CPA_MANAGEMENT_KEY}
@@ -45,6 +47,8 @@ services:
       BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
       BACKUP_INTERVAL: ${BACKUP_INTERVAL:-24h}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/data
     depends_on:

@@ -4,11 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/redact"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 )
 
@@ -17,6 +18,7 @@ type usageIdentitiesStub struct {
 	activeItems      []entities.UsageIdentity
 	pagedActiveItems []entities.UsageIdentity
 	pagedActiveTotal int64
+	pagedTypeCounts  []service.UsageIdentityTypeCount
 	pagedActiveReq   *service.ListUsageIdentitiesRequest
 	err              error
 }
@@ -37,9 +39,9 @@ func (s usageIdentitiesStub) ListActiveUsageIdentitiesPage(_ context.Context, re
 		*s.pagedActiveReq = request
 	}
 	if s.pagedActiveItems != nil || s.pagedActiveTotal != 0 {
-		return service.ListUsageIdentitiesResponse{Items: s.pagedActiveItems, Total: s.pagedActiveTotal}, s.err
+		return service.ListUsageIdentitiesResponse{Items: s.pagedActiveItems, Total: s.pagedActiveTotal, TypeCounts: s.pagedTypeCounts}, s.err
 	}
-	return service.ListUsageIdentitiesResponse{Items: s.items, Total: int64(len(s.items))}, s.err
+	return service.ListUsageIdentitiesResponse{Items: s.items, Total: int64(len(s.items)), TypeCounts: s.pagedTypeCounts}, s.err
 }
 
 func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
@@ -167,7 +169,7 @@ func TestUsageIdentitiesRouteKeepsAuthFileIdentityForQuotaRefreshAndMasksDisplay
 	if !contains(body, `"identity":"`+rawIdentity+`"`) {
 		t.Fatalf("expected raw auth file identity to remain available for quota refresh, got %s", body)
 	}
-	maskedEmail := redact.APIKeyDisplayName(rawEmail)
+	maskedEmail := helper.RedactSensitiveValue(rawEmail)
 	if !contains(body, `"name":"`+maskedEmail+`"`) || !contains(body, `"displayName":"`+maskedEmail+`"`) {
 		t.Fatalf("expected masked auth file display values in response body: %s", body)
 	}
@@ -263,6 +265,45 @@ func TestUsageIdentitiesPageRouteFiltersByAuthTypeAndPaginates(t *testing.T) {
 	}
 }
 
+func TestUsageIdentitiesPageRouteAcceptsRepeatedTypesAndReturnsTypeCounts(t *testing.T) {
+	captured := service.ListUsageIdentitiesRequest{}
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{
+		pagedActiveReq:   &captured,
+		pagedActiveTotal: 3,
+		pagedTypeCounts: []service.UsageIdentityTypeCount{
+			{Type: "claude", Count: 2},
+			{Type: "anthropic", Count: 1},
+			{Type: "openai", Count: 4},
+		},
+		pagedActiveItems: []entities.UsageIdentity{{
+			ID:           12,
+			Name:         "Claude Team",
+			AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+			AuthTypeName: "apikey",
+			Identity:     "claude-auth",
+			Type:         "claude",
+			Provider:     "Claude Team",
+		}},
+	}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities/page?auth_type=2&type=claude&type=%20openai%20&type=&page=1&page_size=10", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
+	}
+	if captured.AuthType == nil || *captured.AuthType != entities.UsageIdentityAuthTypeAIProvider || !reflect.DeepEqual(captured.Types, []string{"claude", " openai "}) {
+		t.Fatalf("expected auth_type and repeated type filters, got %+v", captured)
+	}
+	for _, expected := range []string{`"type_counts":[`, `"type":"claude"`, `"count":2`, `"type":"anthropic"`, `"count":1`, `"type":"openai"`, `"count":4`} {
+		if !contains(body, expected) {
+			t.Fatalf("expected %s in response body: %s", expected, body)
+		}
+	}
+}
+
 func TestUsageIdentitiesRouteReturnsProviderDisplayName(t *testing.T) {
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
 		ID:           1,
@@ -293,7 +334,7 @@ func TestUsageIdentitiesRouteReturnsProviderDisplayName(t *testing.T) {
 
 func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
 	rawLookupKey := "sk-live-secret-value"
-	maskedLookupKey := redact.APIKeyDisplayName(rawLookupKey)
+	maskedLookupKey := helper.RedactSensitiveValue(rawLookupKey)
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{
 		{ID: 1, Name: "Provider Name", Prefix: "Team Prefix", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: rawLookupKey, Type: "openai", Provider: "OpenAI"},
 	}}})

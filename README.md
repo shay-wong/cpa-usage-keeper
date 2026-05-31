@@ -88,6 +88,26 @@ volumes:
   postgres-data:
 ```
 
+如果想用 `.env` 文件管理 Keeper 配置，可以把上面 `cpa-usage-keeper` 的 `environment` 改成 `env_file`：
+
+```yaml
+    env_file:
+      - .env
+```
+
+然后在宿主机的 `docker-compose.yml` 同一目录创建 `.env` 文件，例如：
+
+```env
+TZ=Asia/Shanghai
+CPA_BASE_URL=http://cli-proxy-api:8317
+CPA_MANAGEMENT_KEY=replace-with-your-management-key
+REDIS_QUEUE_ADDR=cli-proxy-api:8317
+AUTH_ENABLED=true
+LOGIN_PASSWORD=replace-with-your-login-password
+```
+
+`env_file` 中的路径相对 `docker-compose.yml` 所在目录解析；上面的 `.env` 会被注入 Keeper 容器，效果等同于为容器设置这些环境变量。
+
 启动：
 
 ```bash
@@ -283,6 +303,14 @@ cp .env.example .env
 | `TZ` | 否 | `Asia/Shanghai` | 统计和展示使用的时区；Today、按天统计、页面时间、日志时间和每日清理时间都会按这个时区计算 |
 | `REQUEST_TIMEOUT` | 否 | `30s` | 请求 CPA HTTP 接口和 Redis 队列的超时时间 |
 | `TLS_SKIP_VERIFY` | 否 | `false` | 跳过 CPA HTTPS 和 Redis 队列 TLS 的证书验证；仅在使用自签名证书时启用 |
+
+### Auth Files 限额刷新
+
+| 变量 | 必填 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `QUOTA_AUTO_REFRESH_ENABLED` | 否 | `false` | 是否启用 Auth Files 限额自动刷新；仅在后台页面可见并持续心跳时执行 |
+| `QUOTA_AUTO_REFRESH_INTERVAL` | 否 | `5m` | Auth Files 限额自动刷新间隔，最低 `60s`，仅在后台页面活跃时生效 |
+| `QUOTA_REFRESH_WORKER_LIMIT` | 否 | `10` | Auth Files 限额刷新队列最大并发数，最大 `100` |
 
 ### Redis 队列高级配置
 

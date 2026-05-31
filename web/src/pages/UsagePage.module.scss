@@ -828,6 +828,14 @@
   border-radius: 9999px;
 }
 
+.customRangeInputShell {
+  display: contents;
+}
+
+.customRangeInputDisplay {
+  display: none;
+}
+
 .customRangeSeparator {
   display: inline-flex;
   align-items: center;
@@ -862,6 +870,8 @@
   .usageFilterBar {
     width: 100%;
     justify-content: flex-start;
+    max-height: none;
+    overflow: visible;
   }
 
   .monitoringQueryField {
@@ -881,13 +891,15 @@
 
   .customRangeFieldGroup {
     flex: 1 1 100%;
+    flex-basis: 100%;
+    width: 100%;
     max-height: 0;
     transform: translateY(-4px);
   }
 
   .customRangeFieldGroupOpen {
     max-width: 100%;
-    max-height: 96px;
+    max-height: 180px;
     transform: translateY(0);
   }
 
@@ -900,8 +912,10 @@
   }
 
   .timeRangeGroup {
+    width: 100%;
     max-width: 100%;
     border-radius: 24px;
+    box-sizing: border-box;
   }
 
   .customRangeInline {
@@ -950,6 +964,8 @@
   }
 
   .usageFilterBar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
 
@@ -958,6 +974,7 @@
   .rangeFilterField {
     flex-basis: 100%;
     width: 100%;
+    box-sizing: border-box;
   }
 
   .monitoringQueryInput,
@@ -972,24 +989,82 @@
   .apiKeyFilterField,
   .rangeFilterField {
     align-items: stretch;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
   }
 
   .customRangeFieldGroup {
-    flex-direction: column;
-    align-items: stretch;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
     max-height: 0;
   }
 
+  .customRangeField {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+  }
+
   .customRangeFieldGroupOpen {
-    max-height: 160px;
+    max-height: 180px;
   }
 
   .customRangeSeparator {
     display: none;
   }
 
-  .customRangeInput {
+  // 移动端用外壳显示日期，避免 iOS 原生 date input 的绘制宽度撑出容器。
+  .customRangeInputShell {
+    position: relative;
+    display: block;
     width: 100%;
+    min-width: 0;
+    height: 34px;
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 9999px;
+    background-color: var(--bg-secondary);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+
+    &:focus-within {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba($primary-color, 0.18);
+    }
+  }
+
+  .customRangeInputDisplay {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 6px 12px;
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .customRangeInput {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+    min-inline-size: 0;
+    max-width: 100%;
+    max-inline-size: 100%;
+    display: block;
+    opacity: 0;
   }
 
   .usageRefreshSlot,
@@ -1574,6 +1649,7 @@
   flex-direction: column;
   height: 520px;
   overflow: hidden;
+  overflow: clip;
 
   @include mobile {
     height: 420px;
@@ -1585,7 +1661,6 @@
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .detailsNote {
@@ -1657,6 +1732,7 @@
 
 .modelCell {
   font-weight: 500;
+  min-width: 110px;
   max-width: 240px;
   word-break: break-all;
 }
@@ -2148,14 +2224,13 @@
   flex: 0 0 auto;
   flex-direction: column;
   gap: 12px;
-  height: var(--settings-list-scroll-height);
+  max-height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
   padding-bottom: 4px;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .apiKeySettingsList {
@@ -2260,12 +2335,11 @@
   }
 
   .apiKeySettingsBody {
-    height: var(--settings-list-scroll-height);
+    max-height: var(--settings-list-scroll-height);
     min-height: 0;
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
   }
 
   .apiKeySettingsList {
@@ -2323,11 +2397,10 @@
   flex-direction: column;
   gap: 6px;
   flex: 0 0 auto;
-  height: var(--settings-list-scroll-height);
+  max-height: var(--settings-list-scroll-height);
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
 }
 
 .priceItem {
@@ -2528,7 +2601,22 @@
 }
 
 .requestEventsCard:global(.card) {
+  padding: 0;
   padding-bottom: 0;
+  overflow: hidden;
+
+  :global(.card-header) {
+    align-items: stretch;
+    margin-bottom: 0;
+    padding: 20px 22px 16px;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  @include mobile {
+    :global(.card-header) {
+      padding: 18px;
+    }
+  }
 }
 
 .requestEventsTitleRow {
@@ -2563,9 +2651,13 @@
   justify-content: space-between;
   gap: $spacing-sm;
   flex-wrap: wrap;
-  margin: 0 calc(-1 * #{$spacing-lg}) $spacing-sm;
-  padding: 0 $spacing-lg $spacing-sm;
+  margin: 0;
+  padding: 16px 22px;
   border-bottom: 1px solid var(--border-color);
+
+  @include mobile {
+    padding: 16px 18px;
+  }
 }
 
 .requestEventsFiltersGroup {
@@ -2616,6 +2708,7 @@
   min-height: var(--usage-pagination-bar-height);
   box-sizing: border-box;
   padding: 8px #{$spacing-lg};
+
 }
 
 .requestEventsPaginationControls {
@@ -2758,6 +2851,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+
 
   .table {
     border-collapse: separate;
@@ -3296,17 +3390,29 @@
 }
 
 .requestEventsSourceCell,
+.requestEventsAPIKeyCell,
 .requestEventsAuthIndex {
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
   font-size: 11px;
-  max-width: 180px;
+  max-width: 280px;
   word-break: break-all;
 }
 
 .requestEventsSourceCell {
-  min-width: 150px;
+  min-width: 165px;
+}
+
+.requestEventsAPIKeyCell {
+  min-width: 135px;
+  max-width: 240px;
+}
+
+.requestEventsEndpointCell {
+  min-width: 100px;
+  max-width: 180px;
+  word-break: break-all;
 }
 
 .requestEventsSourceStack {
@@ -3351,6 +3457,122 @@
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.requestEventsRetryDetails {
+  --request-events-retry-accent: #f43f5e;
+
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.requestEventsRetrySummary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+
+  &:focus-visible {
+    border-radius: $radius-full;
+    outline: 2px solid color-mix(in srgb, var(--primary-color) 62%, transparent);
+    outline-offset: 2px;
+  }
+}
+
+.requestEventsRetryIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid color-mix(in srgb, var(--request-events-retry-accent) 46%, var(--border-color));
+  border-radius: $radius-full;
+  background: color-mix(in srgb, var(--request-events-retry-accent) 12%, var(--bg-primary));
+  color: color-mix(in srgb, var(--request-events-retry-accent) 82%, var(--text-primary));
+  font-size: 11px;
+  font-weight: 850;
+  white-space: nowrap;
+
+  &::before {
+    content: '>>';
+    font-family:
+      ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
+      monospace;
+    letter-spacing: -0.12em;
+  }
+}
+
+.requestEventsRetryPanel {
+  --request-events-retry-accent: #f43f5e;
+
+  position: fixed;
+  z-index: 40;
+  width: min(360px, calc(100vw - 48px));
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--request-events-retry-accent) 34%, var(--border-color));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg-primary) 94%, #190713);
+  box-shadow:
+    0 16px 34px color-mix(in srgb, black 18%, transparent),
+    0 0 0 1px color-mix(in srgb, white 3%, transparent) inset;
+}
+
+.requestEventsRetryHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--request-events-retry-accent) 13%, var(--bg-secondary));
+  color: color-mix(in srgb, var(--request-events-retry-accent) 76%, var(--text-primary));
+  font-size: 12px;
+  font-weight: 900;
+
+  strong {
+    color: var(--text-primary);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+}
+
+.requestEventsRetryList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+}
+
+.requestEventsRetryAttempt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+}
+
+.requestEventsRetryAttemptMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+
+  strong {
+    max-width: 96px;
+    overflow: hidden;
+    color: var(--text-primary);
+    text-overflow: ellipsis;
+  }
 }
 
 .chartLineHeader {

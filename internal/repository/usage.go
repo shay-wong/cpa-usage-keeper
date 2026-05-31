@@ -15,7 +15,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, reasoning_effort, timestamp, source, auth_index, failed, latency_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, reasoning_effort, service_tier, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -26,11 +26,14 @@ type usageEventProjection struct {
 	RequestID           string
 	Model               string
 	ReasoningEffort     string
+	ServiceTier         string
+	Endpoint            string
 	Timestamp           time.Time
 	Source              string
 	AuthIndex           string
 	Failed              bool
 	LatencyMS           int64
+	TTFTMS              *int64 `gorm:"column:ttft_ms"`
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
@@ -38,12 +41,7 @@ type usageEventProjection struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
-}
-
-// BuildUsageSnapshot 构建无筛选的旧版 usage snapshot，供仍需要全量快照的调用方使用。
-func BuildUsageSnapshot(db *gorm.DB) (*dto.StatisticsSnapshot, error) {
-	// 复用带筛选入口，空 filter 表示不限制时间和 API key。
-	return BuildUsageSnapshotWithFilter(db, dto.UsageQueryFilter{})
+	AttemptCount        int
 }
 
 // Request Event Log Tab：先按列表条件统计总数，再加载当前页和筛选项。
@@ -52,12 +50,10 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 		return nil, fmt.Errorf("database is nil")
 	}
 
-	// 第一步：应用列表筛选，统计分页总数。
-	baseQuery := queryUsageEvents(db)
-	baseQuery = applyUsageEventListQuery(baseQuery, filter)
-
+	latestBaseQuery := applyUsageEventLatestResultQuery(buildLatestUsageEventRowsQuery(db, filter), filter)
+	latestCountQuery := latestBaseQuery.Session(&gorm.Session{})
 	var totalCount int64
-	if err := baseQuery.Count(&totalCount).Error; err != nil {
+	if err := latestCountQuery.Count(&totalCount).Error; err != nil {
 		return nil, fmt.Errorf("count usage events: %w", err)
 	}
 
@@ -86,8 +82,15 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 		offset = 0
 	}
 
-	query := applyUsageEventListQuery(db.Model(&entities.UsageEvent{}), filter)
-	query = query.Select(usageEventProjectionColumns).Order("timestamp DESC, id DESC").Limit(pageSize).Offset(offset)
+	latestPageQuery := latestBaseQuery.Session(&gorm.Session{}).
+		Select("id").
+		Order("timestamp DESC, id DESC").
+		Limit(pageSize).
+		Offset(offset)
+	query := db.Model(&entities.UsageEvent{}).
+		Select(usageEventProjectionColumns).
+		Where("id IN (?)", latestPageQuery).
+		Order("timestamp DESC, id DESC")
 
 	var events []usageEventProjection
 	if err := query.Find(&events).Error; err != nil {
@@ -97,6 +100,10 @@ func ListUsageEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.U
 	rows := make([]dto.UsageEventRecord, 0, len(events))
 	for _, event := range events {
 		rows = append(rows, usageEventProjectionToRecord(event))
+	}
+	rows, err = attachUsageEventAttempts(db, filter, rows)
+	if err != nil {
+		return nil, err
 	}
 	totalPages := 0
 	if totalCount > 0 {
@@ -247,6 +254,94 @@ func queryUsageEvents(db *gorm.DB) *gorm.DB {
 	return db.Model(&entities.UsageEvent{})
 }
 
+func buildLatestUsageEventRowsQuery(db *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	groupKey := usageEventRetryGroupKeySQL(db)
+	subQuery := applyUsageEventAttemptScopeQuery(db.Model(&entities.UsageEvent{}), filter).
+		Select(fmt.Sprintf(
+			"%s, ROW_NUMBER() OVER (PARTITION BY %s ORDER BY timestamp DESC, id DESC) AS retry_rank",
+			usageEventProjectionColumns,
+			groupKey,
+		))
+	return db.Table("(?) AS usage_event_latest", subQuery).Where("retry_rank = ?", 1)
+}
+
+func usageEventRetryGroupKeySQL(db *gorm.DB) string {
+	if db != nil && db.Dialector != nil && db.Dialector.Name() == "postgres" {
+		return "CASE WHEN TRIM(COALESCE(request_id, '')) = '' THEN CONCAT('event:', id) ELSE CONCAT('request:', TRIM(request_id)) END"
+	}
+	return "CASE WHEN TRIM(COALESCE(request_id, '')) = '' THEN 'event:' || id ELSE 'request:' || TRIM(request_id) END"
+}
+
+func attachUsageEventAttempts(db *gorm.DB, filter dto.UsageQueryFilter, rows []dto.UsageEventRecord) ([]dto.UsageEventRecord, error) {
+	if len(rows) == 0 {
+		return rows, nil
+	}
+	requestIDs := make([]string, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		requestID := strings.TrimSpace(row.RequestID)
+		if requestID == "" {
+			continue
+		}
+		if _, ok := seen[requestID]; ok {
+			continue
+		}
+		seen[requestID] = struct{}{}
+		requestIDs = append(requestIDs, requestID)
+	}
+	if len(requestIDs) == 0 {
+		result := make([]dto.UsageEventRecord, 0, len(rows))
+		for _, row := range rows {
+			row.AttemptCount = 1
+			result = append(result, row)
+		}
+		return result, nil
+	}
+
+	query := applyUsageQueryWindow(db.Model(&entities.UsageEvent{}), filter).
+		Select(usageEventProjectionColumns).
+		Where("request_id IN ?", requestIDs).
+		Order("request_id ASC, timestamp DESC, id DESC")
+	var attempts []usageEventProjection
+	if err := query.Find(&attempts).Error; err != nil {
+		return nil, fmt.Errorf("load usage event attempts: %w", err)
+	}
+
+	attemptsByRequestID := make(map[string][]dto.UsageEventAttemptRecord, len(requestIDs))
+	for _, attempt := range attempts {
+		requestID := strings.TrimSpace(attempt.RequestID)
+		if requestID == "" {
+			continue
+		}
+		attemptsByRequestID[requestID] = append(attemptsByRequestID[requestID], usageEventProjectionToAttemptRecord(attempt))
+	}
+	result := make([]dto.UsageEventRecord, 0, len(rows))
+	for _, row := range rows {
+		attempts := attemptsByRequestID[strings.TrimSpace(row.RequestID)]
+		row.AttemptCount = max(len(attempts), 1)
+		if len(attempts) > 1 {
+			row.Attempts = attempts
+		}
+		result = append(result, row)
+	}
+	return result, nil
+}
+
+func usageEventProjectionToAttemptRecord(event usageEventProjection) dto.UsageEventAttemptRecord {
+	return dto.UsageEventAttemptRecord{
+		ID:          event.ID,
+		Timestamp:   timeutil.NormalizeStorageTime(event.Timestamp),
+		Model:       strings.TrimSpace(event.Model),
+		AuthType:    strings.TrimSpace(event.AuthType),
+		Provider:    strings.TrimSpace(event.Provider),
+		Source:      strings.TrimSpace(event.Source),
+		AuthIndex:   strings.TrimSpace(event.AuthIndex),
+		Failed:      event.Failed,
+		LatencyMS:   event.LatencyMS,
+		TotalTokens: event.TotalTokens,
+	}
+}
+
 // usageEventProjectionToRecord 把数据库投影转换成 Request Event Log 的外部 DTO。
 func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventRecord {
 	// 对前端展示字段统一 trim，避免历史脏数据影响筛选和展示一致性。
@@ -256,6 +351,8 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		APIGroupKey:         strings.TrimSpace(event.APIGroupKey),
 		Model:               strings.TrimSpace(event.Model),
 		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
+		ServiceTier:         strings.TrimSpace(event.ServiceTier),
+		Endpoint:            strings.TrimSpace(event.Endpoint),
 		AuthType:            strings.TrimSpace(event.AuthType),
 		RequestID:           strings.TrimSpace(event.RequestID),
 		Provider:            strings.TrimSpace(event.Provider),
@@ -263,6 +360,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		AuthIndex:           strings.TrimSpace(event.AuthIndex),
 		Failed:              event.Failed,
 		LatencyMS:           event.LatencyMS,
+		TTFTMS:              event.TTFTMS,
 		InputTokens:         event.InputTokens,
 		OutputTokens:        event.OutputTokens,
 		ReasoningTokens:     event.ReasoningTokens,
@@ -270,6 +368,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		CacheReadTokens:     event.CacheReadTokens,
 		CacheCreationTokens: event.CacheCreationTokens,
 		TotalTokens:         event.TotalTokens,
+		AttemptCount:        max(event.AttemptCount, 1),
 	}
 }
 
@@ -284,11 +383,14 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		RequestID:           event.RequestID,
 		Model:               event.Model,
 		ReasoningEffort:     event.ReasoningEffort,
+		ServiceTier:         event.ServiceTier,
+		Endpoint:            event.Endpoint,
 		Timestamp:           event.Timestamp,
 		Source:              event.Source,
 		AuthIndex:           event.AuthIndex,
 		Failed:              event.Failed,
 		LatencyMS:           event.LatencyMS,
+		TTFTMS:              event.TTFTMS,
 		InputTokens:         event.InputTokens,
 		OutputTokens:        event.OutputTokens,
 		ReasoningTokens:     event.ReasoningTokens,
@@ -334,8 +436,8 @@ func applyUsageEventFilterOptionsQuery(query *gorm.DB, filter dto.UsageQueryFilt
 	return applyUsageQueryWindow(query, filter)
 }
 
-// Request Event Log 列表第一步：在时间窗口上叠加 model/source/auth_index/result。
-func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+// Request Event Log 列表第一步：在时间窗口上叠加 model/source/auth_index/API key。
+func applyUsageEventAttemptScopeQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	query = applyUsageQueryWindow(query, filter)
 	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
 		query = query.Where("api_group_key = ?", apiGroupKey)
@@ -347,6 +449,10 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 		// Source 下拉在 API 层已转换成 auth_index，仓储层只保留真实查询维度。
 		query = query.Where("auth_index = ?", authIndex)
 	}
+	return query
+}
+
+func applyUsageEventLatestResultQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
 	switch strings.TrimSpace(filter.Result) {
 	case "success":
 		query = query.Where("failed = ?", false)
@@ -356,18 +462,9 @@ func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm
 	return query
 }
 
-// Snapshot 先读事件，再按时间窗口在内存里汇总。
-func BuildUsageSnapshotWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.StatisticsSnapshot, error) {
-	if db == nil {
-		return nil, fmt.Errorf("database is nil")
-	}
-
-	events, err := loadUsageOverviewEventsWithFilter(db, filter)
-	if err != nil {
-		return nil, err
-	}
-
-	return buildUsageSnapshotFromEvents(events), nil
+func applyUsageEventListQuery(query *gorm.DB, filter dto.UsageQueryFilter) *gorm.DB {
+	query = applyUsageEventAttemptScopeQuery(query, filter)
+	return applyUsageEventLatestResultQuery(query, filter)
 }
 
 func BuildAnalysisWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dto.AnalysisRecord, error) {
@@ -728,7 +825,6 @@ func BuildUsageOverviewWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) (*dt
 func newUsageOverviewRecord(filter dto.UsageQueryFilter, windowMinutes int64) *dto.UsageOverviewRecord {
 	return &dto.UsageOverviewRecord{
 		Usage: &dto.StatisticsSnapshot{
-			APIs:           map[string]dto.APISnapshot{},
 			RequestsByDay:  map[string]int64{},
 			RequestsByHour: map[string]int64{},
 			TokensByDay:    map[string]int64{},
@@ -767,7 +863,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 		if usageOverviewEventInsideWindow(event, fullStart, fullEnd) {
 			continue
 		}
-		applyUsageEventToSnapshot(overview.Usage, event, false)
+		applyUsageEventToOverviewSnapshot(overview.Usage, event)
 		applyUsageEventToOverview(overview, event, bucketByDay, latestHourlyStart, pricingByModel)
 	}
 
@@ -844,7 +940,7 @@ func buildUsageOverviewFromStats(db *gorm.DB, filter dto.UsageQueryFilter, prici
 	}
 	overview.Health.TotalSuccess = healthSuccess
 	overview.Health.TotalFailure = healthFailure
-	finalizeUsageOverview(overview, false)
+	finalizeUsageOverview(overview)
 	return overview, nil
 }
 
@@ -1162,8 +1258,8 @@ func applyUsageOverviewHourlyStatToOverview(overview *dto.UsageOverviewRecord, r
 	// 小时 stats 是完整小时事实，可直接累计到 snapshot totals。
 	applyUsageOverviewHourlyStatToSnapshot(overview.Usage, row)
 	// cost 不入 stats 表，必须在读取时按当前价格表重新计算。
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
-	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && usageOverviewStatRequiresPricing(row.InputTokens, row.OutputTokens, row.CachedTokens) {
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
+	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}) {
 		overview.Summary.CostAvailable = false
 	}
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.CachedTokens, row.ReasoningTokens, rowCost)
@@ -1186,7 +1282,7 @@ func applyUsageOverviewHourlyStatToHourlySeries(overview *dto.UsageOverviewRecor
 	if latestHourlyStart != nil && timeutil.NormalizeStorageTime(row.BucketStart).Before(*latestHourlyStart) {
 		return
 	}
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
 	hourKey, hourMinutes := usageOverviewBucket(timeutil.NormalizeStorageTime(row.BucketStart), false)
 	applyUsageOverviewStatToSeries(&overview.HourlySeries, row.Model, row.RequestCount, row.InputTokens, row.OutputTokens, row.CachedTokens, row.ReasoningTokens, row.TotalTokens, rowCost, hourKey, hourMinutes)
 }
@@ -1195,8 +1291,8 @@ func applyUsageOverviewHourlyStatToHourlySeries(overview *dto.UsageOverviewRecor
 func applyUsageOverviewDailyStatToOverview(overview *dto.UsageOverviewRecord, row entities.UsageOverviewDailyStat, bucketByDay bool, pricingByModel map[string]entities.ModelPriceSetting) {
 	// 天 stats 只覆盖完整本地天，不能用于非整天边界。
 	applyUsageOverviewDailyStatToSnapshot(overview.Usage, row)
-	rowCost := calculateUsageOverviewStatCost(row.InputTokens, row.OutputTokens, row.CachedTokens, pricingByModel[strings.TrimSpace(row.Model)])
-	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && usageOverviewStatRequiresPricing(row.InputTokens, row.OutputTokens, row.CachedTokens) {
+	rowCost := helper.CalculateUsageTokenCost(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}, pricingByModel[strings.TrimSpace(row.Model)])
+	if _, ok := pricingByModel[strings.TrimSpace(row.Model)]; !ok && helper.UsageTokenInputRequiresPricing(helper.UsageTokenCostInput{InputTokens: row.InputTokens, OutputTokens: row.OutputTokens, CachedTokens: row.CachedTokens}) {
 		overview.Summary.CostAvailable = false
 	}
 	applyUsageOverviewStatToSummary(overview, row.RequestCount, row.CachedTokens, row.ReasoningTokens, rowCost)
@@ -1215,9 +1311,9 @@ func applyUsageOverviewStatToSummary(overview *dto.UsageOverviewRecord, requestC
 	overview.Summary.TotalCost += cost
 }
 
-// applyUsageOverviewHourlyStatToSnapshot 把小时 stats 合入旧 snapshot 结构，保持 API response 兼容。
+// applyUsageOverviewHourlyStatToSnapshot 把小时 stats 合入 Overview 基础 usage 统计。
 func applyUsageOverviewHourlyStatToSnapshot(snapshot *dto.StatisticsSnapshot, row entities.UsageOverviewHourlyStat) {
-	applyUsageOverviewStatToSnapshotTotals(snapshot, row.APIGroupKey, row.Model, row.RequestCount, row.SuccessCount, row.FailureCount, row.TotalTokens)
+	applyUsageOverviewStatToSnapshotTotals(snapshot, row.RequestCount, row.SuccessCount, row.FailureCount, row.TotalTokens)
 
 	bucketStart := timeutil.NormalizeStorageTime(row.BucketStart)
 	dayKey := bucketStart.Format("2006-01-02")
@@ -1241,38 +1337,21 @@ func applyUsageOverviewHourlyStatToSnapshotHours(snapshot *dto.StatisticsSnapsho
 	snapshot.TokensByHour[bucketKey] += row.TotalTokens
 }
 
-// applyUsageOverviewDailyStatToSnapshot 把天 stats 合入旧 snapshot 结构，完整小时明细由 hourly stats 负责。
+// applyUsageOverviewDailyStatToSnapshot 把天 stats 合入 Overview 基础 usage 统计，完整小时明细由 hourly stats 负责。
 func applyUsageOverviewDailyStatToSnapshot(snapshot *dto.StatisticsSnapshot, row entities.UsageOverviewDailyStat) {
-	applyUsageOverviewStatToSnapshotTotals(snapshot, row.APIGroupKey, row.Model, row.RequestCount, row.SuccessCount, row.FailureCount, row.TotalTokens)
+	applyUsageOverviewStatToSnapshotTotals(snapshot, row.RequestCount, row.SuccessCount, row.FailureCount, row.TotalTokens)
 
 	dayKey := timeutil.NormalizeStorageTime(row.BucketStart).Format("2006-01-02")
 	snapshot.RequestsByDay[dayKey] += row.RequestCount
 	snapshot.TokensByDay[dayKey] += row.TotalTokens
 }
 
-// applyUsageOverviewStatToSnapshotTotals 复用 hourly/daily stats 的 API 和 model 维度累计逻辑。
-func applyUsageOverviewStatToSnapshotTotals(snapshot *dto.StatisticsSnapshot, apiGroupKey, model string, requestCount, successCount, failureCount, totalTokens int64) {
-	apiKey := normalizeUsageOverviewDimension(apiGroupKey)
-	modelName := normalizeUsageOverviewDimension(model)
-	apiSnapshot := snapshot.APIs[apiKey]
-	if apiSnapshot.Models == nil {
-		apiSnapshot.Models = map[string]dto.ModelSnapshot{}
-	}
-	modelSnapshot := apiSnapshot.Models[modelName]
-	modelSnapshot.TotalRequests += requestCount
-	modelSnapshot.TotalTokens += totalTokens
-	modelSnapshot.SuccessCount += successCount
-	modelSnapshot.FailureCount += failureCount
-	apiSnapshot.TotalRequests += requestCount
-	apiSnapshot.TotalTokens += totalTokens
-	apiSnapshot.SuccessCount += successCount
-	apiSnapshot.FailureCount += failureCount
+// applyUsageOverviewStatToSnapshotTotals 复用 hourly/daily stats 的基础 totals 累计逻辑。
+func applyUsageOverviewStatToSnapshotTotals(snapshot *dto.StatisticsSnapshot, requestCount, successCount, failureCount, totalTokens int64) {
 	snapshot.TotalRequests += requestCount
 	snapshot.TotalTokens += totalTokens
 	snapshot.SuccessCount += successCount
 	snapshot.FailureCount += failureCount
-	apiSnapshot.Models[modelName] = modelSnapshot
-	snapshot.APIs[apiKey] = apiSnapshot
 }
 
 // applyUsageOverviewStatToSeries 同时维护总序列和按模型拆分序列，并即时刷新 RPM/TPM。
@@ -1410,32 +1489,6 @@ func usageOverviewHealthBlockIndex(blocks []dto.UsageOverviewHealthBlockRecord, 
 	return -1
 }
 
-// usageOverviewStatRequiresPricing 判断 stats row 是否需要价格表才能给出可信 cost。
-func usageOverviewStatRequiresPricing(inputTokens, outputTokens, cachedTokens int64) bool {
-	return inputTokens > 0 || outputTokens > 0 || cachedTokens > 0
-}
-
-// calculateUsageOverviewStatCost 按当前价格表计算聚合 row 成本，不读取历史价格快照。
-func calculateUsageOverviewStatCost(inputTokens, outputTokens, cachedTokens int64, pricing entities.ModelPriceSetting) float64 {
-	if inputTokens < 0 {
-		inputTokens = 0
-	}
-	if outputTokens < 0 {
-		outputTokens = 0
-	}
-	if cachedTokens < 0 {
-		cachedTokens = 0
-	}
-	// cached_tokens 已单独计价，prompt 费用只计算非缓存输入 token。
-	promptTokens := inputTokens - cachedTokens
-	if promptTokens < 0 {
-		promptTokens = 0
-	}
-	return (float64(promptTokens)/1_000_000.0)*pricing.PromptPricePer1M +
-		(float64(outputTokens)/1_000_000.0)*pricing.CompletionPricePer1M +
-		(float64(cachedTokens)/1_000_000.0)*pricing.CachePricePer1M
-}
-
 // Overview 第二步：按时间窗口读事件，再交给内存汇总。
 func loadUsageOverviewEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter) ([]entities.UsageEvent, error) {
 	query := applyUsageOverviewQuery(db.Model(&entities.UsageEvent{}), filter).Select(usageEventProjectionColumns).Order("timestamp asc")
@@ -1451,72 +1504,13 @@ func loadUsageOverviewEventsWithFilter(db *gorm.DB, filter dto.UsageQueryFilter)
 	return events, nil
 }
 
-// buildUsageSnapshotFromEvents 用原始事件构建旧 snapshot 响应，保留详情列表能力。
-func buildUsageSnapshotFromEvents(events []entities.UsageEvent) *dto.StatisticsSnapshot {
-	// Snapshot 仍按原始事件聚合，因为 Request Details 需要逐条事件明细。
-	snapshot := &dto.StatisticsSnapshot{
-		APIs:           map[string]dto.APISnapshot{},
-		RequestsByDay:  map[string]int64{},
-		RequestsByHour: map[string]int64{},
-		TokensByDay:    map[string]int64{},
-		TokensByHour:   map[string]int64{},
-	}
-	if len(events) == 0 {
-		return snapshot
-	}
-
-	for _, event := range events {
-		applyUsageEventToSnapshot(snapshot, event, true)
-	}
-	finalizeUsageSnapshot(snapshot, true)
-	return snapshot
-}
-
-// applyUsageEventToSnapshot 把单条 usage_event 累计到旧 snapshot 的 API/model/day/hour 结构。
-func applyUsageEventToSnapshot(snapshot *dto.StatisticsSnapshot, event entities.UsageEvent, includeDetails bool) {
-	// API key 和 model 维度都需要统一 unknown 兜底，否则空值会生成不可读 map key。
-	apiKey := normalizeUsageOverviewDimension(event.APIGroupKey)
-	modelName := normalizeUsageOverviewDimension(event.Model)
-
-	apiSnapshot := snapshot.APIs[apiKey]
-	if apiSnapshot.Models == nil {
-		apiSnapshot.Models = map[string]dto.ModelSnapshot{}
-	}
-
-	modelSnapshot := apiSnapshot.Models[modelName]
-	// Overview 不需要 Details，只有旧 Snapshot 页面才保留逐条请求详情。
-	if includeDetails {
-		detail := dto.RequestDetail{
-			Timestamp: timeutil.NormalizeStorageTime(event.Timestamp),
-			LatencyMS: event.LatencyMS,
-			Source:    strings.TrimSpace(event.Source),
-			AuthIndex: strings.TrimSpace(event.AuthIndex),
-			Failed:    event.Failed,
-			Tokens: dto.TokenStats{
-				InputTokens:         event.InputTokens,
-				OutputTokens:        event.OutputTokens,
-				ReasoningTokens:     event.ReasoningTokens,
-				CachedTokens:        event.CachedTokens,
-				CacheReadTokens:     event.CacheReadTokens,
-				CacheCreationTokens: event.CacheCreationTokens,
-				TotalTokens:         event.TotalTokens,
-			},
-		}
-		modelSnapshot.Details = append(modelSnapshot.Details, detail)
-	}
-	modelSnapshot.TotalRequests++
-	modelSnapshot.TotalTokens += event.TotalTokens
-	apiSnapshot.TotalRequests++
-	apiSnapshot.TotalTokens += event.TotalTokens
+// applyUsageEventToOverviewSnapshot 把边界 raw event 累计到 Overview 基础 usage 统计。
+func applyUsageEventToOverviewSnapshot(snapshot *dto.StatisticsSnapshot, event entities.UsageEvent) {
 	snapshot.TotalRequests++
 	snapshot.TotalTokens += event.TotalTokens
 	if event.Failed {
-		modelSnapshot.FailureCount++
-		apiSnapshot.FailureCount++
 		snapshot.FailureCount++
 	} else {
-		modelSnapshot.SuccessCount++
-		apiSnapshot.SuccessCount++
 		snapshot.SuccessCount++
 	}
 
@@ -1527,25 +1521,6 @@ func applyUsageEventToSnapshot(snapshot *dto.StatisticsSnapshot, event entities.
 	snapshot.RequestsByHour[hourKey]++
 	snapshot.TokensByDay[dayKey] += event.TotalTokens
 	snapshot.TokensByHour[hourKey] += event.TotalTokens
-
-	apiSnapshot.Models[modelName] = modelSnapshot
-	snapshot.APIs[apiKey] = apiSnapshot
-}
-
-// finalizeUsageSnapshot 做 snapshot 后处理，目前只在带 Details 时稳定详情排序。
-func finalizeUsageSnapshot(snapshot *dto.StatisticsSnapshot, includeDetails bool) {
-	if !includeDetails {
-		return
-	}
-	for apiKey, apiSnapshot := range snapshot.APIs {
-		for modelName, modelSnapshot := range apiSnapshot.Models {
-			sort.Slice(modelSnapshot.Details, func(i, j int) bool {
-				return modelSnapshot.Details[i].Timestamp.Before(modelSnapshot.Details[j].Timestamp)
-			})
-			apiSnapshot.Models[modelName] = modelSnapshot
-		}
-		snapshot.APIs[apiKey] = apiSnapshot
-	}
 }
 
 // newUsageOverviewSeriesRecord 初始化 Overview 趋势序列中的所有指标 map。
@@ -1595,11 +1570,6 @@ func applyUsageEventToOverviewSeries(series *dto.UsageOverviewSeriesRecord, even
 	series.Models[modelName] = modelSeries
 }
 
-// usageEventRequiresPricing 判断单条事件是否需要价格表才能给出可信 cost。
-func usageEventRequiresPricing(event entities.UsageEvent) bool {
-	return event.InputTokens > 0 || event.OutputTokens > 0 || event.CachedTokens > 0
-}
-
 // applyUsageEventToOverview 把边界 raw event 合并进 Overview，语义必须和 stats row 合并保持一致。
 func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities.UsageEvent, bucketByDay bool, latestHourlyStart *time.Time, pricingByModel map[string]entities.ModelPriceSetting) {
 	overview.Summary.CachedTokens += event.CachedTokens
@@ -1611,10 +1581,10 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	}
 	// 边界事件也按当前价格表计算 cost；缺价格且有计费 token 时标记 cost 不完整。
 	pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
-	if !ok && usageEventRequiresPricing(event) {
+	if !ok && helper.UsageEventRequiresPricing(event) {
 		overview.Summary.CostAvailable = false
 	}
-	cost := calculateUsageEventCost(event, pricing)
+	cost := helper.CalculateUsageEventCost(event, pricing)
 	overview.Summary.TotalCost += cost
 
 	// 主序列使用页面当前粒度，hourly/daily 辅助序列固定按各自粒度累计。
@@ -1631,9 +1601,8 @@ func applyUsageEventToOverview(overview *dto.UsageOverviewRecord, event entities
 	updateUsageOverviewHealthBlock(overview.Health.BlockDetails, event)
 }
 
-// finalizeUsageOverview 从累计后的 snapshot/health 数据反推 summary 派生指标。
-func finalizeUsageOverview(overview *dto.UsageOverviewRecord, includeDetails bool) {
-	finalizeUsageSnapshot(overview.Usage, includeDetails)
+// finalizeUsageOverview 从累计后的 usage/health 数据反推 summary 派生指标。
+func finalizeUsageOverview(overview *dto.UsageOverviewRecord) {
 	overview.Summary.RequestCount = overview.Usage.TotalRequests
 	overview.Summary.TokenCount = overview.Usage.TotalTokens
 	if overview.Summary.WindowMinutes > 0 {
@@ -1665,30 +1634,6 @@ func loadPriceSettingsByModel(db *gorm.DB) (map[string]entities.ModelPriceSettin
 		result[strings.TrimSpace(setting.Model)] = setting
 	}
 	return result, nil
-}
-
-// calculateUsageEventCost 按当前价格表计算单条事件成本。
-func calculateUsageEventCost(event entities.UsageEvent, pricing entities.ModelPriceSetting) float64 {
-	inputTokens := event.InputTokens
-	if inputTokens < 0 {
-		inputTokens = 0
-	}
-	completionTokens := event.OutputTokens
-	if completionTokens < 0 {
-		completionTokens = 0
-	}
-	cachedTokens := event.CachedTokens
-	if cachedTokens < 0 {
-		cachedTokens = 0
-	}
-	// cached_tokens 已单独计价，prompt 费用只计算非缓存输入 token。
-	promptTokens := inputTokens - cachedTokens
-	if promptTokens < 0 {
-		promptTokens = 0
-	}
-	return (float64(promptTokens)/1_000_000.0)*pricing.PromptPricePer1M +
-		(float64(completionTokens)/1_000_000.0)*pricing.CompletionPricePer1M +
-		(float64(cachedTokens)/1_000_000.0)*pricing.CachePricePer1M
 }
 
 const usageOverviewDailyBucketThresholdMinutes int64 = 7 * 24 * 60

@@ -6,7 +6,6 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
-	"cpa-usage-keeper/internal/redact"
 )
 
 type usageSourceResolver struct {
@@ -69,11 +68,11 @@ func usageSourceResolutionFromIdentity(item entities.UsageIdentity, fallbackIden
 	displayName := firstNonEmptyString(
 		safeAIProviderDisplayValue(helper.UsageIdentityDisplayName(item), fallbackIdentity, ""),
 		identityType,
-		redact.APIKeyDisplayName(fallbackIdentity),
+		helper.RedactSensitiveValue(fallbackIdentity),
 	)
 	sourceKey := "provider:" + int64ToString(item.ID)
 	if item.ID == 0 {
-		sourceKey = "provider:" + redact.APIKeyDisplayName(fallbackIdentity)
+		sourceKey = "provider:" + helper.RedactSensitiveValue(fallbackIdentity)
 	}
 	return usageSourceResolution{
 		DisplayName: displayName,
@@ -134,20 +133,20 @@ func (r usageSourceResolver) resolve(rawSource string, authIndex string) usageSo
 	if looksLikeEmail(normalizedSource) {
 		return usageSourceResolution{
 			DisplayName: normalizedSource,
-			SourceKey:   "email:" + redact.APIAlias(normalizedSource),
+			SourceKey:   "email:" + helper.SensitiveValueAlias(normalizedSource),
 		}
 	}
 	if inferredProvider := inferUsageProviderType(normalizedSource); inferredProvider != "" {
 		return usageSourceResolution{
 			DisplayName: inferredProvider,
 			SourceType:  inferredProvider,
-			SourceKey:   "provider:fallback:" + inferredProvider + ":" + redact.APIAlias(normalizedSource),
+			SourceKey:   "provider:fallback:" + inferredProvider + ":" + helper.SensitiveValueAlias(normalizedSource),
 		}
 	}
-	masked := redact.APIKeyDisplayName(normalizedSource)
+	masked := helper.RedactSensitiveValue(normalizedSource)
 	return usageSourceResolution{
 		DisplayName: masked,
-		SourceKey:   "raw:" + redact.APIAlias(normalizedSource),
+		SourceKey:   "raw:" + helper.SensitiveValueAlias(normalizedSource),
 	}
 }
 
@@ -173,14 +172,14 @@ func looksLikeSensitiveAPIValue(value string) bool {
 
 func safeUsageSourceDisplay(resolved usageSourceResolution, authIndex string) string {
 	if strings.TrimSpace(resolved.DisplayName) == strings.TrimSpace(authIndex) && strings.TrimSpace(authIndex) != "" {
-		return redact.APIKeyDisplayName(authIndex)
+		return helper.RedactSensitiveValue(authIndex)
 	}
 	return resolved.DisplayName
 }
 
 func safeUsageSourceKey(resolved usageSourceResolution) string {
 	if value, ok := strings.CutPrefix(resolved.SourceKey, "auth:"); ok {
-		return "auth:" + redact.APIAlias(value)
+		return "auth:" + helper.SensitiveValueAlias(value)
 	}
 	return resolved.SourceKey
 }
@@ -188,10 +187,10 @@ func safeUsageSourceKey(resolved usageSourceResolution) string {
 func safeAuthIdentityDisplayName(name string, fallbackIdentity string) string {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
-		return redact.APIKeyDisplayName(fallbackIdentity)
+		return helper.RedactSensitiveValue(fallbackIdentity)
 	}
 	if looksLikeEmail(trimmed) || trimmed == strings.TrimSpace(fallbackIdentity) {
-		return redact.APIKeyDisplayName(trimmed)
+		return helper.RedactSensitiveValue(trimmed)
 	}
 	return trimmed
 }

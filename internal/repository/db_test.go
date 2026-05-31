@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/config"
+	"cpa-usage-keeper/internal/cpa"
 	"cpa-usage-keeper/internal/entities"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -85,8 +86,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 32 {
-		t.Fatalf("expected fresh database to mark 32 migrations applied, got %d", count)
+	if count != 34 {
+		t.Fatalf("expected fresh database to mark 34 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -262,6 +263,71 @@ func TestInsertUsageEventsPersistsModelAlias(t *testing.T) {
 	}
 }
 
+func TestInsertUsageEventsPersistsTTFTMS(t *testing.T) {
+	db := openTestDatabase(t)
+	ttftMS := int64(456)
+	events := []entities.UsageEvent{{
+		EventKey:    "event-ttft",
+		APIGroupKey: "provider-a",
+		Model:       "claude-sonnet",
+		TTFTMS:      &ttftMS,
+		Timestamp:   time.Date(2026, 5, 28, 8, 0, 0, 0, time.UTC),
+		Source:      "source-a",
+		AuthIndex:   "auth-1",
+		TotalTokens: 10,
+	}}
+
+	inserted, deduped, err := InsertUsageEvents(db, events)
+	if err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if inserted != 1 || deduped != 0 {
+		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
+	}
+
+	var got struct {
+		TTFTMS *int64 `gorm:"column:ttft_ms"`
+	}
+	if err := db.Table("usage_events").Select("ttft_ms").Where("event_key = ?", "event-ttft").First(&got).Error; err != nil {
+		t.Fatalf("load usage event ttft_ms: %v", err)
+	}
+	if got.TTFTMS == nil || *got.TTFTMS != 456 {
+		t.Fatalf("expected ttft_ms to persist, got %+v", got.TTFTMS)
+	}
+}
+
+func TestInsertUsageEventsPersistsServiceTier(t *testing.T) {
+	db := openTestDatabase(t)
+	events := []entities.UsageEvent{{
+		EventKey:    "event-service-tier",
+		APIGroupKey: "provider-a",
+		Model:       "claude-sonnet",
+		ServiceTier: "standard",
+		Timestamp:   time.Date(2026, 5, 29, 8, 0, 0, 0, time.UTC),
+		Source:      "source-a",
+		AuthIndex:   "auth-1",
+		TotalTokens: 10,
+	}}
+
+	inserted, deduped, err := InsertUsageEvents(db, events)
+	if err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+	if inserted != 1 || deduped != 0 {
+		t.Fatalf("expected inserted=1 deduped=0, got inserted=%d deduped=%d", inserted, deduped)
+	}
+
+	var got struct {
+		ServiceTier string `gorm:"column:service_tier"`
+	}
+	if err := db.Table("usage_events").Select("service_tier").Where("event_key = ?", "event-service-tier").First(&got).Error; err != nil {
+		t.Fatalf("load usage event service_tier: %v", err)
+	}
+	if got.ServiceTier != "standard" {
+		t.Fatalf("expected service_tier to persist, got %q", got.ServiceTier)
+	}
+}
+
 func TestDatabaseTimeFieldsUseProjectTimezoneRFC3339Nano(t *testing.T) {
 	previousLocal := time.Local
 	location, err := time.LoadLocation("Asia/Shanghai")
@@ -287,7 +353,7 @@ func TestDatabaseTimeFieldsUseProjectTimezoneRFC3339Nano(t *testing.T) {
 	if _, err := UpsertModelPriceSetting(db, dto.ModelPriceSettingInput{Model: "claude-sonnet", PromptPricePer1M: 1}); err != nil {
 		t.Fatalf("UpsertModelPriceSetting returned error: %v", err)
 	}
-	inboxRows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: "queue", RawMessage: `{"request_id":"event-storage-time"}`, PoppedAt: storageTime}})
+	inboxRows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"event-storage-time"}`, PoppedAt: storageTime}})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)
 	}
@@ -350,8 +416,8 @@ func TestCleanupStorageCleansRedisInboxAndVacuums(t *testing.T) {
 	now := time.Date(2026, 4, 27, 2, 30, 0, 0, time.UTC)
 
 	inboxRows, err := InsertRedisUsageInboxMessages(db, []dto.RedisInboxInsert{
-		{QueueKey: "queue", RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.AddDate(0, 0, -2)},
-		{QueueKey: "queue", RawMessage: `{"request_id":"pending"}`, PoppedAt: now.AddDate(0, 0, -2)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"processed-old"}`, PoppedAt: now.AddDate(0, 0, -2)},
+		{QueueKey: cpa.ManagementUsageQueueKey, RawMessage: `{"request_id":"pending"}`, PoppedAt: now.AddDate(0, 0, -2)},
 	})
 	if err != nil {
 		t.Fatalf("InsertRedisUsageInboxMessages returned error: %v", err)

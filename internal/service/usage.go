@@ -60,14 +60,6 @@ func (s *usageService) resolveAPIGroupKey(apiKeyID string) (string, error) {
 	return apiKey.APIKey, nil
 }
 
-func (s *usageService) GetUsageWithFilter(_ context.Context, filter servicedto.UsageFilter) (*repodto.StatisticsSnapshot, error) {
-	return repository.BuildUsageSnapshotWithFilter(s.db, repodto.UsageQueryFilter{
-		Range:     filter.Range,
-		StartTime: filter.StartTime,
-		EndTime:   filter.EndTime,
-	})
-}
-
 // Usage 页面里的 Overview tab 下传时间窗口和全局 API-Key，仓储层负责构建 overview 聚合。
 func (s *usageService) GetUsageOverview(_ context.Context, filter servicedto.UsageFilter) (*servicedto.UsageOverviewSnapshot, error) {
 	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
@@ -258,19 +250,40 @@ func (s *usageService) ListUsageEvents(_ context.Context, filter servicedto.Usag
 }
 
 func mapUsageEventRecord(row repodto.UsageEventRecord) servicedto.UsageEventRecord {
+	var attempts []servicedto.UsageEventAttemptRecord
+	if len(row.Attempts) > 0 {
+		attempts = make([]servicedto.UsageEventAttemptRecord, 0, len(row.Attempts))
+		for _, attempt := range row.Attempts {
+			attempts = append(attempts, servicedto.UsageEventAttemptRecord{
+				ID:          attempt.ID,
+				Timestamp:   attempt.Timestamp,
+				Model:       attempt.Model,
+				AuthType:    attempt.AuthType,
+				Provider:    attempt.Provider,
+				Source:      attempt.Source,
+				AuthIndex:   attempt.AuthIndex,
+				Failed:      attempt.Failed,
+				LatencyMS:   attempt.LatencyMS,
+				TotalTokens: attempt.TotalTokens,
+			})
+		}
+	}
 	return servicedto.UsageEventRecord{
 		ID:                  row.ID,
 		Timestamp:           row.Timestamp,
 		APIGroupKey:         row.APIGroupKey,
 		Model:               row.Model,
 		ReasoningEffort:     row.ReasoningEffort,
+		ServiceTier:         row.ServiceTier,
+		Endpoint:            row.Endpoint,
 		AuthType:            row.AuthType,
-		RequestID:           row.RequestID,
 		Provider:            row.Provider,
 		Source:              row.Source,
 		AuthIndex:           row.AuthIndex,
+		RequestID:           row.RequestID,
 		Failed:              row.Failed,
 		LatencyMS:           row.LatencyMS,
+		TTFTMS:              row.TTFTMS,
 		InputTokens:         row.InputTokens,
 		OutputTokens:        row.OutputTokens,
 		ReasoningTokens:     row.ReasoningTokens,
@@ -278,6 +291,8 @@ func mapUsageEventRecord(row repodto.UsageEventRecord) servicedto.UsageEventReco
 		CacheReadTokens:     row.CacheReadTokens,
 		CacheCreationTokens: row.CacheCreationTokens,
 		TotalTokens:         row.TotalTokens,
+		AttemptCount:        row.AttemptCount,
+		Attempts:            attempts,
 	}
 }
 

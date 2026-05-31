@@ -1,70 +1,47 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCustomDateRangeQuery, getBackToCPALinkURL, getCustomDateRangeBounds, getOverviewChartEndMs, getOverviewDisplayLoading, getOverviewHourWindowHours, getPreferredOverviewChartPeriod, getStorageSettingsCardKey, getTimeRangeOptions, getUsageTabOptions, isCustomDateWithinBounds, openDateInputPicker, refreshPageData, resolveMonitoringQueryState, resolveUsageRangeQueryState, sanitizeRequestEventFilters, scheduleOverviewAutoRefresh, shouldAutoCheckForUpdate, shouldAutoRefreshUsageTab, shouldShowApiKeyFilter, shouldShowRangeControls, shouldShowVersionBadge, shouldShowVersionBadgeDot, getUpdateCheckToastDuration, shouldUseOverviewUsage, applySavedStorageSettings } from './UsagePage';
-import { filterUsageByWindow, type UsageFilterWindow } from '@/utils/usage';
-import type { StorageInfoResponse, UpdateDatabaseCleanupSettingsRequest, UsageSnapshot } from '@/lib/types';
+import {
+  applySavedStorageSettings,
+  buildCustomDateRangeQuery,
+  getBackToCPALinkURL,
+  getCredentialSectionVisibility,
+  getCustomDateRangeBounds,
+  getOverviewChartEndMs,
+  getOverviewDisplayLoading,
+  getOverviewHourWindowHours,
+  getPreferredOverviewChartPeriod,
+  getStorageSettingsCardKey,
+  getTimeRangeOptions,
+  getUsageTabOptions,
+  getUpdateCheckToastDuration,
+  isCustomDateWithinBounds,
+  isUsagePageVisible,
+  normalizeUsageTabValue,
+  openDateInputPicker,
+  refreshPageData,
+  resolveMonitoringQueryState,
+  resolveUsageRangeQueryState,
+  sanitizeRequestEventFilters,
+  scheduleOverviewAutoRefresh,
+  scheduleStatusActiveHeartbeat,
+  shouldAutoCheckForUpdate,
+  shouldLoadPricingOnUsageTabEntry,
+  shouldAutoRefreshUsageTab,
+  shouldShowApiKeyFilter,
+  shouldShowRangeControls,
+  shouldShowVersionBadge,
+  shouldShowVersionBadgeDot,
+  shouldUseOverviewUsage,
+  STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS,
+} from './UsagePage';
+import type {
+  StatusResponse,
+  StorageInfoResponse,
+  UpdateDatabaseCleanupSettingsRequest,
+} from '@/lib/types';
 
-const usage: UsageSnapshot = {
-  total_requests: 2,
-  success_count: 2,
-  failure_count: 0,
-  total_tokens: 300,
-  requests_by_day: {},
-  requests_by_hour: {},
-  tokens_by_day: {},
-  tokens_by_hour: {},
-  apis: {
-    'provider-a': {
-      display_name: 'Provider A',
-      total_requests: 2,
-      success_count: 2,
-      failure_count: 0,
-      total_tokens: 300,
-      models: {
-        'claude-sonnet': {
-          total_requests: 2,
-          success_count: 2,
-          failure_count: 0,
-          total_tokens: 300,
-          details: [
-            {
-              timestamp: '2026-04-23T00:00:00.000Z',
-              latency_ms: 100,
-              source: 'source-a',
-              auth_index: '1',
-              failed: false,
-              tokens: {
-                input_tokens: 50,
-                output_tokens: 50,
-                reasoning_tokens: 0,
-                cached_tokens: 0,
-                total_tokens: 100,
-              },
-            },
-            {
-              timestamp: '2026-04-23T02:00:00.000Z',
-              latency_ms: 120,
-              source: 'source-a',
-              auth_index: '1',
-              failed: false,
-              tokens: {
-                input_tokens: 100,
-                output_tokens: 100,
-                reasoning_tokens: 0,
-                cached_tokens: 0,
-                total_tokens: 200,
-              },
-            },
-          ],
-        },
-      },
-    },
-  },
-};
-
-const deriveFilteredUsageLikePage = (input: UsageSnapshot, filterWindow: UsageFilterWindow) =>
-  filterUsageByWindow(input, filterWindow);
-
-const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState = 'visible') => {
+const createAutoRefreshTestDocument = (
+  visibilityState: DocumentVisibilityState = 'visible',
+) => {
   const target = new EventTarget();
   return {
     get visibilityState() {
@@ -79,6 +56,18 @@ const createAutoRefreshTestDocument = (visibilityState: DocumentVisibilityState 
   };
 };
 
+const createStatusResponse = (lastError = ''): StatusResponse => ({
+  running: true,
+  sync_running: false,
+  timezone: 'UTC',
+  last_error: lastError,
+});
+
+const flushPromises = async () => {
+  await Promise.resolve();
+  await Promise.resolve();
+};
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -86,49 +75,122 @@ afterEach(() => {
 
 describe('UsagePage Overview loading display', () => {
   it('keeps existing Overview data visible during background refresh', () => {
-    expect(getOverviewDisplayLoading({ loading: true, hasUsage: true })).toBe(false);
+    expect(getOverviewDisplayLoading({ loading: true, hasUsage: true })).toBe(
+      false,
+    );
   });
 
   it('shows loading before Overview data has loaded', () => {
-    expect(getOverviewDisplayLoading({ loading: true, hasUsage: false })).toBe(true);
+    expect(getOverviewDisplayLoading({ loading: true, hasUsage: false })).toBe(
+      true,
+    );
   });
 });
 
 describe('UsagePage Back to CPA link', () => {
   it('uses the CPA public URL from status', () => {
-    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'https://cpa.example.com' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('https://cpa.example.com/management.html');
   });
 
   it('maps Docker service hostnames to the current browser host', () => {
-    expect(getBackToCPALinkURL({ cpa_public_url: 'http://cli-proxy-api:8317' }, 'http://192.168.1.23:8080')).toBe('http://192.168.1.23:8317/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'http://cli-proxy-api:8317' },
+        'http://192.168.1.23:8080',
+      ),
+    ).toBe('http://192.168.1.23:8317/management.html');
   });
 
   it('maps local CPA hosts to the current browser host', () => {
-    expect(getBackToCPALinkURL({ cpa_public_url: 'http://0.0.0.0:8317' }, 'http://localhost:8080')).toBe('http://localhost:8317/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'http://0.0.0.0:8317' },
+        'http://localhost:8080',
+      ),
+    ).toBe('http://localhost:8317/management.html');
   });
 
   it('uses the current origin when status does not include a CPA public URL', () => {
-    expect(getBackToCPALinkURL({}, 'https://cpa.domain.com')).toBe('https://cpa.domain.com/management.html');
-    expect(getBackToCPALinkURL(null, 'https://cpa.domain.com')).toBe('https://cpa.domain.com/management.html');
+    expect(getBackToCPALinkURL({}, 'https://cpa.domain.com')).toBe(
+      'https://cpa.domain.com/management.html',
+    );
+    expect(getBackToCPALinkURL(null, 'https://cpa.domain.com')).toBe(
+      'https://cpa.domain.com/management.html',
+    );
   });
 
   it('normalizes trailing slashes and existing management pages', () => {
-    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
-    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/cpa/' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/cpa/management.html');
-    expect(getBackToCPALinkURL({ cpa_public_url: 'https://cpa.example.com/management.html' }, 'https://keeper.example.com')).toBe('https://cpa.example.com/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'https://cpa.example.com/' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('https://cpa.example.com/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'https://cpa.example.com/cpa/' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('https://cpa.example.com/cpa/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'https://cpa.example.com/management.html' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('https://cpa.example.com/management.html');
   });
 
   it('supports relative public paths and bare host names', () => {
-    expect(getBackToCPALinkURL({ cpa_public_url: '/cpa/' }, 'https://keeper.example.com')).toBe('https://keeper.example.com/cpa/management.html');
-    expect(getBackToCPALinkURL({ cpa_public_url: 'cpa.domain.com/' }, 'https://keeper.example.com')).toBe('https://cpa.domain.com/management.html');
-    expect(getBackToCPALinkURL({ cpa_public_url: 'cpa.domain.com:8317/' }, 'https://keeper.example.com')).toBe('https://cpa.domain.com:8317/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: '/cpa/' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('https://keeper.example.com/cpa/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'cpa.domain.com/' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('https://cpa.domain.com/management.html');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'cpa.domain.com:8317/' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('https://cpa.domain.com:8317/management.html');
   });
 
   it('rejects explicit non-http public URL schemes', () => {
-    expect(getBackToCPALinkURL({ cpa_public_url: 'javascript://alert(1)' }, 'https://keeper.example.com')).toBe('');
-    expect(getBackToCPALinkURL({ cpa_public_url: 'data://text/html,<script>alert(1)</script>' }, 'https://keeper.example.com')).toBe('');
-    expect(getBackToCPALinkURL({ cpa_public_url: 'file:///etc/passwd' }, 'https://keeper.example.com')).toBe('');
-    expect(getBackToCPALinkURL({ cpa_public_url: 'ftp://cpa.example.com' }, 'https://keeper.example.com')).toBe('');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'javascript://alert(1)' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'data://text/html,<script>alert(1)</script>' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'file:///etc/passwd' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('');
+    expect(
+      getBackToCPALinkURL(
+        { cpa_public_url: 'ftp://cpa.example.com' },
+        'https://keeper.example.com',
+      ),
+    ).toBe('');
   });
 });
 
@@ -138,28 +200,56 @@ describe('UsagePage update check controls', () => {
   });
 
   it('shows the version badge for dev builds with a version', () => {
-    expect(shouldShowVersionBadge({ version: 'dev', updateCheckEnabled: false })).toBe(true);
+    expect(
+      shouldShowVersionBadge({ version: 'dev', updateCheckEnabled: false }),
+    ).toBe(true);
   });
 
   it('shows the version badge for release builds with a version', () => {
-    expect(shouldShowVersionBadge({ version: 'v1.2.3', updateCheckEnabled: true })).toBe(true);
+    expect(
+      shouldShowVersionBadge({ version: 'v1.2.3', updateCheckEnabled: true }),
+    ).toBe(true);
   });
 
   it('hides the version badge when status does not include a usable version', () => {
     expect(shouldShowVersionBadge({ updateCheckEnabled: true })).toBe(false);
-    expect(shouldShowVersionBadge({ version: '   ', updateCheckEnabled: true })).toBe(false);
+    expect(
+      shouldShowVersionBadge({ version: '   ', updateCheckEnabled: true }),
+    ).toBe(false);
   });
 
   it('auto-checks comparable release builds once per version', () => {
-    expect(shouldAutoCheckForUpdate({ version: 'v1.2.3', updateCheckEnabled: true }, null)).toBe(true);
-    expect(shouldAutoCheckForUpdate({ version: 'v1.2.3', updateCheckEnabled: true }, 'v1.2.2')).toBe(true);
-    expect(shouldAutoCheckForUpdate({ version: 'v1.2.3', updateCheckEnabled: true }, 'v1.2.3')).toBe(false);
+    expect(
+      shouldAutoCheckForUpdate(
+        { version: 'v1.2.3', updateCheckEnabled: true },
+        null,
+      ),
+    ).toBe(true);
+    expect(
+      shouldAutoCheckForUpdate(
+        { version: 'v1.2.3', updateCheckEnabled: true },
+        'v1.2.2',
+      ),
+    ).toBe(true);
+    expect(
+      shouldAutoCheckForUpdate(
+        { version: 'v1.2.3', updateCheckEnabled: true },
+        'v1.2.3',
+      ),
+    ).toBe(false);
   });
 
   it('does not auto-check dev or missing versions', () => {
     expect(shouldAutoCheckForUpdate(null, null)).toBe(false);
-    expect(shouldAutoCheckForUpdate({ version: 'dev', updateCheckEnabled: false }, null)).toBe(false);
-    expect(shouldAutoCheckForUpdate({ updateCheckEnabled: true }, null)).toBe(false);
+    expect(
+      shouldAutoCheckForUpdate(
+        { version: 'dev', updateCheckEnabled: false },
+        null,
+      ),
+    ).toBe(false);
+    expect(shouldAutoCheckForUpdate({ updateCheckEnabled: true }, null)).toBe(
+      false,
+    );
   });
 
   it('shows the version badge dot only when an update is available', () => {
@@ -197,7 +287,16 @@ describe('UsagePage Storage settings refresh', () => {
     const current: StorageInfoResponse = {
       settings: currentSettings,
       backup_count: 2,
-      domains: [{ key: 'usage_logs', label: 'Usage logs', description: 'Usage events', rows: 10, size_bytes: 1024, table_names: ['usage_events'] }],
+      domains: [
+        {
+          key: 'usage_logs',
+          label: 'Usage logs',
+          description: 'Usage events',
+          rows: 10,
+          size_bytes: 1024,
+          table_names: ['usage_events'],
+        },
+      ],
     };
     const savedSettings: UpdateDatabaseCleanupSettingsRequest = {
       ...currentSettings,
@@ -213,7 +312,9 @@ describe('UsagePage Storage settings refresh', () => {
   });
 
   it('changes the storage card key after a save revision even when settings values are unchanged', () => {
-    expect(getStorageSettingsCardKey(currentSettings, 1)).not.toBe(getStorageSettingsCardKey(currentSettings, 2));
+    expect(getStorageSettingsCardKey(currentSettings, 1)).not.toBe(
+      getStorageSettingsCardKey(currentSettings, 2),
+    );
   });
 });
 
@@ -223,7 +324,11 @@ describe('UsagePage Overview auto-refresh', () => {
     const testDocument = createAutoRefreshTestDocument();
     const refreshOverview = vi.fn();
 
-    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+    const cleanup = scheduleOverviewAutoRefresh({
+      enabled: true,
+      refreshOverview,
+      documentRef: testDocument,
+    });
 
     vi.advanceTimersByTime(9_999);
     expect(refreshOverview).not.toHaveBeenCalled();
@@ -238,7 +343,10 @@ describe('UsagePage Overview auto-refresh', () => {
     vi.useFakeTimers();
     const refreshOverview = vi.fn();
 
-    const cleanup = scheduleOverviewAutoRefresh({ enabled: false, refreshOverview });
+    const cleanup = scheduleOverviewAutoRefresh({
+      enabled: false,
+      refreshOverview,
+    });
 
     vi.advanceTimersByTime(10_000);
     expect(refreshOverview).not.toHaveBeenCalled();
@@ -251,7 +359,11 @@ describe('UsagePage Overview auto-refresh', () => {
     const testDocument = createAutoRefreshTestDocument('hidden');
     const refreshOverview = vi.fn();
 
-    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+    const cleanup = scheduleOverviewAutoRefresh({
+      enabled: true,
+      refreshOverview,
+      documentRef: testDocument,
+    });
 
     vi.advanceTimersByTime(10_000);
     expect(refreshOverview).not.toHaveBeenCalled();
@@ -264,7 +376,11 @@ describe('UsagePage Overview auto-refresh', () => {
     const testDocument = createAutoRefreshTestDocument('hidden');
     const refreshOverview = vi.fn();
 
-    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+    const cleanup = scheduleOverviewAutoRefresh({
+      enabled: true,
+      refreshOverview,
+      documentRef: testDocument,
+    });
     testDocument.setVisibilityState('visible');
     testDocument.dispatchEvent(new Event('visibilitychange'));
 
@@ -278,7 +394,11 @@ describe('UsagePage Overview auto-refresh', () => {
     const testDocument = createAutoRefreshTestDocument('hidden');
     const refreshOverview = vi.fn();
 
-    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+    const cleanup = scheduleOverviewAutoRefresh({
+      enabled: true,
+      refreshOverview,
+      documentRef: testDocument,
+    });
     vi.advanceTimersByTime(9_999);
     testDocument.setVisibilityState('visible');
     testDocument.dispatchEvent(new Event('visibilitychange'));
@@ -298,7 +418,11 @@ describe('UsagePage Overview auto-refresh', () => {
     vi.useFakeTimers();
     const testDocument = createAutoRefreshTestDocument();
     const refreshOverview = vi.fn();
-    const cleanup = scheduleOverviewAutoRefresh({ enabled: true, refreshOverview, documentRef: testDocument });
+    const cleanup = scheduleOverviewAutoRefresh({
+      enabled: true,
+      refreshOverview,
+      documentRef: testDocument,
+    });
 
     cleanup();
     vi.advanceTimersByTime(10_000);
@@ -308,39 +432,163 @@ describe('UsagePage Overview auto-refresh', () => {
   });
 });
 
-describe('UsagePage active tab auto-refresh guard', () => {
-  it('allows Request Events auto-refresh only on the first page', () => {
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 1 })).toBe(true);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 2 })).toBe(false);
-  });
-
-  it('does not auto-refresh Credentials', () => {
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1 })).toBe(false);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1 })).toBe(false);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'credentials', eventsPage: 1 })).toBe(false);
-  });
-
-  it('keeps Overview auto-refresh enabled and does not auto-refresh other tabs', () => {
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'overview', eventsPage: 2 })).toBe(true);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'analysis', eventsPage: 1 })).toBe(false);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'storage', eventsPage: 1 })).toBe(false);
-    expect(shouldAutoRefreshUsageTab({ activeTab: 'settings', eventsPage: 1 })).toBe(false);
+describe('UsagePage visibility guard', () => {
+  it('treats hidden documents as inactive for credentials polling', () => {
+    expect(isUsagePageVisible({ visibilityState: 'visible' })).toBe(true);
+    expect(isUsagePageVisible({ visibilityState: 'hidden' })).toBe(false);
   });
 });
 
-describe('UsagePage range filtering bug', () => {
-  it('changes the usage payload that summary metrics read from', () => {
-    const filterWindow: UsageFilterWindow = {
-      startMs: Date.parse('2026-04-23T01:00:00.000Z'),
-      endMs: Date.parse('2026-04-23T03:00:00.000Z'),
-      windowMinutes: 120,
+describe('UsagePage status active heartbeat', () => {
+  it('loads status and marks the page active immediately and on the 30s cadence', async () => {
+    let intervalHandler: (() => void) | undefined;
+    const testDocument = createAutoRefreshTestDocument();
+    const timerTarget = {
+      setInterval: vi.fn((handler: () => void, timeout: number) => {
+        intervalHandler = handler;
+        expect(timeout).toBe(STATUS_ACTIVE_HEARTBEAT_INTERVAL_MS);
+        return 7;
+      }),
+      clearInterval: vi.fn(),
     };
+    const status = createStatusResponse('last problem');
+    const loadStatus = vi.fn(async () => status);
+    const markActive = vi.fn(async () => undefined);
+    const setStatus = vi.fn();
+    const setStatusError = vi.fn();
 
-    const expected = filterUsageByWindow(usage, filterWindow);
-    const actual = deriveFilteredUsageLikePage(usage, filterWindow);
+    const cleanup = scheduleStatusActiveHeartbeat({
+      loadStatus,
+      markActive,
+      setStatus,
+      setStatusError,
+      documentRef: testDocument,
+      timerTarget,
+    });
+    await flushPromises();
 
-    expect(expected.total_requests).toBe(1);
-    expect(actual.total_requests).toBe(expected.total_requests);
+    expect(loadStatus).toHaveBeenCalledTimes(1);
+    expect(markActive).toHaveBeenCalledTimes(1);
+    expect(setStatus).toHaveBeenCalledWith(status);
+    expect(setStatusError).toHaveBeenCalledWith('last problem');
+
+    intervalHandler?.();
+    await flushPromises();
+
+    expect(loadStatus).toHaveBeenCalledTimes(2);
+    expect(markActive).toHaveBeenCalledTimes(2);
+
+    cleanup();
+  });
+
+  it('does not start while hidden and starts immediately when visible again', async () => {
+    const testDocument = createAutoRefreshTestDocument('hidden');
+    const timerTarget = {
+      setInterval: vi.fn(() => 8),
+      clearInterval: vi.fn(),
+    };
+    const loadStatus = vi.fn(async () => createStatusResponse());
+    const markActive = vi.fn(async () => undefined);
+
+    const cleanup = scheduleStatusActiveHeartbeat({
+      loadStatus,
+      markActive,
+      setStatus: vi.fn(),
+      setStatusError: vi.fn(),
+      documentRef: testDocument,
+      timerTarget,
+    });
+    await flushPromises();
+
+    expect(loadStatus).not.toHaveBeenCalled();
+
+    testDocument.setVisibilityState('visible');
+    testDocument.dispatchEvent(new Event('visibilitychange'));
+    await flushPromises();
+
+    expect(loadStatus).toHaveBeenCalledTimes(1);
+    expect(markActive).toHaveBeenCalledTimes(1);
+
+    cleanup();
+  });
+
+  it('aborts the in-flight heartbeat and clears the timer when hidden', () => {
+    let capturedSignal: AbortSignal | undefined;
+    const testDocument = createAutoRefreshTestDocument();
+    const timerTarget = {
+      setInterval: vi.fn(() => 9),
+      clearInterval: vi.fn(),
+    };
+    const loadStatus = vi.fn((signal: AbortSignal) => {
+      capturedSignal = signal;
+      return new Promise<StatusResponse>(() => undefined);
+    });
+
+    const cleanup = scheduleStatusActiveHeartbeat({
+      loadStatus,
+      markActive: vi.fn(async () => undefined),
+      setStatus: vi.fn(),
+      setStatusError: vi.fn(),
+      documentRef: testDocument,
+      timerTarget,
+    });
+
+    expect(loadStatus).toHaveBeenCalledTimes(1);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    testDocument.setVisibilityState('hidden');
+    testDocument.dispatchEvent(new Event('visibilitychange'));
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(timerTarget.clearInterval).toHaveBeenCalledWith(9);
+
+    cleanup();
+  });
+});
+
+describe('UsagePage active tab auto-refresh guard', () => {
+  it('allows Request Events auto-refresh only on the first page', () => {
+    expect(
+      shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 1 }),
+    ).toBe(true);
+    expect(
+      shouldAutoRefreshUsageTab({ activeTab: 'events', eventsPage: 2 }),
+    ).toBe(false);
+  });
+
+  it('does not auto-refresh credential detail tabs', () => {
+    expect(
+      shouldAutoRefreshUsageTab({ activeTab: 'auth-files', eventsPage: 1 }),
+    ).toBe(false);
+    expect(
+      shouldAutoRefreshUsageTab({ activeTab: 'ai-provider', eventsPage: 1 }),
+    ).toBe(false);
+  });
+
+  it('keeps Overview auto-refresh enabled and does not auto-refresh other tabs', () => {
+    expect(
+      shouldAutoRefreshUsageTab({ activeTab: 'overview', eventsPage: 2 }),
+    ).toBe(true);
+    expect(
+      shouldAutoRefreshUsageTab({ activeTab: 'analysis', eventsPage: 1 }),
+    ).toBe(false);
+    expect(
+      shouldAutoRefreshUsageTab({ activeTab: 'storage', eventsPage: 1 }),
+    ).toBe(false);
+    expect(
+      shouldAutoRefreshUsageTab({ activeTab: 'settings', eventsPage: 1 }),
+    ).toBe(false);
+  });
+});
+
+describe('UsagePage Request Events pricing preload', () => {
+  it('loads only model prices when entering Request Events but not for other tab entry paths', () => {
+    expect(shouldLoadPricingOnUsageTabEntry('events')).toBe(true);
+    expect(shouldLoadPricingOnUsageTabEntry('overview')).toBe(false);
+    expect(shouldLoadPricingOnUsageTabEntry('analysis')).toBe(false);
+    expect(shouldLoadPricingOnUsageTabEntry('auth-files')).toBe(false);
+    expect(shouldLoadPricingOnUsageTabEntry('ai-provider')).toBe(false);
+    expect(shouldLoadPricingOnUsageTabEntry('settings')).toBe(false);
   });
 });
 
@@ -391,7 +639,8 @@ for (const [tab, expected] of [
   ['monitoring', true],
   ['analysis', true],
   ['events', true],
-  ['credentials', false],
+  ['auth-files', false],
+  ['ai-provider', false],
   ['storage', false],
   ['settings', false],
 ] as const) {
@@ -404,7 +653,8 @@ for (const [tab, expected] of [
   ['overview', true],
   ['analysis', true],
   ['events', true],
-  ['credentials', false],
+  ['auth-files', false],
+  ['ai-provider', false],
   ['storage', false],
   ['settings', false],
 ] as const) {
@@ -417,36 +667,69 @@ describe('UsagePage time range options', () => {
   it('includes rolling 24h, local Today, Yesterday, and 30d ranges', () => {
     const options = getTimeRangeOptions((key) => `translated:${key}`);
 
-    expect(options.map((option) => option.value)).toEqual(['4h', '8h', '12h', '24h', 'today', 'yesterday', '7d', '30d', 'custom']);
-    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_24h');
-    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_today');
-    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_yesterday');
-    expect(options.map((option) => option.label)).toContain('translated:usage_stats.range_30d');
+    expect(options.map((option) => option.value)).toEqual([
+      '4h',
+      '8h',
+      '12h',
+      '24h',
+      'today',
+      'yesterday',
+      '7d',
+      '30d',
+      'custom',
+    ]);
+    expect(options.map((option) => option.label)).toContain(
+      'translated:usage_stats.range_24h',
+    );
+    expect(options.map((option) => option.label)).toContain(
+      'translated:usage_stats.range_today',
+    );
+    expect(options.map((option) => option.label)).toContain(
+      'translated:usage_stats.range_yesterday',
+    );
+    expect(options.map((option) => option.label)).toContain(
+      'translated:usage_stats.range_30d',
+    );
   });
 });
 
 describe('UsagePage Overview chart period preference', () => {
   it('keeps sub-day windows on By Hour', () => {
-    expect(getPreferredOverviewChartPeriod({ windowMinutes: 12 * 60 })).toBe('hour');
+    expect(getPreferredOverviewChartPeriod({ windowMinutes: 12 * 60 })).toBe(
+      'hour',
+    );
   });
 
   it('uses By Day only for windows longer than one day without inspecting chart data', () => {
-    expect(getPreferredOverviewChartPeriod({ windowMinutes: 24 * 60 })).toBe('hour');
-    expect(getPreferredOverviewChartPeriod({ windowMinutes: (24 * 60) + 1 })).toBe('day');
-    expect(getPreferredOverviewChartPeriod({ windowMinutes: 30 * 24 * 60 })).toBe('day');
+    expect(getPreferredOverviewChartPeriod({ windowMinutes: 24 * 60 })).toBe(
+      'hour',
+    );
+    expect(
+      getPreferredOverviewChartPeriod({ windowMinutes: 24 * 60 + 1 }),
+    ).toBe('day');
+    expect(
+      getPreferredOverviewChartPeriod({ windowMinutes: 30 * 24 * 60 }),
+    ).toBe('day');
   });
 });
 
 describe('UsagePage custom date input bounds', () => {
   it('limits selectable Custom dates to today through the first day of the previous month', () => {
-    expect(getCustomDateRangeBounds(Date.parse('2026-05-13T12:00:00.000Z'), 'UTC')).toEqual({
+    expect(
+      getCustomDateRangeBounds(Date.parse('2026-05-13T12:00:00.000Z'), 'UTC'),
+    ).toEqual({
       min: '2026-04-01',
       max: '2026-05-13',
     });
   });
 
   it('uses the project timezone when deriving Custom date bounds', () => {
-    expect(getCustomDateRangeBounds(Date.parse('2026-05-13T06:30:00.000Z'), 'America/Los_Angeles')).toEqual({
+    expect(
+      getCustomDateRangeBounds(
+        Date.parse('2026-05-13T06:30:00.000Z'),
+        'America/Los_Angeles',
+      ),
+    ).toEqual({
       min: '2026-04-01',
       max: '2026-05-12',
     });
@@ -470,7 +753,11 @@ describe('UsagePage custom date input bounds', () => {
   });
 
   it('ignores browsers that reject programmatic date picker opening', () => {
-    const input = { showPicker: vi.fn(() => { throw new Error('not allowed') }) } as unknown as HTMLInputElement;
+    const input = {
+      showPicker: vi.fn(() => {
+        throw new Error('not allowed');
+      }),
+    } as unknown as HTMLInputElement;
 
     expect(() => openDateInputPicker(input)).not.toThrow();
   });
@@ -478,7 +765,9 @@ describe('UsagePage custom date input bounds', () => {
 
 describe('UsagePage custom date query', () => {
   it('keeps custom date query bounds as project-local dates for the backend', () => {
-    expect(buildCustomDateRangeQuery({ start: '2026-04-20', end: '2026-04-21' })).toEqual({
+    expect(
+      buildCustomDateRangeQuery({ start: '2026-04-20', end: '2026-04-21' }),
+    ).toEqual({
       valid: true,
       start: '2026-04-20',
       end: '2026-04-21',
@@ -486,7 +775,12 @@ describe('UsagePage custom date query', () => {
   });
 
   it('keeps invalid custom range visible as a monitoring filter error', () => {
-    expect(resolveMonitoringQueryState('custom', { start: '2026-04-22', end: '2026-04-21' })).toEqual({
+    expect(
+      resolveMonitoringQueryState('custom', {
+        start: '2026-04-22',
+        end: '2026-04-21',
+      }),
+    ).toEqual({
       valid: false,
       start: undefined,
       end: undefined,
@@ -495,7 +789,9 @@ describe('UsagePage custom date query', () => {
   });
 
   it('keeps incomplete custom range visible as a monitoring filter error', () => {
-    expect(resolveMonitoringQueryState('custom', { start: '2026-04-22', end: '' })).toEqual({
+    expect(
+      resolveMonitoringQueryState('custom', { start: '2026-04-22', end: '' }),
+    ).toEqual({
       valid: false,
       start: undefined,
       end: undefined,
@@ -504,19 +800,28 @@ describe('UsagePage custom date query', () => {
   });
 
   it('prevents Overview from using stale data for incomplete custom range', () => {
-    const queryState = resolveUsageRangeQueryState('custom', { start: '2026-04-22', end: '' });
+    const queryState = resolveUsageRangeQueryState('custom', {
+      start: '2026-04-22',
+      end: '',
+    });
 
     expect(shouldUseOverviewUsage(queryState)).toBe(false);
   });
 
   it('prevents Overview from using stale data for invalid custom range', () => {
-    const queryState = resolveUsageRangeQueryState('custom', { start: '2026-04-22', end: '2026-04-21' });
+    const queryState = resolveUsageRangeQueryState('custom', {
+      start: '2026-04-22',
+      end: '2026-04-21',
+    });
 
     expect(shouldUseOverviewUsage(queryState)).toBe(false);
   });
 
   it('allows Overview to use data for valid custom range', () => {
-    const queryState = resolveUsageRangeQueryState('custom', { start: '2026-04-21', end: '2026-04-22' });
+    const queryState = resolveUsageRangeQueryState('custom', {
+      start: '2026-04-21',
+      end: '2026-04-22',
+    });
 
     expect(shouldUseOverviewUsage(queryState)).toBe(true);
   });
@@ -527,17 +832,21 @@ describe('UsagePage Overview chart window', () => {
     const filterWindow: UsageFilterWindow = {
       startMs: Date.parse('2026-04-23T00:00:00.000Z'),
       endMs: Date.parse('2026-04-23T12:34:56.000Z'),
-      windowMinutes: (12 * 60) + 34 + (56 / 60),
+      windowMinutes: 12 * 60 + 34 + 56 / 60,
     };
 
-    expect(getOverviewHourWindowHours({ timeRange: 'today', filterWindow })).toBe(24);
-    expect(getOverviewChartEndMs({
-      timeRange: 'today',
-      filterWindow,
-      fallbackEndMs: filterWindow.endMs ?? 0,
-      resolvedRangeStartMs: Date.parse('2026-04-22T16:00:00.000Z'),
-      resolvedRangeEndMs: Date.parse('2026-04-23T15:59:59.999Z'),
-    })).toBe(Date.parse('2026-04-23T16:00:00.000Z'));
+    expect(
+      getOverviewHourWindowHours({ timeRange: 'today', filterWindow }),
+    ).toBe(24);
+    expect(
+      getOverviewChartEndMs({
+        timeRange: 'today',
+        filterWindow,
+        fallbackEndMs: filterWindow.endMs ?? 0,
+        resolvedRangeStartMs: Date.parse('2026-04-22T16:00:00.000Z'),
+        resolvedRangeEndMs: Date.parse('2026-04-23T15:59:59.999Z'),
+      }),
+    ).toBe(Date.parse('2026-04-23T16:00:00.000Z'));
   });
 
   it('uses Yesterday hourly chart buckets through the next day boundary', () => {
@@ -548,29 +857,60 @@ describe('UsagePage Overview chart window', () => {
     };
     const resolvedRangeEndMs = Date.parse('2026-04-23T23:59:59.999Z');
 
-    expect(getOverviewHourWindowHours({ timeRange: 'yesterday', filterWindow })).toBe(24);
-    expect(getOverviewChartEndMs({
-      timeRange: 'yesterday',
-      filterWindow,
-      fallbackEndMs: Date.parse('2026-04-24T12:34:56.000Z'),
-      resolvedRangeEndMs,
-    })).toBe(Date.parse('2026-04-24T00:00:00.000Z'));
+    expect(
+      getOverviewHourWindowHours({ timeRange: 'yesterday', filterWindow }),
+    ).toBe(24);
+    expect(
+      getOverviewChartEndMs({
+        timeRange: 'yesterday',
+        filterWindow,
+        fallbackEndMs: Date.parse('2026-04-24T12:34:56.000Z'),
+        resolvedRangeEndMs,
+      }),
+    ).toBe(Date.parse('2026-04-24T00:00:00.000Z'));
   });
 });
 
 describe('UsagePage tab labels', () => {
   it('resolves tab labels through translation keys', () => {
-    const labels = getUsageTabOptions((key) => `translated:${key}`).map((option) => option.label);
+    const labels = getUsageTabOptions((key) => `translated:${key}`).map(
+      (option) => option.label,
+    );
 
     expect(labels).toEqual([
       'translated:usage_stats.tab_overview',
       'translated:usage_stats.tab_monitoring',
       'translated:usage_stats.tab_analysis',
       'translated:usage_stats.tab_events',
-      'translated:usage_stats.tab_credentials',
+      'translated:usage_stats.tab_auth_files',
+      'translated:usage_stats.tab_ai_provider',
       'translated:usage_stats.tab_storage',
       'translated:usage_stats.tab_settings',
     ]);
+  });
+});
+
+describe('UsagePage credentials tab migration', () => {
+  it('migrates the legacy Credentials tab value to Auth Files', () => {
+    expect(normalizeUsageTabValue('credentials')).toBe('auth-files');
+  });
+
+  it('keeps each credential section scoped to its own tab', () => {
+    expect(getCredentialSectionVisibility('auth-files')).toEqual({
+      enabled: true,
+      showAuthFiles: true,
+      showAiProvider: false,
+    });
+    expect(getCredentialSectionVisibility('ai-provider')).toEqual({
+      enabled: true,
+      showAuthFiles: false,
+      showAiProvider: true,
+    });
+    expect(getCredentialSectionVisibility('overview')).toEqual({
+      enabled: false,
+      showAuthFiles: false,
+      showAiProvider: false,
+    });
   });
 });
 

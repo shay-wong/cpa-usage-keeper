@@ -31,14 +31,20 @@ type Runner interface {
 	Run(ctx context.Context) error
 }
 
-// StatusProvider 只提供前端状态和手动同步入口，不作为后台 runner 启动。
+// StatusProvider 只提供运行状态，不作为后台 runner 启动。
 type StatusProvider interface {
 	Status() poller.Status
-	SyncNow(ctx context.Context) error
 }
 
 type Options struct {
 	EnvFile string
+}
+
+type QuotaRunner interface {
+	SetRefreshContext(context.Context)
+	StopRefreshTasks()
+	WaitRefreshTasks()
+	StartAutoRefresh(context.Context) error
 }
 
 type App struct {
@@ -46,10 +52,12 @@ type App struct {
 	DB                *gorm.DB
 	Router            *gin.Engine
 	Poller            StatusProvider
-	RedisPull         Runner
+	RedisIngest       Runner
 	RedisProcess      Runner
 	Maintenance       *StorageCleanupRunner
 	MetadataSync      *MetadataSyncRunner
+	QuotaService      QuotaRunner
+	QuotaAutoRefresh  QuotaRunner
 	BackupMaintenance *DatabaseBackupRunner
 	LogCloser         io.Closer
 
@@ -81,7 +89,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		_ = logCloser.Close()
 		return nil, err
 	}
-	// migrations 完成后、后台 runner 启动前先追平 Overview 增量表，避免首个页面请求触发大批量聚合。
+	// migrations 完成后、后台 runner 启动前先追平 Overview 增量表，避免首个 Overview 请求触发大批量聚合。
 	logrus.Info("starting usage overview aggregation catch-up")
 	if err := repository.AggregateUsageOverviewStats(context.Background(), db, time.Now()); err != nil {
 		_ = closeGormDB(db)
@@ -91,11 +99,34 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	logrus.Info("completed usage overview aggregation catch-up")
 
 	syncService := service.NewSyncService(db, cfg)
-	backgroundPoller := poller.NewRedisDrain(syncService, poller.RedisDrainConfig{
-		IdleInterval: cfg.RedisQueueIdleInterval,
-		ErrorBackoff: cfg.RedisQueueErrorBackoff,
+	redisPullSource := poller.NewRedisPullSource(cpa.RedisQueueOptions{
+		BaseURL:       cfg.CPABaseURL,
+		RedisAddr:     cfg.RedisQueueAddr,
+		ManagementKey: cfg.CPAManagementKey,
+		Timeout:       cfg.RequestTimeout,
+		QueueKey:      cfg.RedisQueueKey,
+		BatchSize:     cfg.RedisQueueBatchSize,
+		TLS:           cfg.RedisQueueTLS,
+		TLSSkipVerify: cfg.TLSSkipVerify,
 	})
 	databaseSettingsService := service.NewDatabaseSettingsServiceWithBackupDirAndDatabaseURL(db, cfg.SQLitePath, cfg.BackupDir, cfg.DatabaseURL)
+	httpPullSource := poller.NewHTTPPullSource(cfg.CPABaseURL, cfg.CPAManagementKey, cfg.RequestTimeout, cfg.TLSSkipVerify, cfg.RedisQueueBatchSize)
+	redisSubscribeSource := poller.NewRedisSubscribeSource(poller.RedisSubscribeOptions{
+		BaseURL:       cfg.CPABaseURL,
+		RedisAddr:     cfg.RedisQueueAddr,
+		ManagementKey: cfg.CPAManagementKey,
+		Timeout:       cfg.RequestTimeout,
+		TLS:           cfg.RedisQueueTLS,
+		TLSSkipVerify: cfg.TLSSkipVerify,
+	})
+	redisIngestRunner := poller.NewRedisIngestRunner(redisSubscribeSource, redisPullSource, httpPullSource, poller.NewRedisInboxWriter(db, cfg.RedisQueueKey), poller.RedisIngestRunnerConfig{
+		IdleInterval:       cfg.RedisQueueIdleInterval,
+		BatchSize:          cfg.RedisQueueBatchSize,
+		HTTPBackoffInitial: time.Second,
+		HTTPBackoffMax:     30 * time.Second,
+	})
+	redisProcessRunner := poller.NewRedisProcessRunner(syncService)
+	backgroundPoller := poller.NewRedisPoller(redisIngestRunner, redisProcessRunner)
 	var backupMaintenance *DatabaseBackupRunner
 	if cfg.BackupEnabled {
 		switch db.Dialector.Name() {
@@ -130,7 +161,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		logrus.WithField("cpa_base_url", cfg.CPABaseURL).Warn("TLS certificate verification is disabled for CPA and Redis queue connections")
 	}
 	pricingService := service.NewPricingService(db, cpaClient)
-	quotaService := quota.NewService(db, cpaClient)
+	quotaService := quota.NewServiceWithOptions(db, cpaClient, quota.ServiceOptions{RefreshWorkerLimit: cfg.QuotaRefreshWorkerLimit, AutoRefreshInterval: cfg.QuotaAutoRefreshInterval})
 	sessionManager := auth.NewSessionManager(cfg.AuthSessionTTL)
 	authHandler := api.NewAuthHandler(api.AuthConfig{
 		Enabled:       cfg.AuthEnabled,
@@ -143,11 +174,13 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		Config: &cfg,
 		DB:     db,
 		Poller: backgroundPoller,
-		// Redis pull/process 分成两个后台 runner，避免远端拉取和本地 SQLite 处理互相等待。
-		RedisPull:         poller.NewRedisPullRunner(backgroundPoller),
-		RedisProcess:      poller.NewRedisProcessRunner(backgroundPoller),
+		// Redis ingest/process 分成两个后台 runner，避免远端订阅拉取和本地 SQLite 处理互相等待。
+		RedisIngest:       redisIngestRunner,
+		RedisProcess:      redisProcessRunner,
 		Maintenance:       NewStorageCleanupRunner(syncService),
 		MetadataSync:      NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval),
+		QuotaService:      quotaService,
+		QuotaAutoRefresh:  quotaAutoRefreshService(cfg, quotaService),
 		BackupMaintenance: backupMaintenance,
 		LogCloser:         logCloser,
 		Router: api.NewRouter(
@@ -168,10 +201,24 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				Quota:            quotaService,
 				CPAAPIKeys:       cpaAPIKeyService,
 				DatabaseSettings: databaseSettingsService,
-				Status:           api.StatusRouteConfig{CPAPublicURL: cpaPublicURL},
+				Status:           api.StatusRouteConfig{CPAPublicURL: cpaPublicURL, ActiveRecorder: quotaActiveRecorder(cfg, quotaService)},
 			},
 		),
 	}, nil
+}
+
+func quotaActiveRecorder(cfg config.Config, service *quota.Service) api.ActiveStatusRecorder {
+	if !cfg.QuotaAutoRefreshEnabled {
+		return nil
+	}
+	return service
+}
+
+func quotaAutoRefreshService(cfg config.Config, service *quota.Service) QuotaRunner {
+	if !cfg.QuotaAutoRefreshEnabled {
+		return nil
+	}
+	return service
 }
 
 func closeGormDB(db *gorm.DB) error {
@@ -191,6 +238,9 @@ func (a *App) Close() error {
 	}
 
 	a.stopBackgroundTasks()
+	if a.QuotaService != nil {
+		a.QuotaService.StopRefreshTasks()
+	}
 
 	var closeErr error
 	if a.DB != nil {
@@ -211,10 +261,10 @@ func (a *App) Run() error {
 
 	ctx := a.startBackgroundContext()
 	defer a.stopBackgroundTasks()
-	if a.RedisPull != nil {
+	if a.RedisIngest != nil {
 		a.startBackgroundTask(func() {
-			if err := a.RedisPull.Run(ctx); err != nil {
-				logrus.Errorf("redis pull stopped: %v", err)
+			if err := a.RedisIngest.Run(ctx); err != nil {
+				logrus.Errorf("redis ingest stopped: %v", err)
 			}
 		})
 	}
@@ -236,6 +286,17 @@ func (a *App) Run() error {
 		a.startBackgroundTask(func() {
 			if err := a.MetadataSync.Run(ctx); err != nil {
 				logrus.Errorf("metadata sync stopped: %v", err)
+			}
+		})
+	}
+	if a.QuotaService != nil {
+		a.QuotaService.SetRefreshContext(ctx)
+	}
+	if a.QuotaAutoRefresh != nil {
+		a.startBackgroundTask(func() {
+			// quota 自动刷新和手动刷新共用队列，但作为独立后台任务跟随 App 生命周期启动和停止。
+			if err := a.QuotaAutoRefresh.StartAutoRefresh(ctx); err != nil {
+				logrus.Errorf("quota auto refresh stopped: %v", err)
 			}
 		})
 	}

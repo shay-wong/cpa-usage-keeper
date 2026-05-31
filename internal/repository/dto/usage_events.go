@@ -17,6 +17,20 @@ type UsageEventFilterOptionsRecord struct {
 	Models []string
 }
 
+// UsageEventAttemptRecord 是同一 request_id 下单次尝试的轻量结果。
+type UsageEventAttemptRecord struct {
+	ID          int64
+	Timestamp   time.Time
+	Model       string
+	AuthType    string
+	Provider    string
+	Source      string
+	AuthIndex   string
+	Failed      bool
+	LatencyMS   int64
+	TotalTokens int64
+}
+
 // UsageEventRecord 是单条 usage event 的查询结果。
 type UsageEventRecord struct {
 	ID                  int64
@@ -24,6 +38,8 @@ type UsageEventRecord struct {
 	APIGroupKey         string
 	Model               string
 	ReasoningEffort     string
+	ServiceTier         string
+	Endpoint            string
 	AuthType            string
 	Provider            string
 	Source              string
@@ -31,6 +47,7 @@ type UsageEventRecord struct {
 	RequestID           string
 	Failed              bool
 	LatencyMS           int64
+	TTFTMS              *int64
 	InputTokens         int64
 	OutputTokens        int64
 	ReasoningTokens     int64
@@ -38,4 +55,6 @@ type UsageEventRecord struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
+	AttemptCount        int
+	Attempts            []UsageEventAttemptRecord
 }
