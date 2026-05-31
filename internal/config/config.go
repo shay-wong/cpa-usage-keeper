@@ -21,7 +21,6 @@ const (
 	DatabaseDriverPostgres          = "postgres"
 	RedisQueueKeyDefault            = cpa.ManagementUsageQueueKey
 	RedisQueueBatchSizeDefault      = 10000
-	RedisQueueErrorBackoffDefault   = 10 * time.Second
 	MetadataSyncIntervalDefault     = 30 * time.Second
 	QuotaAutoRefreshIntervalDefault = 5 * time.Minute
 	QuotaAutoRefreshIntervalMin     = 60 * time.Second
@@ -66,8 +65,6 @@ type Config struct {
 	RedisQueueBatchSize int
 	// RedisQueueIdleInterval 是 Redis 队列为空时的下一次检查间隔。
 	RedisQueueIdleInterval time.Duration
-	// RedisQueueErrorBackoff 是 Redis 临时错误后的固定退避间隔。
-	RedisQueueErrorBackoff time.Duration
 	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
 	MetadataSyncInterval time.Duration
 	// DatabaseDriver 是主库存储后端，支持 sqlite 和 postgres。
@@ -271,7 +268,6 @@ func Load(options LoadOptions) (*Config, error) {
 		RedisQueueKey:            RedisQueueKeyDefault,
 		RedisQueueBatchSize:      redisQueueBatchSize,
 		RedisQueueIdleInterval:   redisQueueIdleInterval,
-		RedisQueueErrorBackoff:   RedisQueueErrorBackoffDefault,
 		MetadataSyncInterval:     MetadataSyncIntervalDefault,
 		DatabaseDriver:           databaseDriver,
 		DatabaseURL:              databaseURL,

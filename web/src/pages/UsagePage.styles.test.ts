@@ -39,6 +39,7 @@ const apiIndexSource = readSource(
   new URL('../components/usage/index.ts', import.meta.url),
 );
 const apiClientSource = readSource(new URL('../lib/api.ts', import.meta.url));
+const globalStyles = readSource(new URL('../styles/global.scss', import.meta.url));
 const i18nSource = readSource(new URL('../i18n/index.ts', import.meta.url));
 const analysisPanelSource = readSource(
   new URL('../components/usage/analysis/AnalysisPanel.tsx', import.meta.url),
@@ -61,6 +62,7 @@ const tokenBreakdownChartSource = readSource(
 const costTrendChartSource = readSource(
   new URL('../components/usage/CostTrendChart.tsx', import.meta.url),
 );
+
 
 describe('UsagePage toolbar styles', () => {
   it('keeps visible range controls content-sized in narrow layouts', () => {
@@ -755,6 +757,12 @@ describe('UsagePage toolbar styles', () => {
     );
     expect(
       sharedTableSource.indexOf('usage_stats.request_events_timestamp'),
+    ).toBeLessThan(sharedTableSource.indexOf('usage_stats.api_key_filter'));
+    expect(sharedTableSource.indexOf('usage_stats.api_key_filter')).toBeLessThan(
+      sharedTableSource.indexOf('usage_stats.request_events_source'),
+    );
+    expect(
+      sharedTableSource.indexOf('usage_stats.request_events_source'),
     ).toBeLessThan(sharedTableSource.indexOf('usage_stats.model_name'));
     expect(sharedTableSource.indexOf('usage_stats.model_name')).toBeLessThan(
       sharedTableSource.indexOf('usage_stats.reasoning_effort'),
@@ -762,16 +770,11 @@ describe('UsagePage toolbar styles', () => {
     expect(
       sharedTableSource.indexOf('usage_stats.reasoning_effort'),
     ).toBeLessThan(
-      sharedTableSource.indexOf('usage_stats.request_events_source'),
-    );
-    expect(
-      sharedTableSource.indexOf('usage_stats.request_events_source'),
-    ).toBeLessThan(
       sharedTableSource.indexOf('usage_stats.request_events_result'),
     );
     expect(
       sharedTableSource.indexOf('usage_stats.request_events_result'),
-    ).toBeLessThan(sharedTableSource.indexOf('usage_stats.time'));
+    ).toBeLessThan(sharedTableSource.indexOf('usage_stats.ttft'));
     expect(sharedTableSource.indexOf('usage_stats.total_tokens')).toBeLessThan(
       sharedTableSource.indexOf('usage_stats.total_cost'),
     );
@@ -886,6 +889,41 @@ describe('UsagePage toolbar styles', () => {
       'onKeyDown={handleCustomDateInputKeyDown}',
     );
   });
+
+
+  it('keeps mobile custom date fields inside the toolbar before the refresh action', () => {
+    const narrowToolbarStart = usagePageStyles.indexOf('@media (max-width: #{$breakpoint-tablet})')
+    const mobileToolbarStart = usagePageStyles.indexOf('@include mobile {\n  .tabPill', narrowToolbarStart)
+    const narrowToolbarBlock = usagePageStyles.slice(
+      narrowToolbarStart,
+      mobileToolbarStart
+    )
+    const mobileToolbarBlock = usagePageStyles.slice(
+      mobileToolbarStart,
+      usagePageStyles.indexOf('@media (prefers-reduced-motion: reduce)')
+    )
+
+    expect(narrowToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?max-height:\s*none;/)
+    expect(narrowToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?overflow:\s*visible;/)
+    expect(narrowToolbarBlock).toMatch(/\.timeRangeGroup\s*\{[\s\S]*?width:\s*100%;/)
+    expect(narrowToolbarBlock).toMatch(/\.customRangeFieldGroup\s*\{[\s\S]*?width:\s*100%;/)
+    expect(narrowToolbarBlock).toMatch(/\.customRangeFieldGroupOpen\s*\{[\s\S]*?max-height:\s*180px;/)
+    expect(mobileToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?display:\s*grid;/)
+    expect(mobileToolbarBlock).toMatch(/\.usageFilterBar\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(mobileToolbarBlock).toMatch(/\.rangeFilterField\s*\{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\);/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeFieldGroup\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\);/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeField\s*\{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\);/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeField\s*\{[\s\S]*?min-width:\s*0;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeField\s*\{[\s\S]*?max-width:\s*100%;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeInputShell\s*\{[\s\S]*?position:\s*relative;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeInputShell\s*\{[\s\S]*?overflow:\s*hidden;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeInputDisplay\s*\{[\s\S]*?display:\s*flex;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?position:\s*absolute;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?min-width:\s*0;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?max-width:\s*100%;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?display:\s*block;/)
+    expect(mobileToolbarBlock).toMatch(/\.customRangeInput\s*\{[\s\S]*?opacity:\s*0;/)
+  })
 
   it('keeps Overview chart period controls hidden because period selection is automatic', () => {
     expect(usageChartSource).not.toContain('className={styles.periodButtons}');
@@ -1106,6 +1144,30 @@ describe('UsagePage toolbar styles', () => {
     );
   });
 
+
+  it('themes the WebKit scrollbar corner so intersecting scrollbars do not show a white square', () => {
+    expect(globalStyles).toMatch(/::-webkit-scrollbar-corner\s*\{[\s\S]*?background:\s*var\(--bg-secondary\);/)
+  })
+
+  it('renders Request Event Log with a single outer frame instead of a nested table card', () => {
+    const cardBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.requestEventsCard:global(.card) {'),
+      usagePageStyles.indexOf('.requestEventsTitleRow')
+    )
+    const tableFrameBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.requestEventsTableFrame {'),
+      usagePageStyles.indexOf('.requestEventsTableScroll')
+    )
+
+    expect(cardBlock).toMatch(/padding:\s*0;/)
+    expect(cardBlock).toMatch(/overflow:\s*hidden;/)
+    expect(cardBlock).toMatch(/:global\(\.card-header\)\s*\{[\s\S]*?margin-bottom:\s*0;/)
+    expect(cardBlock).toMatch(/:global\(\.card-header\)\s*\{[\s\S]*?border-bottom:\s*1px solid var\(--border-color\);/)
+    expect(usagePageStyles).not.toContain('.requestEventsTableWrapper {')
+    expect(tableFrameBlock).toMatch(/border:\s*1px solid/)
+    expect(tableFrameBlock).toMatch(/border-radius:\s*\$radius-lg;/)
+  })
+
   it('keeps the Request Event Log timestamp column compact', () => {
     expect(usagePageStyles).toMatch(
       /\.requestEventsTimestamp\s*\{[\s\S]*?width:\s*136px;/,
@@ -1129,6 +1191,11 @@ describe('UsagePage toolbar styles', () => {
       "<th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>",
     );
   });
+
+  it('keeps Request Event Log model and endpoint columns compact', () => {
+    expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?min-width:\s*110px;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsEndpointCell\s*\{[\s\S]*?min-width:\s*100px;/)
+  })
 
   it('provides reusable pill controls for usage subpages', () => {
     expect(usagePageStyles).toMatch(

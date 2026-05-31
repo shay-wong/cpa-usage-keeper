@@ -75,6 +75,7 @@ describe('fetchUsageEvents', () => {
           apis: {},
         },
       }),
+
     } as Response);
     const signal = new AbortController().signal;
 
@@ -287,6 +288,7 @@ describe('fetchUsageEvents', () => {
         page_size: 100,
         total_pages: 0,
       }),
+
     } as Response);
     const signal = new AbortController().signal;
 
@@ -338,6 +340,7 @@ describe('fetchUsageEvents', () => {
         page_size: 100,
         total_pages: 0,
       }),
+
     } as Response);
     const signal = new AbortController().signal;
 

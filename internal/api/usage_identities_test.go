@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/entities"
-	"cpa-usage-keeper/internal/redact"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/service"
 )
 
@@ -169,7 +169,7 @@ func TestUsageIdentitiesRouteKeepsAuthFileIdentityForQuotaRefreshAndMasksDisplay
 	if !contains(body, `"identity":"`+rawIdentity+`"`) {
 		t.Fatalf("expected raw auth file identity to remain available for quota refresh, got %s", body)
 	}
-	maskedEmail := redact.APIKeyDisplayName(rawEmail)
+	maskedEmail := helper.RedactSensitiveValue(rawEmail)
 	if !contains(body, `"name":"`+maskedEmail+`"`) || !contains(body, `"displayName":"`+maskedEmail+`"`) {
 		t.Fatalf("expected masked auth file display values in response body: %s", body)
 	}
@@ -334,7 +334,7 @@ func TestUsageIdentitiesRouteReturnsProviderDisplayName(t *testing.T) {
 
 func TestUsageIdentitiesRouteMasksAIProviderIdentity(t *testing.T) {
 	rawLookupKey := "sk-live-secret-value"
-	maskedLookupKey := redact.APIKeyDisplayName(rawLookupKey)
+	maskedLookupKey := helper.RedactSensitiveValue(rawLookupKey)
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{
 		{ID: 1, Name: "Provider Name", Prefix: "Team Prefix", AuthType: entities.UsageIdentityAuthTypeAIProvider, AuthTypeName: "apikey", Identity: rawLookupKey, Type: "openai", Provider: "OpenAI"},
 	}}})

@@ -52,14 +52,18 @@ type usageEventPayload struct {
 	ID              string                     `json:"id,omitempty"`
 	RequestID       string                     `json:"request_id,omitempty"`
 	Timestamp       string                     `json:"timestamp"`
+	APIKey          string                     `json:"api_key,omitempty"`
 	Model           string                     `json:"model"`
 	ReasoningEffort string                     `json:"reasoning_effort,omitempty"`
+	ServiceTier     string                     `json:"service_tier,omitempty"`
+	Endpoint        string                     `json:"endpoint,omitempty"`
 	Source          string                     `json:"source"`
 	SourceRaw       string                     `json:"source_raw,omitempty"`
 	SourceType      string                     `json:"source_type,omitempty"`
 	IsDelete        bool                       `json:"isDelete,omitempty"`
 	Failed          bool                       `json:"failed"`
 	LatencyMS       int64                      `json:"latency_ms"`
+	TTFTMS          *int64                     `json:"ttft_ms,omitempty"`
 	Tokens          usageEventTokenPayload     `json:"tokens"`
 	AttemptCount    int                        `json:"attempt_count,omitempty"`
 	Attempts        []usageEventAttemptPayload `json:"attempts,omitempty"`
@@ -89,6 +93,7 @@ func registerUsageEventsRoute(
 	router gin.IRoutes,
 	usageProvider service.UsageProvider,
 	usageIdentityProvider service.UsageIdentityProvider,
+	cpaAPIKeyProvider service.CPAAPIKeyProvider,
 ) {
 	router.GET("/usage/events/filters/models", func(c *gin.Context) {
 		models, err := loadUsageEventModelFilterOptions(c, usageProvider)
@@ -155,8 +160,12 @@ func registerUsageEventsRoute(
 		}
 
 		resolver := newUsageIdentityResolver(identities)
+		apiKeyInfos, err := loadCPAAPIKeyInfos(c, cpaAPIKeyProvider)
+		if err != nil {
+			return
+		}
 		c.JSON(http.StatusOK, usageEventsResponse{
-			Events:     buildUsageEventsPayload(rows.Events, resolver),
+			Events:     buildUsageEventsPayload(rows.Events, resolver, apiKeyInfos),
 			TotalCount: rows.TotalCount,
 			Page:       rows.Page,
 			PageSize:   rows.PageSize,
@@ -211,7 +220,7 @@ func writeUsageEventDetailError(c *gin.Context, status int, code string) {
 }
 
 // 列表结果先按 auth_index 解析展示名，再组装前端需要的事件 payload。
-func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageIdentityResolver) []usageEventPayload {
+func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageIdentityResolver, apiKeyInfos map[string]analysisAPIKeyInfo) []usageEventPayload {
 	if len(rows) == 0 {
 		return []usageEventPayload{}
 	}
@@ -227,13 +236,17 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			ID:              id,
 			RequestID:       row.RequestID,
 			Timestamp:       timeutil.FormatStorageTime(row.Timestamp),
+			APIKey:          usageEventAPIKeyLabel(row.APIGroupKey, apiKeyInfos),
 			Model:           row.Model,
 			ReasoningEffort: strings.TrimSpace(row.ReasoningEffort),
+			ServiceTier:     strings.TrimSpace(row.ServiceTier),
+			Endpoint:        strings.TrimSpace(row.Endpoint),
 			Source:          source,
 			SourceType:      identity.Type,
 			IsDelete:        isDelete,
 			Failed:          row.Failed,
 			LatencyMS:       row.LatencyMS,
+			TTFTMS:          row.TTFTMS,
 			Tokens: usageEventTokenPayload{
 				InputTokens:         row.InputTokens,
 				OutputTokens:        row.OutputTokens,
@@ -278,6 +291,14 @@ func buildUsageEventAttemptPayloads(attempts []servicedto.UsageEventAttemptRecor
 		})
 	}
 	return payload
+}
+
+func usageEventAPIKeyLabel(apiGroupKey string, apiKeyInfos map[string]analysisAPIKeyInfo) string {
+	apiKey := strings.TrimSpace(apiGroupKey)
+	if apiKey == "" {
+		return ""
+	}
+	return analysisAPIKeyLabel(apiKey, apiKeyInfos)
 }
 
 func usageEventPublicSource(row servicedto.UsageEventRecord, identity resolvedUsageIdentity, matched bool) (string, bool) {

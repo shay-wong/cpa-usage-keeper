@@ -7,7 +7,6 @@ import (
 
 	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/helper"
-	"cpa-usage-keeper/internal/redact"
 	"cpa-usage-keeper/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -183,7 +182,7 @@ func mapUsageIdentityResponse(item entities.UsageIdentity) usageIdentityResponse
 	name := item.Name
 	displayName := helper.UsageIdentityDisplayName(item)
 	if item.AuthType == entities.UsageIdentityAuthTypeAIProvider {
-		identity = redact.APIKeyDisplayName(item.Identity)
+		identity = helper.RedactSensitiveValue(item.Identity)
 	} else if item.AuthType == entities.UsageIdentityAuthTypeAuthFile {
 		name = safeAuthIdentityDisplayName(item.Name, item.Identity)
 		displayName = safeAuthIdentityDisplayName(displayName, item.Identity)

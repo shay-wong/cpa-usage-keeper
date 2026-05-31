@@ -52,6 +52,7 @@ func TestOrderedMigrationsPreservesExecutionOrder(t *testing.T) {
 		"20260523_extend_database_cleanup_settings",
 		"20260524_extend_database_cleanup_backup_domains",
 		"20260525_add_usage_event_quota_window_indexes",
+		"20260528_add_usage_event_cpa_response_fields",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expected ordered migrations %v, got %v", want, got)
@@ -123,6 +124,7 @@ func TestOpenDatabaseRunsSchemaMigrationsAndAddsUsageEventRedisFields(t *testing
 		"20260523_extend_database_cleanup_settings",
 		"20260524_extend_database_cleanup_backup_domains",
 		"20260525_add_usage_event_quota_window_indexes",
+		"20260528_add_usage_event_cpa_response_fields",
 	}
 	if len(versions) != len(expected) {
 		t.Fatalf("expected migration versions %v, got %v", expected, versions)
