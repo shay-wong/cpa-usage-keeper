@@ -166,6 +166,7 @@ function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: R
   const cachedTokens = Math.max(Number(log.tokens.cached_tokens) || 0, 0);
   const totalTokens = Math.max(Number(log.tokens.total_tokens) || 0, 0);
   const pricing = modelPrices[log.model];
+  const hasPricing = pricing !== undefined;
   const cost = calculateCost({
     timestamp: log.timestamp,
     source,
@@ -179,6 +180,8 @@ function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: R
       output_tokens: outputTokens,
       reasoning_tokens: reasoningTokens,
       cached_tokens: cachedTokens,
+      cache_read_tokens: Number(log.tokens.cache_read_tokens) || 0,
+      cache_creation_tokens: Number(log.tokens.cache_creation_tokens) || 0,
       total_tokens: totalTokens,
     },
     __modelName: log.model,
@@ -211,8 +214,8 @@ function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: R
     cachedTokens,
     totalTokens,
     cacheRate: formatCacheRateForSource(cachedTokens, inputTokens, sourceType),
-    cost,
-    hasPrice: Boolean(pricing),
+    cost: hasPricing ? cost : null,
+    costAvailable: hasPricing,
     attempts: [],
     attemptCount: 1,
   };

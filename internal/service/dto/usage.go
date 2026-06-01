@@ -77,6 +77,9 @@ type UsageEventRecord struct {
 	CacheReadTokens     int64
 	CacheCreationTokens int64
 	TotalTokens         int64
+	CostUSD             float64
+	CostAvailable       bool
+	PricingStyle        string
 	AttemptCount        int
 	Attempts            []UsageEventAttemptRecord
 }

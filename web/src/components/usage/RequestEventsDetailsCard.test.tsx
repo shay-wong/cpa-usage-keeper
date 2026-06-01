@@ -26,8 +26,13 @@ const events: UsageEvent[] = [
       output_tokens: 60,
       reasoning_tokens: 20,
       cached_tokens: 20,
+      cache_read_tokens: 20,
+      cache_creation_tokens: 0,
       total_tokens: 200,
     },
+    cost_usd: 0.1234,
+    cost_available: true,
+    pricing_style: 'claude',
   },
 ];
 
@@ -46,7 +51,6 @@ const renderCard = (props: Partial<React.ComponentProps<typeof RequestEventsDeta
       modelFilter="__all__"
       sourceFilter="__all__"
       resultFilter="__all__"
-      modelPrices={{}}
       onPageChange={() => undefined}
       onPageSizeChange={() => undefined}
       onModelFilterChange={() => undefined}
@@ -141,7 +145,7 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('<td>25</td><td>25.00%</td><td>200</td>');
   });
 
-  it('uses Claude token semantics for cache rate', () => {
+  it('keeps cache rate based on normalized input for all providers', () => {
     const html = renderCard({
       events: [{
         ...events[0],
@@ -150,8 +154,8 @@ describe('RequestEventsDetailsCard pagination', () => {
       }],
     });
 
-    expect(html).toContain('<td>600</td><td>60.00%</td><td>500</td>');
-    expect(html).not.toContain('150.00%');
+    expect(html).toContain('<td>600</td><td>150.00%</td><td>500</td>');
+    expect(html).not.toContain('60.00%');
   });
 
   it('shows a dash for cache rate when input tokens are zero', () => {
@@ -434,14 +438,19 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(value).toBe(content);
   });
 
-  it('shows per-event cost when model pricing exists', () => {
+  it('shows per-event cost returned by the backend', () => {
+    const html = renderCard();
+
+    expect(html).toContain('Total Cost');
+    expect(html).toContain('$0.1234');
+  });
+
+  it('shows a dash when backend cost is unavailable', () => {
     const html = renderCard({
-      modelPrices: {
-        'claude-sonnet': { prompt: 15, completion: 75, cache: 1.5 },
-      },
+      events: [{ ...events[0], cost_usd: 0, cost_available: false }],
     });
 
     expect(html).toContain('Total Cost');
-    expect(html).toContain('$0.0057');
+    expect(html).toContain('title="Set pricing to calculate cost">-</td>');
   });
 });

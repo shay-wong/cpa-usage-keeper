@@ -243,6 +243,9 @@ export interface UsageEvent {
   tokens: UsageEventTokens
   attempt_count?: number
   attempts?: UsageEventAttempt[]
+  cost_usd?: number
+  cost_available?: boolean
+  pricing_style?: PricingStyle
 }
 
 export interface UsageEventRequestDetailResponse {
@@ -467,11 +470,23 @@ export interface CpaApiKeyOptionsResponse {
   options: CpaApiKeyOption[]
 }
 
+export type PricingStyle = 'openai' | 'claude'
+
+export interface ModelPrice {
+  style: PricingStyle
+  prompt: number
+  completion: number
+  cache: number
+  cacheCreation: number
+}
+
 export interface PricingEntry {
   model: string
+  pricing_style: PricingStyle
   prompt_price_per_1m: number
   completion_price_per_1m: number
   cache_price_per_1m: number
+  cache_creation_price_per_1m: number
 }
 
 export interface UsedModelsResponse {
