@@ -24,7 +24,6 @@ import {
   scheduleOverviewAutoRefresh,
   scheduleStatusActiveHeartbeat,
   shouldAutoCheckForUpdate,
-  shouldLoadPricingOnUsageTabEntry,
   shouldAutoRefreshUsageTab,
   shouldShowApiKeyFilter,
   shouldShowRangeControls,
@@ -37,6 +36,7 @@ import type {
   StatusResponse,
   StorageInfoResponse,
   UpdateDatabaseCleanupSettingsRequest,
+  UsageFilterWindow,
 } from '@/lib/types';
 
 const createAutoRefreshTestDocument = (
@@ -578,17 +578,6 @@ describe('UsagePage active tab auto-refresh guard', () => {
     expect(
       shouldAutoRefreshUsageTab({ activeTab: 'settings', eventsPage: 1 }),
     ).toBe(false);
-  });
-});
-
-describe('UsagePage Request Events pricing preload', () => {
-  it('loads only model prices when entering Request Events but not for other tab entry paths', () => {
-    expect(shouldLoadPricingOnUsageTabEntry('events')).toBe(true);
-    expect(shouldLoadPricingOnUsageTabEntry('overview')).toBe(false);
-    expect(shouldLoadPricingOnUsageTabEntry('analysis')).toBe(false);
-    expect(shouldLoadPricingOnUsageTabEntry('auth-files')).toBe(false);
-    expect(shouldLoadPricingOnUsageTabEntry('ai-provider')).toBe(false);
-    expect(shouldLoadPricingOnUsageTabEntry('settings')).toBe(false);
   });
 });
 

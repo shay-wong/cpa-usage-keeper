@@ -16,14 +16,11 @@ import {
 } from './RequestDetailJsonViewer';
 import {
   calculateCacheRate,
-  calculateCost,
   formatDurationMs,
   formatUsd,
   LATENCY_SOURCE_FIELD,
   normalizeAuthIndex,
-  type ModelPrice,
 } from '@/utils/usage';
-import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
 const ALL_FILTER = '__all__';
@@ -79,8 +76,8 @@ export type RequestEventTileRow = {
   cachedTokens: number;
   totalTokens: number;
   cacheRate: string;
-  cost: number;
-  hasPrice: boolean;
+  cost: number | null;
+  costAvailable: boolean;
   attempts: RequestEventAttemptRow[];
   attemptCount: number;
 };
@@ -100,7 +97,6 @@ export interface RequestEventsDetailsCardProps {
   modelFilter: string;
   sourceFilter: string;
   resultFilter: string;
-  modelPrices: Record<string, ModelPrice>;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   onModelFilterChange: (model: string) => void;
@@ -176,13 +172,6 @@ const parseRequestEndpoint = (rawEndpoint: unknown): { requestType: string; endp
   const path = hasMethod ? rest.join(' ').trim() : raw;
   const normalizedPath = path.startsWith('/v1/') ? path.slice(3) : path === '/v1' ? '/' : path;
   return { requestType, endpoint: normalizedPath || '-' };
-};
-
-const encodeCsv = (value: string | number): string => {
-  const text = String(value ?? '');
-  const trimmedLeft = text.replace(/^\s+/, '');
-  const safeText = trimmedLeft && /^[=+\-@]/.test(trimmedLeft) ? `'${text}` : text;
-  return `"${safeText.replace(/"/g, '""')}"`;
 };
 
 type RequestDetailContentPage = 'parsed' | 'raw';
@@ -407,8 +396,8 @@ export function RequestEventTableRow({
       <td>{row.cacheRate}</td>
       <td>{row.totalTokens.toLocaleString()}</td>
       {showCost && (
-        <td title={row.hasPrice ? undefined : t('usage_stats.cost_need_price')}>
-          {row.hasPrice ? formatUsd(row.cost) : '-'}
+        <td title={row.costAvailable ? undefined : t('usage_stats.cost_need_price')}>
+          {row.costAvailable && row.cost !== null ? formatUsd(row.cost) : '-'}
         </td>
       )}
     </tr>
@@ -618,7 +607,6 @@ export function RequestEventsDetailsCard({
   modelFilter,
   sourceFilter,
   resultFilter,
-  modelPrices,
   onPageChange,
   onPageSizeChange,
   onModelFilterChange,
@@ -662,24 +650,9 @@ export function RequestEventsDetailsCard({
       const totalTokens = Math.max(toNumber(event.tokens?.total_tokens), 0);
       const latencyMs = Number.isFinite(event.latency_ms) ? event.latency_ms : null;
       const ttftMs = Number.isFinite(event.ttft_ms) ? event.ttft_ms as number : null;
-      const pricing = modelPrices[model];
-      const cost = calculateCost({
-        timestamp,
-        source,
-        source_raw: sourceRaw,
-        source_type: sourceType,
-        auth_index: authIndex,
-        failed: event.failed === true,
-        latency_ms: latencyMs ?? 0,
-        tokens: {
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-          reasoning_tokens: reasoningTokens,
-          cached_tokens: cachedTokens,
-          total_tokens: totalTokens,
-        },
-        __modelName: model,
-      }, modelPrices);
+      // 费用由后端按当前价格配置运行时计算，前端只负责展示可用/不可用状态。
+      const costAvailable = event.cost_available === true;
+      const cost = costAvailable ? Math.max(toNumber(event.cost_usd), 0) : null;
 
       return {
         id: usageEventID || `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
@@ -708,12 +681,12 @@ export function RequestEventsDetailsCard({
         totalTokens,
         cacheRate: formatCacheRateForSource(cachedTokens, inputTokens, sourceType),
         cost,
-        hasPrice: Boolean(pricing),
+        costAvailable,
         attempts: mapRequestEventAttempts(event.attempts),
         attemptCount: Math.max(toNumber(event.attempt_count), 1),
       };
     });
-  }, [events, modelPrices]);
+  }, [events]);
 
   const hasLatencyData = useMemo(() => rows.some((row) => row.latencyMs !== null), [rows]);
   const hasTTFTData = true;
@@ -825,101 +798,7 @@ export function RequestEventsDetailsCard({
     onResultFilterChange(ALL_FILTER);
   };
 
-  const handleExportCsv = () => {
-    if (!rows.length) return;
-
-    const csvHeader = [
-      'timestamp',
-      'api_key',
-      'source',
-      'model',
-      'reasoning_effort',
-      'result',
-      ...(hasTTFTData ? ['ttft_ms'] : []),
-      ...(hasLatencyData ? ['latency_ms'] : []),
-      'request_type',
-      'endpoint',
-      'source_raw',
-      'auth_index',
-      'input_tokens',
-      'output_tokens',
-      'reasoning_tokens',
-      'cached_tokens',
-      'total_tokens',
-      'cost_usd',
-    ];
-
-    const csvRows = rows.map((row) =>
-      [
-        row.timestamp,
-        row.apiKey === '-' ? '' : row.apiKey,
-        row.source,
-        row.model,
-        row.reasoningEffort === '-' ? '' : row.reasoningEffort,
-        row.failed ? 'failed' : 'success',
-        ...(hasTTFTData ? [row.ttftMs ?? ''] : []),
-        ...(hasLatencyData ? [row.latencyMs ?? ''] : []),
-        row.requestType === '-' ? '' : row.requestType,
-        row.endpoint === '-' ? '' : row.endpoint,
-        row.sourceRaw,
-        row.authIndex,
-        row.inputTokens,
-        row.outputTokens,
-        row.reasoningTokens,
-        row.cachedTokens,
-        row.totalTokens,
-        row.hasPrice ? row.cost.toFixed(6) : '',
-      ]
-        .map((value) => encodeCsv(value))
-        .join(',')
-    );
-
-    const content = [csvHeader.map((value) => encodeCsv(value)).join(','), ...csvRows].join('\n');
-    const fileTime = new Date().toISOString().replace(/[:.]/g, '-');
-    downloadBlob({
-      filename: `usage-events-${fileTime}.csv`,
-      blob: new Blob([content], { type: 'text/csv;charset=utf-8' }),
-    });
-  };
-
-  const handleExportJson = () => {
-    if (!rows.length) return;
-
-    const payload = rows.map((row) => ({
-      timestamp: row.timestamp,
-      api_key: row.apiKey === '-' ? '' : row.apiKey,
-      source: row.source,
-      model: row.model,
-      reasoning_effort: row.reasoningEffort === '-' ? '' : row.reasoningEffort,
-      failed: row.failed,
-      ...(hasTTFTData && row.ttftMs !== null ? { ttft_ms: row.ttftMs } : {}),
-      ...(hasLatencyData && row.latencyMs !== null ? { latency_ms: row.latencyMs } : {}),
-      request_type: row.requestType === '-' ? '' : row.requestType,
-      endpoint: row.endpoint === '-' ? '' : row.endpoint,
-      source_raw: row.sourceRaw,
-      auth_index: row.authIndex,
-      tokens: {
-        input_tokens: row.inputTokens,
-        output_tokens: row.outputTokens,
-        reasoning_tokens: row.reasoningTokens,
-        cached_tokens: row.cachedTokens,
-        total_tokens: row.totalTokens,
-      },
-      ...(row.hasPrice ? { cost_usd: Number(row.cost.toFixed(6)) } : {}),
-    }));
-
-    const content = JSON.stringify(payload, null, 2);
-    const fileTime = new Date().toISOString().replace(/[:.]/g, '-');
-    downloadBlob({
-      filename: `usage-events-${fileTime}.json`,
-      blob: new Blob([content], { type: 'application/json;charset=utf-8' }),
-    });
-  };
-
-  void handleExportCsv;
-  void handleExportJson;
-
-  const renderRequestDetail = () => {
+    const renderRequestDetail = () => {
     if (!selectedRow) return null;
 
     const displayedRequestID = requestDetail?.request_id || selectedRow.requestID;

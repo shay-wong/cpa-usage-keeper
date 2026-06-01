@@ -261,7 +261,10 @@ describe('UsagePage toolbar styles', () => {
       /height:\s*var\(--settings-list-scroll-height\);/,
     );
     expect(pricingGridBlock).toMatch(
-      /\.pricesGrid\s*\{[\s\S]*?overflow:\s*auto;/,
+      /\.pricesGrid\s*\{[\s\S]*?overflow-y:\s*auto;/,
+    );
+    expect(pricingGridBlock).toMatch(
+      /\.pricesGrid\s*\{[\s\S]*?overflow-x:\s*hidden;/,
     );
     expect(pricingGridBlock).not.toMatch(
       /@include mobile\s*\{[\s\S]*?overflow:\s*visible;/,
@@ -788,7 +791,7 @@ describe('UsagePage toolbar styles', () => {
       "reasoningEffort: String(log.reasoning_effort ?? '').trim() || '-'",
     );
     expect(monitoringCenterSource).toContain('calculateCost({');
-    expect(monitoringCenterSource).toContain('hasPrice: Boolean(pricing)');
+    expect(monitoringCenterSource).toContain('costAvailable: hasPricing');
     expect(monitoringCenterSource).toContain('showCost');
     expect(monitoringCenterSource).toContain(
       'fetchUsageEventRequestDetail(usageEventID, controller.signal)',

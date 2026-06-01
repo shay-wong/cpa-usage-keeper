@@ -291,6 +291,9 @@ func mapUsageEventRecord(row repodto.UsageEventRecord) servicedto.UsageEventReco
 		CacheReadTokens:     row.CacheReadTokens,
 		CacheCreationTokens: row.CacheCreationTokens,
 		TotalTokens:         row.TotalTokens,
+		CostUSD:             row.CostUSD,
+		CostAvailable:       row.CostAvailable,
+		PricingStyle:        row.PricingStyle,
 		AttemptCount:        row.AttemptCount,
 		Attempts:            attempts,
 	}

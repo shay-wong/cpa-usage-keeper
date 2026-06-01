@@ -1,4 +1,4 @@
-import type { UsageFilterWindow, UsageOverviewResponse, UsageOverviewSeries, UsageTimeRange } from '@/lib/types';
+import type { ModelPrice, UsageFilterWindow, UsageOverviewResponse, UsageOverviewSeries, UsageTimeRange } from '@/lib/types';
 import type { UsagePayload } from '@/components/usage/hooks/useUsageData';
 import {
   LATENCY_SOURCE_FIELD,
@@ -15,14 +15,8 @@ export {
   calculateLatencyStatsFromDetails,
   formatDurationMs
 };
-export type { UsageTimeRange, UsageFilterWindow } from '@/lib/types';
+export type { ModelPrice, UsageTimeRange, UsageFilterWindow } from '@/lib/types';
 export type { UsagePayload } from '@/components/usage/hooks/useUsageData';
-
-export interface ModelPrice {
-  prompt: number;
-  completion: number;
-  cache: number;
-}
 
 export interface ChartDataset {
   label: string;
@@ -51,20 +45,6 @@ interface UsageModelSeriesLine {
 
 interface UsagePayloadWithModelSeries {
   model_series?: Record<string, UsageModelSeriesLine>;
-}
-
-interface UsageCostDetail {
-  source_type?: string;
-  __modelName?: string;
-  tokens: {
-    input_tokens: number;
-    output_tokens: number;
-    reasoning_tokens: number;
-    cached_tokens: number;
-    cache_tokens?: number;
-    total_tokens: number;
-  };
-  [key: string]: unknown;
 }
 
 export interface StatusBlockDetail {
@@ -304,48 +284,9 @@ export function resolveUsageFilterWindow(
   };
 }
 
-export function loadModelPrices(): Record<string, ModelPrice> {
-  try {
-    const raw = window.localStorage.getItem('cpa-model-prices');
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, ModelPrice>;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-export function saveModelPrices(prices: Record<string, ModelPrice>): void {
-  window.localStorage.setItem('cpa-model-prices', JSON.stringify(prices));
-}
-
-export function calculateCost(detail: UsageCostDetail, modelPrices: Record<string, ModelPrice>): number {
-  const modelName = detail.__modelName ?? '';
-  const pricing = modelPrices[modelName];
-  if (!pricing) return 0;
-
-  const inputTokens = Math.max(toNumber(detail.tokens.input_tokens), 0);
-  const completionTokens = Math.max(toNumber(detail.tokens.output_tokens), 0);
-  const cachedTokens = Math.max(
-    toNumber(detail.tokens.cached_tokens),
-    toNumber(detail.tokens.cache_tokens)
-  );
-  // Anthropic 的 input_tokens 已不含 cached（与 OpenAI/Gemini 风格相反），不能再减一次。
-  const promptTokens = isAnthropicStyleProvider(detail.source_type)
-    ? inputTokens
-    : Math.max(inputTokens - cachedTokens, 0);
-
-  return (
-    (promptTokens / 1_000_000) * pricing.prompt +
-    (completionTokens / 1_000_000) * pricing.completion +
-    (cachedTokens / 1_000_000) * pricing.cache
-  );
-}
-
 export function calculateCacheRate({
   inputTokens,
   cachedTokens,
-  sourceType,
 }: {
   inputTokens: unknown;
   cachedTokens: unknown;
@@ -353,19 +294,58 @@ export function calculateCacheRate({
 }): number | null {
   const input = Math.max(toNumber(inputTokens), 0);
   const cached = Math.max(toNumber(cachedTokens), 0);
-  const denominator = isAnthropicStyleProvider(sourceType) ? input + cached : input;
+  // token 已在后端按 provider type 归一化，前端只按统一字段展示缓存占比。
+  const denominator = input;
   if (denominator <= 0) {
     return null;
   }
   return (cached / denominator) * 100;
 }
 
-// CPA 把 provider 原始口径直接落库；Anthropic 的 input_tokens 不含 cached，其它 provider 都含。
-// 计算成本/缓存率时需要按 source_type 区分公式。
-export function isAnthropicStyleProvider(sourceType: unknown): boolean {
-  if (typeof sourceType !== 'string') return false;
-  const value = sourceType.trim().toLowerCase();
-  return value === 'claude' || value === 'anthropic';
+type CostUsageInput = {
+  timestamp?: unknown;
+  source?: unknown;
+  source_raw?: unknown;
+  source_type?: unknown;
+  auth_index?: unknown;
+  failed?: unknown;
+  latency_ms?: unknown;
+  tokens?: {
+    input_tokens?: unknown;
+    output_tokens?: unknown;
+    reasoning_tokens?: unknown;
+    cached_tokens?: unknown;
+    cache_read_tokens?: unknown;
+    cache_creation_tokens?: unknown;
+    total_tokens?: unknown;
+  };
+  __modelName?: string;
+};
+
+// Monitoring 近期日志没有后端逐条 cost 字段时，按当前前端价格表做展示期估算。
+export function calculateCost(usage: CostUsageInput, modelPrices: Record<string, ModelPrice>): number {
+  const model = String(usage.__modelName ?? '').trim();
+  const pricing = modelPrices[model];
+  if (!pricing) return 0;
+
+  const inputTokens = Math.max(toNumber(usage.tokens?.input_tokens), 0);
+  const outputTokens = Math.max(toNumber(usage.tokens?.output_tokens), 0);
+  const cachedTokens = Math.max(toNumber(usage.tokens?.cached_tokens), 0);
+  const cacheReadTokens = Math.max(toNumber(usage.tokens?.cache_read_tokens), 0);
+  const cacheCreationTokens = Math.max(toNumber(usage.tokens?.cache_creation_tokens), 0);
+
+  if (pricing.style === 'claude') {
+    const normalInputTokens = Math.max(inputTokens - cacheReadTokens - cacheCreationTokens, 0);
+    return (normalInputTokens / 1_000_000) * pricing.prompt +
+      (outputTokens / 1_000_000) * pricing.completion +
+      (cacheReadTokens / 1_000_000) * pricing.cache +
+      (cacheCreationTokens / 1_000_000) * pricing.cacheCreation;
+  }
+
+  const promptTokens = Math.max(inputTokens - cachedTokens, 0);
+  return (promptTokens / 1_000_000) * pricing.prompt +
+    (outputTokens / 1_000_000) * pricing.completion +
+    (cachedTokens / 1_000_000) * pricing.cache;
 }
 
 export function buildCandidateUsageSourceIds({ apiKey, prefix }: { apiKey?: string; prefix?: string }): string[] {
