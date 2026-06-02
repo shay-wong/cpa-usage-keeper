@@ -19,6 +19,8 @@ func TestCompareStableVersions(t *testing.T) {
 		{name: "minor version handles two digits", left: "v1.10.0", right: "v1.2.9", want: 1, wantOK: true},
 		{name: "major version handles two digits", left: "v12.3.45", right: "v2.99.99", want: 1, wantOK: true},
 		{name: "same version", left: "v1.2.3", right: "v1.2.3", want: 0, wantOK: true},
+		{name: "fork build compares by base version", left: "v1.9.1-fork.1", right: "v1.9.2", want: -1, wantOK: true},
+		{name: "fork build equal to base version", left: "v1.9.1-fork.1", right: "v1.9.1", want: 0, wantOK: true},
 		{name: "dev is not comparable", left: "dev", right: "v1.2.3", wantOK: false},
 		{name: "missing v prefix is not comparable", left: "1.2.3", right: "v1.2.3", wantOK: false},
 		{name: "prerelease is not comparable", left: "v1.2.3-beta", right: "v1.2.3", wantOK: false},
@@ -48,6 +50,7 @@ func TestIsStableVersion(t *testing.T) {
 	}{
 		{version: "v1.2.3", want: true},
 		{version: "v12.3.45", want: true},
+		{version: "v1.9.1-fork.1", want: true},
 		{version: "dev", want: false},
 		{version: "1.2.3", want: false},
 		{version: "v1.2", want: false},
