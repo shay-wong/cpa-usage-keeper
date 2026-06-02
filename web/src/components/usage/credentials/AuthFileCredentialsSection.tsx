@@ -78,6 +78,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 {row.planTypeLabel && <CredentialPlanBadge tone={row.planTypeTone}>{row.planTypeLabel}</CredentialPlanBadge>}
                 {row.remainingDaysLabel && <span className={styles.credentialRemainingDaysBadge}>{row.remainingDaysLabel}</span>}
                 {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
+                {row.note && <span className={styles.credentialNoteBadge}>{row.note}</span>}
               </span>
             )}
             badges={null}

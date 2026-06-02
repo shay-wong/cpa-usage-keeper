@@ -38,6 +38,7 @@ function identity(overrides: Partial<UsageIdentity>): UsageIdentity {
     created_at: overrides.created_at ?? '2026-05-09T00:00:00Z',
     updated_at: overrides.updated_at ?? '2026-05-09T00:00:00Z',
     deleted_at: overrides.deleted_at,
+    note: overrides.note,
     displayName: overrides.displayName,
   }
 }
@@ -52,6 +53,20 @@ describe('credentialViewModels', () => {
 
     expect(groups.authFiles.map((item) => item.identity)).toEqual(['auth-file', 'deleted-auth-file'])
     expect(groups.aiProviders.map((item) => item.identity)).toEqual(['api-key'])
+  })
+
+  it('carries credential notes for auth files and AI providers while hiding blank notes', () => {
+    const authRows = buildAuthFileCredentialRows([
+      identity({ identity: 'auth-with-note', note: '  Primary team account  ' }),
+      identity({ identity: 'auth-blank-note', note: '   ' }),
+    ])
+    const aiRows = buildAiProviderCredentialRows([
+      identity({ identity: 'provider-with-note', auth_type: 2, note: 'Fallback provider' }),
+    ])
+
+    expect(authRows[0].note).toBe('Primary team account')
+    expect(authRows[1].note).toBeUndefined()
+    expect(aiRows[0].note).toBe('Fallback provider')
   })
 
   it('builds auth file plan badges from plan type with case-insensitive matching', () => {

@@ -40,12 +40,18 @@ func newUsageIdentityResolver(identities []entities.UsageIdentity) usageIdentity
 type resolvedUsageIdentity struct {
 	DisplayName string
 	Type        string
+	Note        string
 }
 
 func resolvedUsageIdentityFromEntity(item entities.UsageIdentity) resolvedUsageIdentity {
+	note := ""
+	if item.Note != nil {
+		note = strings.TrimSpace(*item.Note)
+	}
 	return resolvedUsageIdentity{
 		DisplayName: helper.UsageIdentityDisplayName(item),
 		Type:        strings.TrimSpace(item.Type),
+		Note:        note,
 	}
 }
 

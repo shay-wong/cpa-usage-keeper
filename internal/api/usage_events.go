@@ -58,6 +58,7 @@ type usageEventPayload struct {
 	ServiceTier     string                     `json:"service_tier,omitempty"`
 	Endpoint        string                     `json:"endpoint,omitempty"`
 	Source          string                     `json:"source"`
+	SourceNote      string                     `json:"source_note,omitempty"`
 	SourceRaw       string                     `json:"source_raw,omitempty"`
 	SourceType      string                     `json:"source_type,omitempty"`
 	IsDelete        bool                       `json:"isDelete,omitempty"`
@@ -245,6 +246,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			ServiceTier:     strings.TrimSpace(row.ServiceTier),
 			Endpoint:        strings.TrimSpace(row.Endpoint),
 			Source:          source,
+			SourceNote:      identity.Note,
 			SourceType:      identity.Type,
 			IsDelete:        isDelete,
 			Failed:          row.Failed,

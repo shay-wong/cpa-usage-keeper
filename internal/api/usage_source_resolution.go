@@ -189,9 +189,6 @@ func safeAuthIdentityDisplayName(name string, fallbackIdentity string) string {
 	if trimmed == "" {
 		return helper.RedactSensitiveValue(fallbackIdentity)
 	}
-	if looksLikeEmail(trimmed) || trimmed == strings.TrimSpace(fallbackIdentity) {
-		return helper.RedactSensitiveValue(trimmed)
-	}
 	return trimmed
 }
 

@@ -233,6 +233,7 @@ export interface UsageEvent {
   reasoning_effort?: string
   endpoint?: string
   source: string
+  source_note?: string
   source_raw?: string
   source_type?: string
   auth_index?: string

@@ -37,6 +37,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
             <span className={styles.credentialIdentityBadges}>
               <CredentialBadge>{row.typeLabel}</CredentialBadge>
               {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
+              {row.note && <span className={styles.credentialNoteBadge}>{row.note}</span>}
             </span>
           )}
           badges={null}

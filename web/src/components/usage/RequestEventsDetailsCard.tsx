@@ -130,6 +130,7 @@ export type RequestEventTileRow = {
   endpoint: string;
   sourceRaw: string;
   source: string;
+  sourceNote?: string;
   sourceTitle?: string;
   sourceType: string;
   authIndex: string;
@@ -906,6 +907,7 @@ export function RequestEventsTable({
           <td className={styles.requestEventsSourceCell} title={row.sourceTitle ?? row.source}>
             <span className={styles.requestEventsSourceStack}>
               <span className={styles.requestEventsSourceValue}>{row.source}</span>
+              {row.sourceNote && <span className={styles.requestEventsSourceNote}>{row.sourceNote}</span>}
               {(row.isDelete || row.sourceType) && (
                 <span className={styles.requestEventsSourceTags}>
                   {row.sourceType && (
@@ -1142,6 +1144,7 @@ export function RequestEventsDetailsCard({
         endpoint: endpointFields.endpoint,
         sourceRaw: sourceRaw || '-',
         source,
+        sourceNote: normalizeOptionalText(event.source_note),
         sourceType,
         authIndex,
         isDelete: event.isDelete === true,
@@ -1253,6 +1256,7 @@ export function RequestEventsDetailsCard({
           <td className={styles.requestEventsSourceCell} title={row.sourceTitle ?? row.source}>
             <span className={styles.requestEventsSourceStack}>
               <span className={styles.requestEventsSourceValue}>{row.source}</span>
+              {row.sourceNote && <span className={styles.requestEventsSourceNote}>{row.sourceNote}</span>}
               {(row.isDelete || row.sourceType) && (
                 <span className={styles.requestEventsSourceTags}>
                   {row.sourceType && (
@@ -1614,4 +1618,9 @@ export function RequestEventsDetailsCard({
       )}
     </Card>
   );
+}
+
+function normalizeOptionalText(value: string | undefined | null): string | undefined {
+  const trimmed = value?.trim() ?? '';
+  return trimmed || undefined;
 }

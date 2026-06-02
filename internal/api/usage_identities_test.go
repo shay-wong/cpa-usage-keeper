@@ -142,7 +142,7 @@ func TestUsageIdentitiesRouteReturnsMetadataStatsAndActiveRows(t *testing.T) {
 	}
 }
 
-func TestUsageIdentitiesRouteKeepsAuthFileIdentityForQuotaRefreshAndMasksDisplayName(t *testing.T) {
+func TestUsageIdentitiesRouteKeepsAuthFileIdentityForQuotaRefreshAndShowsDisplayName(t *testing.T) {
 	rawEmail := "user@example.com"
 	rawIdentity := "auth-secret"
 	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
@@ -163,15 +163,43 @@ func TestUsageIdentitiesRouteKeepsAuthFileIdentityForQuotaRefreshAndMasksDisplay
 	if resp.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
-	if contains(body, rawEmail) {
-		t.Fatalf("expected raw auth file email to be hidden, got %s", body)
+	if !contains(body, `"identity":"`+rawIdentity+`"`) {
+		t.Fatalf("expected raw auth file identity to remain available for quota refresh, got %s", body)
+	}
+	if !contains(body, `"name":"`+rawEmail+`"`) || !contains(body, `"displayName":"`+rawEmail+`"`) {
+		t.Fatalf("expected unmasked auth file display values in response body: %s", body)
+	}
+}
+
+
+func TestUsageIdentitiesRouteMasksAuthFileFallbackIdentityWhenNameMissing(t *testing.T) {
+	rawIdentity := "auth-secret@example.com"
+	router := NewRouter(nil, nil, nil, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
+		ID:           1,
+		AuthType:     entities.UsageIdentityAuthTypeAuthFile,
+		AuthTypeName: "oauth",
+		Identity:     rawIdentity,
+		Type:         "claude",
+		Provider:     "Claude",
+	}}}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/identities", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	body := resp.Body.String()
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, body)
 	}
 	if !contains(body, `"identity":"`+rawIdentity+`"`) {
 		t.Fatalf("expected raw auth file identity to remain available for quota refresh, got %s", body)
 	}
-	maskedEmail := helper.RedactSensitiveValue(rawEmail)
-	if !contains(body, `"name":"`+maskedEmail+`"`) || !contains(body, `"displayName":"`+maskedEmail+`"`) {
-		t.Fatalf("expected masked auth file display values in response body: %s", body)
+	maskedIdentity := helper.RedactSensitiveValue(rawIdentity)
+	if !contains(body, `"name":"`+maskedIdentity+`"`) {
+		t.Fatalf("expected fallback name to stay masked in response body: %s", body)
+	}
+	if contains(body, `"name":"`+rawIdentity+`"`) || contains(body, `"displayName":"`+rawIdentity+`"`) {
+		t.Fatalf("expected fallback display fields not to expose raw identity: %s", body)
 	}
 }
 

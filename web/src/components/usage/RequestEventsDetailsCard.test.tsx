@@ -21,6 +21,7 @@ const events: UsageEvent[] = [
     reasoning_effort: 'medium',
     endpoint: 'POST /v1/messages',
     source: 'Provider A',
+    source_note: 'Primary route note',
     source_raw: 'source-a',
     source_type: 'openai',
     auth_index: '1',
@@ -179,9 +180,11 @@ describe('RequestEventsDetailsCard pagination', () => {
 
     expect(html).toContain('_requestEventsSourceStack_');
     expect(html).toContain('_requestEventsSourceValue_');
+    expect(html).toContain('_requestEventsSourceNote_');
     expect(html).toContain('_requestEventsSourceTags_');
     expect(html).toContain('_requestEventsDeletedTag_');
     expect(html).toContain('Provider A');
+    expect(html).toContain('Primary route note');
     expect(html).toContain('openai');
     expect(html).toContain('Deleted');
   });

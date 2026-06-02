@@ -31,6 +31,7 @@ export interface AuthFileCredentialRow {
   displayName: string
   maskedIdentity: string
   providerLabel: string
+  note?: string
   typeLabel: string
   authTypeLabel: string
   priorityLabel?: string
@@ -58,6 +59,7 @@ export interface AiProviderCredentialRow {
   typeLabel: string
   authTypeLabel: string
   priorityLabel?: string
+  note?: string
   totalRequests: number
   successCount: number
   failureCount: number
@@ -133,6 +135,7 @@ export function buildAuthFileCredentialRows(
       typeLabel: credentialTypeLabel(identity),
       authTypeLabel: credentialAuthTypeLabel(identity),
       priorityLabel: credentialPriorityLabel(identity.priority),
+      note: normalizedNote(identity.note),
       planTypeLabel: credentialPlanTypeLabel(planType),
       planTypeTone: credentialPlanTypeTone(planType),
       remainingDaysLabel: remainingDaysLabel(identity.active_until),
@@ -160,6 +163,7 @@ export function buildAiProviderCredentialRows(identities: UsageIdentity[]): AiPr
     typeLabel: credentialTypeLabel(identity),
     authTypeLabel: credentialAuthTypeLabel(identity),
     priorityLabel: credentialPriorityLabel(identity.priority),
+    note: normalizedNote(identity.note),
     totalRequests: safeNumber(identity.total_requests),
     successCount: safeNumber(identity.success_count),
     failureCount: safeNumber(identity.failure_count),
@@ -350,6 +354,11 @@ function quotaBarPercent(percent: number | null, kind: DisplayQuota['percentKind
 
 function isDisplayableQuota(quota: DisplayQuota | undefined): quota is DisplayQuota {
   return quota !== undefined && quota.barPercent !== null
+}
+
+function normalizedNote(note: string | undefined | null): string | undefined {
+  const trimmed = note?.trim() ?? ''
+  return trimmed || undefined
 }
 
 function credentialDisplayName(identity: UsageIdentity): string {

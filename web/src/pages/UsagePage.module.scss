@@ -3572,6 +3572,15 @@
   line-height: 1.35;
 }
 
+.requestEventsSourceNote {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .requestEventsSourceTags {
   display: flex;
   flex-wrap: wrap;
