@@ -86,8 +86,8 @@ func TestOpenDatabaseCreatesFreshDatabaseFromCurrentSchemaWithoutRunningMigratio
 	if err := db.Table("schema_migrations").Count(&count).Error; err != nil {
 		t.Fatalf("count schema migrations: %v", err)
 	}
-	if count != 37 {
-		t.Fatalf("expected fresh database to mark 37 migrations applied, got %d", count)
+	if count != 38 {
+		t.Fatalf("expected fresh database to mark 38 migrations applied, got %d", count)
 	}
 	if strings.Contains(logs.String(), "schema migration started") {
 		t.Fatalf("expected fresh database creation not to run version migrations, got logs:\n%s", logs.String())
@@ -350,7 +350,6 @@ func TestInsertUsageEventsPersistsExecutorType(t *testing.T) {
 		t.Fatalf("expected executor_type to persist, got %q", got.ExecutorType)
 	}
 }
-
 
 func TestDatabaseTimeFieldsUseProjectTimezoneRFC3339Nano(t *testing.T) {
 	previousLocal := time.Local

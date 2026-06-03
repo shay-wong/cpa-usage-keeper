@@ -23,6 +23,7 @@ import {
   type UsageIdentityAuthType,
   type UsageOverviewResponse,
   type UsageQuotaCacheResponse,
+  type UsageQuotaInspectionStatusResponse,
   type UsageQuotaRefreshResponse,
   type UsageQuotaRefreshTaskResponse,
   type UpdateDatabaseCleanupSettingsRequest,
@@ -295,7 +296,8 @@ export async function fetchUsageEvents(
 export type UsageIdentityPageSort =
   | 'priority'
   | 'total_requests'
-  | 'total_tokens';
+  | 'total_tokens'
+  | 'last_used_at';
 
 export async function fetchUsageEventRequestDetail(
   eventId: string,
@@ -431,6 +433,35 @@ export async function refreshUsageQuotas(
     tasks: Array.isArray(payload.tasks) ? payload.tasks : [],
     rejected: Array.isArray(payload.rejected) ? payload.rejected : [],
   };
+}
+
+export async function fetchUsageQuotaInspectionStatus(
+  signal?: AbortSignal,
+): Promise<UsageQuotaInspectionStatusResponse> {
+  const response = await apiFetch(apiPath('/quota/inspection'), { signal });
+  if (!response.ok) {
+    await parseApiError(
+      response,
+      `Failed to load quota inspection status: ${response.status}`,
+    );
+  }
+  return response.json();
+}
+
+export async function startUsageQuotaInspection(
+  signal?: AbortSignal,
+): Promise<UsageQuotaInspectionStatusResponse> {
+  const response = await apiFetch(apiPath('/quota/inspection'), {
+    method: 'POST',
+    signal,
+  });
+  if (!response.ok) {
+    await parseApiError(
+      response,
+      `Failed to start quota inspection: ${response.status}`,
+    );
+  }
+  return response.json();
 }
 
 export async function fetchUsageQuotaRefreshTask(

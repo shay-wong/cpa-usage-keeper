@@ -207,7 +207,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 				Quota:            quotaService,
 				CPAAPIKeys:       cpaAPIKeyService,
 				DatabaseSettings: databaseSettingsService,
-				Status:           api.StatusRouteConfig{CPAPublicURL: cpaPublicURL, ActiveRecorder: quotaActiveRecorder(cfg, quotaService)},
+				Status:           api.StatusRouteConfig{CPAPublicURL: cpaPublicURL, ActiveRecorder: quotaActiveRecorder(cfg, quotaService), QuotaAutoRefreshEnabled: cfg.QuotaAutoRefreshEnabled},
 			},
 		),
 	}, nil

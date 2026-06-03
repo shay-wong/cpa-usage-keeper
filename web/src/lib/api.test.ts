@@ -10,6 +10,7 @@ import {
   fetchStorageInfo,
   fetchUsageOverview,
   fetchUsageQuotaCache,
+  fetchUsageQuotaInspectionStatus,
   fetchUpdateCheck,
   fetchUsageEventModelFilterOptions,
   fetchUsageEventRequestDetail,
@@ -23,6 +24,7 @@ import {
   markStatusActive,
   refreshUsageQuotas,
   restoreStorageBackup,
+  startUsageQuotaInspection,
   updateCpaApiKeyAlias,
   updateDatabaseCleanupSettings,
 } from './api';
@@ -412,7 +414,7 @@ describe('fetchUsageEvents', () => {
       page: 2,
       pageSize: 20,
       activeOnly: true,
-      sort: 'priority',
+      sort: 'last_used_at',
       types: ['claude', ' openai '],
     });
 
@@ -424,7 +426,7 @@ describe('fetchUsageEvents', () => {
     expect(parsed.searchParams.get('page')).toBe('2');
     expect(parsed.searchParams.get('page_size')).toBe('20');
     expect(parsed.searchParams.get('active_only')).toBe('true');
-    expect(parsed.searchParams.get('sort')).toBe('priority');
+    expect(parsed.searchParams.get('sort')).toBe('last_used_at');
     expect(parsed.searchParams.getAll('type')).toEqual(['claude', ' openai ']);
     expect(init).toMatchObject({ credentials: 'include', signal });
   });
@@ -602,6 +604,7 @@ describe('fetchUsageEvents', () => {
         items: [
           {
             auth_index: 'auth-1',
+            file_name: 'claude-user.json',
             status: 'completed',
             quota: {
               id: 'auth-1',
@@ -626,6 +629,7 @@ describe('fetchUsageEvents', () => {
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.items[0].auth_index).toBe('auth-1');
+    expect(response.items[0].file_name).toBe('claude-user.json');
     expect(response.items[0].refreshed_at).toBe('2026-05-25T00:00:00Z');
     expect(response.items[0].quota?.quota[0].remaining).toBe(12);
     expect(parsed.pathname).toBe('/api/v1/quota/cache');
@@ -690,12 +694,86 @@ describe('fetchUsageEvents', () => {
     expect(response.skipped).toBe(1);
   });
 
+  it('loads quota inspection status', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        total: 2,
+        cached: 1,
+        running: true,
+        completed: false,
+        normal: 1,
+        unauthorized_401: 0,
+        payment_required_402: 0,
+        other_failed: 0,
+        results: [
+          {
+            auth_index: 'auth-1',
+            name: 'Claude Main',
+            type: 'claude',
+            file_name: 'claude-user.json',
+            provider: 'claude',
+            status: 'normal',
+            refreshed_at: '2026-06-03T10:30:00Z',
+          },
+        ],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await fetchUsageQuotaInspectionStatus(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.total).toBe(2);
+    expect(response.cached).toBe(1);
+    expect(response.results[0].auth_index).toBe('auth-1');
+    expect(response.results[0].file_name).toBe('claude-user.json');
+    expect(parsed.pathname).toBe('/api/v1/quota/inspection');
+    expect(init).toMatchObject({ credentials: 'include', signal });
+  });
+
+  it('starts quota inspection from the protected endpoint', async () => {
+    vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        total: 2,
+        cached: 0,
+        running: true,
+        completed: false,
+        normal: 0,
+        unauthorized_401: 0,
+        payment_required_402: 0,
+        other_failed: 0,
+        results: [],
+      }),
+    } as Response);
+    const signal = new AbortController().signal;
+
+    const response = await startUsageQuotaInspection(signal);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    const parsed = new URL(String(url), 'http://localhost');
+
+    expect(response.running).toBe(true);
+    expect(parsed.pathname).toBe('/api/v1/quota/inspection');
+    expect(init).toMatchObject({
+      credentials: 'include',
+      method: 'POST',
+      signal,
+    });
+  });
+
   it('loads quota refresh task status', async () => {
     vi.stubGlobal('window', { __APP_BASE_PATH__: undefined });
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       json: async () => ({
         authIndex: 'auth-1',
+        file_name: 'claude-user.json',
         status: 'completed',
         http_status_code: 401,
         refreshed_at: '2026-05-25T00:00:00Z',
@@ -713,6 +791,7 @@ describe('fetchUsageEvents', () => {
     const parsed = new URL(String(url), 'http://localhost');
 
     expect(response.status).toBe('completed');
+    expect(response.file_name).toBe('claude-user.json');
     expect(response.http_status_code).toBe(401);
     expect(response.refreshed_at).toBe('2026-05-25T00:00:00Z');
     expect(response.quota?.id).toBe('auth-1');
