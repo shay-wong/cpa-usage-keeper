@@ -281,6 +281,7 @@ jobs:
       - name: Download binary package artifacts
         uses: actions/download-artifact@v6
         with:
+          pattern: cpa-usage-keeper-${{ needs.resolve-release.outputs.release_name }}-*
           path: dist
           merge-multiple: true
 

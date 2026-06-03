@@ -285,6 +285,7 @@ jobs:
       - name: Download binary package artifacts
         uses: actions/download-artifact@v6
         with:
+          pattern: cpa-usage-keeper-dev-${{ needs.resolve-dev-name.outputs.specific_name }}-*
           path: dist
           merge-multiple: true
 
@@ -292,7 +293,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          sha256sum *.tar.gz *.zip > checksums.txt
+          sha256sum ./*.tar.gz ./*.zip > checksums.txt
 
       - name: Upload dev binary packages
         uses: actions/upload-artifact@v6
