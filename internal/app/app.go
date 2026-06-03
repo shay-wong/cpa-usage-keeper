@@ -99,6 +99,8 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	logrus.Info("completed usage overview aggregation catch-up")
 
 	syncService := service.NewSyncService(db, cfg)
+	// metadataSyncRunner 提前创建，保证控制消息和后台任务使用同一个调度器实例。
+	metadataSyncRunner := NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval)
 	redisPullSource := poller.NewRedisPullSource(cpa.RedisQueueOptions{
 		BaseURL:       cfg.CPABaseURL,
 		RedisAddr:     cfg.RedisQueueAddr,
@@ -119,12 +121,16 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		TLS:           cfg.RedisQueueTLS,
 		TLSSkipVerify: cfg.TLSSkipVerify,
 	})
-	redisIngestRunner := poller.NewRedisIngestRunner(redisSubscribeSource, redisPullSource, httpPullSource, poller.NewRedisInboxWriter(db, cfg.RedisQueueKey), poller.RedisIngestRunnerConfig{
+	// usage 通道可能混入 metadata 控制消息，落 inbox 前先过滤并转交 metadata runner。
+	redisInboxWriter := poller.NewControlAwareRedisInboxWriter(poller.NewRedisInboxWriter(db, cfg.RedisQueueKey), metadataSyncRunner)
+	redisIngestRunner := poller.NewRedisIngestRunner(redisSubscribeSource, redisPullSource, httpPullSource, redisInboxWriter, poller.RedisIngestRunnerConfig{
 		IdleInterval:       cfg.RedisQueueIdleInterval,
 		BatchSize:          cfg.RedisQueueBatchSize,
 		HTTPBackoffInitial: time.Second,
 		HTTPBackoffMax:     30 * time.Second,
 	})
+	// usage 链路一旦降级或失败，metadata 同步回到轮询，直到下一条 CPA 控制消息重新启用通知模式。
+	redisIngestRunner.SetControlMessageObserver(metadataSyncRunner)
 	redisProcessRunner := poller.NewRedisProcessRunner(syncService)
 	backgroundPoller := poller.NewRedisPoller(redisIngestRunner, redisProcessRunner)
 	var backupMaintenance *DatabaseBackupRunner
@@ -178,7 +184,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 		RedisIngest:       redisIngestRunner,
 		RedisProcess:      redisProcessRunner,
 		Maintenance:       NewStorageCleanupRunner(syncService),
-		MetadataSync:      NewMetadataSyncRunner(syncService, cfg.MetadataSyncInterval),
+		MetadataSync:      metadataSyncRunner,
 		QuotaService:      quotaService,
 		QuotaAutoRefresh:  quotaAutoRefreshService(cfg, quotaService),
 		BackupMaintenance: backupMaintenance,

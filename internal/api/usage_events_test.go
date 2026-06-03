@@ -73,6 +73,7 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 		Model:               "claude-sonnet",
 		ReasoningEffort:     "medium",
 		ServiceTier:         "standard",
+		ExecutorType:        "responses",
 		Endpoint:            "POST /v1/responses",
 		AuthType:            "apikey",
 		Provider:            "OpenAI Mirror",
@@ -132,6 +133,9 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	}
 	if !contains(body, `"service_tier":"standard"`) {
 		t.Fatalf("expected service_tier in response body: %s", body)
+	}
+	if !contains(body, `"executor_type":"responses"`) {
+		t.Fatalf("expected executor_type in response body: %s", body)
 	}
 	if !contains(body, `"endpoint":"POST /v1/responses"`) {
 		t.Fatalf("expected endpoint in response body: %s", body)

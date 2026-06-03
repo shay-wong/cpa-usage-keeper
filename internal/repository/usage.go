@@ -15,7 +15,7 @@ import (
 )
 
 // usageEventProjectionColumns 限制 usage_events 查询列，避免 Overview 和列表页把 RawJSON 等大字段读入内存。
-const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, reasoning_effort, service_tier, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
+const usageEventProjectionColumns = "id, api_group_key, provider, auth_type, request_id, model, reasoning_effort, executor_type, service_tier, endpoint, timestamp, source, auth_index, failed, latency_ms, ttft_ms, input_tokens, output_tokens, reasoning_tokens, cached_tokens, cache_read_tokens, cache_creation_tokens, total_tokens"
 
 // usageEventProjection 是 usage_events 轻量投影，专门承接 select columns 的查询结果。
 type usageEventProjection struct {
@@ -26,6 +26,7 @@ type usageEventProjection struct {
 	RequestID           string
 	Model               string
 	ReasoningEffort     string
+	ExecutorType        string
 	ServiceTier         string
 	Endpoint            string
 	Timestamp           time.Time
@@ -358,6 +359,7 @@ func usageEventProjectionToRecord(event usageEventProjection) dto.UsageEventReco
 		APIGroupKey:         strings.TrimSpace(event.APIGroupKey),
 		Model:               strings.TrimSpace(event.Model),
 		ReasoningEffort:     strings.TrimSpace(event.ReasoningEffort),
+		ExecutorType:        strings.TrimSpace(event.ExecutorType),
 		ServiceTier:         strings.TrimSpace(event.ServiceTier),
 		Endpoint:            strings.TrimSpace(event.Endpoint),
 		AuthType:            strings.TrimSpace(event.AuthType),
@@ -405,6 +407,7 @@ func usageEventProjectionToEntity(event usageEventProjection) entities.UsageEven
 		RequestID:           event.RequestID,
 		Model:               event.Model,
 		ReasoningEffort:     event.ReasoningEffort,
+		ExecutorType:        event.ExecutorType,
 		ServiceTier:         event.ServiceTier,
 		Endpoint:            event.Endpoint,
 		Timestamp:           event.Timestamp,

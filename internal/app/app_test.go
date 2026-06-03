@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -154,6 +155,44 @@ func TestNewWithConfigBuildsRedisIngestAndRouter(t *testing.T) {
 	}
 	if app.MetadataSync == nil {
 		t.Fatal("expected metadata sync runner to be initialized")
+	}
+}
+
+func TestNewWithConfigWiresMetadataRefreshControl(t *testing.T) {
+	app, err := NewWithConfig(testAppConfig(t))
+	if err != nil {
+		t.Fatalf("NewWithConfig returned error: %v", err)
+	}
+	defer app.Close()
+
+	runner, ok := app.RedisIngest.(*poller.RedisIngestRunner)
+	if !ok {
+		t.Fatalf("expected redis ingest runner, got %T", app.RedisIngest)
+	}
+	runnerValue := reflect.ValueOf(runner).Elem()
+	writer := runnerValue.FieldByName("writer")
+	if !writer.IsValid() {
+		t.Fatal("expected redis ingest runner writer field")
+	}
+	if got := writer.Elem().Type().String(); got != "*poller.ControlAwareRedisInboxWriter" {
+		t.Fatalf("expected control-aware redis inbox writer, got %s", got)
+	}
+
+	observer := runnerValue.FieldByName("controlObserver")
+	if !observer.IsValid() || observer.IsNil() {
+		t.Fatal("expected metadata sync runner to observe redis ingest control messages")
+	}
+	metadataSyncPtr := reflect.ValueOf(app.MetadataSync).Pointer()
+	if got := observer.Elem().Pointer(); got != metadataSyncPtr {
+		t.Fatalf("expected redis ingest observer to share app metadata sync runner, got %x want %x", got, metadataSyncPtr)
+	}
+
+	writerObserver := writer.Elem().Elem().FieldByName("observer")
+	if !writerObserver.IsValid() || writerObserver.IsNil() {
+		t.Fatal("expected redis inbox writer metadata sync observer")
+	}
+	if got := writerObserver.Elem().Pointer(); got != metadataSyncPtr {
+		t.Fatalf("expected redis inbox writer observer to share app metadata sync runner, got %x want %x", got, metadataSyncPtr)
 	}
 }
 
@@ -310,7 +349,7 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 	pullStarted := make(chan struct{})
 	processStarted := make(chan struct{})
 	maintenanceStarted := make(chan struct{})
-	metadataStarted := make(chan struct{})
+	metadataStarted := make(chan struct{}, 1)
 	backupStarted := make(chan struct{})
 	maintenance := NewStorageCleanupRunner(&maintenanceSyncStub{})
 	maintenance.sleep = func(context.Context, time.Duration) bool {
@@ -318,9 +357,11 @@ func TestRunStartsPollerAndMaintenanceIndependently(t *testing.T) {
 		return false
 	}
 	metadataRunner := NewMetadataSyncRunner(&metadataSyncStub{}, time.Second)
-	metadataRunner.sleep = func(context.Context, time.Duration) bool {
-		close(metadataStarted)
-		return false
+	metadataRunner.onStart = func() {
+		select {
+		case metadataStarted <- struct{}{}:
+		default:
+		}
 	}
 	backupRunner := NewDatabaseBackupRunner(&databaseBackupWriterStub{}, nil, time.Second, 0)
 	backupRunner.sleep = func(context.Context, time.Duration) bool {

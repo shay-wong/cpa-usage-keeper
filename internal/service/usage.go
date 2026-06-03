@@ -274,6 +274,7 @@ func mapUsageEventRecord(row repodto.UsageEventRecord) servicedto.UsageEventReco
 		APIGroupKey:         row.APIGroupKey,
 		Model:               row.Model,
 		ReasoningEffort:     row.ReasoningEffort,
+		ExecutorType:        row.ExecutorType,
 		ServiceTier:         row.ServiceTier,
 		Endpoint:            row.Endpoint,
 		AuthType:            row.AuthType,
