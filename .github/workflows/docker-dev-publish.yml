@@ -1,9 +1,7 @@
 name: Publish dev Docker image
 
 on:
-  push:
-    branches:
-      - dev
+  workflow_dispatch:
 
 permissions:
   contents: read
