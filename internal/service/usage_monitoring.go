@@ -14,8 +14,6 @@ import (
 const (
 	// 监控中心小卡片仅展示最近 12 条状态点，避免卡片过高。
 	monitoringRecentRequestLimit = 12
-	// 最近请求日志未指定分页加载量时默认取 100 条，控制首次响应体积。
-	monitoringDefaultLogLimit = 100
 	// 最近请求日志最大加载 1000 条，对齐前端最大每页条数。
 	monitoringMaxLogLimit = 1000
 )
@@ -56,13 +54,16 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto
 	if err != nil {
 		return nil, err
 	}
-	recentEvents, err := repository.ListRecentUsageMonitoringEventsWithFilter(ctx, s.db, repodto.UsageQueryFilter{
-		StartTime: filter.StartTime,
-		EndTime:   filter.EndTime,
-		Limit:     logLimit,
-	})
-	if err != nil {
-		return nil, err
+	recentEvents := []repodto.UsageEventRecord{}
+	if logLimit > 0 {
+		recentEvents, err = repository.ListRecentUsageMonitoringEventsWithFilter(ctx, s.db, repodto.UsageQueryFilter{
+			StartTime: filter.StartTime,
+			EndTime:   filter.EndTime,
+			Limit:     logLimit,
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	recentRequestsBySource, recentRequestsBySourceModel := buildMonitoringRecentRequestMaps(recentRequestRows)
@@ -81,7 +82,7 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto
 
 func normalizeMonitoringLogLimit(limit int) int {
 	if limit <= 0 {
-		return monitoringDefaultLogLimit
+		return 0
 	}
 	if limit > monitoringMaxLogLimit {
 		return monitoringMaxLogLimit
@@ -305,6 +306,9 @@ func buildMonitoringFailureAnalysis(rows []repository.UsageMonitoringFailureStat
 }
 
 func buildMonitoringRequestLogs(events []repodto.UsageEventRecord, limit int) []UsageMonitoringRequestLog {
+	if limit <= 0 {
+		return []UsageMonitoringRequestLog{}
+	}
 	logs := make([]UsageMonitoringRequestLog, 0, len(events))
 	for _, event := range events {
 		row := mapUsageEventRecord(event)

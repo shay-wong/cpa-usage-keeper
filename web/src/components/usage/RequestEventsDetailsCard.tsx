@@ -649,6 +649,32 @@ function RequestEventsTitle({ title, subtitle, eyebrow, totalLabel }: { title: s
   );
 }
 
+function RequestEventSourceCell({ row, t }: { row: RequestEventTileRow; t: RequestEventsTranslate }) {
+  const title = [row.sourceTitle ?? row.source, row.sourceNote].filter(Boolean).join(' / ');
+  const hasTags = Boolean(row.sourceType || row.sourceNote || row.isDelete);
+
+  return (
+    <td className={styles.requestEventsSourceCell} title={title || row.source}>
+      <span className={styles.requestEventsSourceStack}>
+        <span className={styles.requestEventsSourceValue}>{row.source}</span>
+        {hasTags && (
+          <span className={styles.requestEventsSourceTags}>
+            {row.sourceType && (
+              <span className={styles.credentialType}>{row.sourceType}</span>
+            )}
+            {row.sourceNote && (
+              <span className={styles.requestEventsSourceNote}>{row.sourceNote}</span>
+            )}
+            {row.isDelete && (
+              <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
+            )}
+          </span>
+        )}
+      </span>
+    </td>
+  );
+}
+
 interface RequestEventTableRowProps {
   row: RequestEventTileRow;
   canOpenDetail: boolean;
@@ -691,21 +717,7 @@ export function RequestEventTableRow({
         {row.timestampLabel}
       </td>
       <td className={styles.requestEventsAPIKeyCell} title={row.apiKey}>{row.apiKey}</td>
-      <td className={styles.requestEventsSourceCell} title={row.sourceTitle ?? row.source}>
-        <span className={styles.requestEventsSourceStack}>
-          <span className={styles.requestEventsSourceValue}>{row.source}</span>
-          {(row.isDelete || row.sourceType) && (
-            <span className={styles.requestEventsSourceTags}>
-              {row.sourceType && (
-                <span className={styles.credentialType}>{row.sourceType}</span>
-              )}
-              {row.isDelete && (
-                <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
-              )}
-            </span>
-          )}
-        </span>
-      </td>
+      <RequestEventSourceCell row={row} t={t} />
       <td className={styles.modelCell}>{row.model}</td>
       <td>{row.reasoningEffort}</td>
       <td>
@@ -903,24 +915,7 @@ export function RequestEventsTable({
         id: 'source',
         label: t('usage_stats.request_events_source'),
         header: <th>{t('usage_stats.request_events_source')}</th>,
-        renderCell: (row) => (
-          <td className={styles.requestEventsSourceCell} title={row.sourceTitle ?? row.source}>
-            <span className={styles.requestEventsSourceStack}>
-              <span className={styles.requestEventsSourceValue}>{row.source}</span>
-              {row.sourceNote && <span className={styles.requestEventsSourceNote}>{row.sourceNote}</span>}
-              {(row.isDelete || row.sourceType) && (
-                <span className={styles.requestEventsSourceTags}>
-                  {row.sourceType && (
-                    <span className={styles.credentialType}>{row.sourceType}</span>
-                  )}
-                  {row.isDelete && (
-                    <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
-                  )}
-                </span>
-              )}
-            </span>
-          </td>
-        ),
+        renderCell: (row) => <RequestEventSourceCell row={row} t={t} />,
       },
       {
         id: 'model',
@@ -1252,24 +1247,7 @@ export function RequestEventsDetailsCard({
         id: 'source',
         label: t('usage_stats.request_events_source'),
         header: <th>{t('usage_stats.request_events_source')}</th>,
-        renderCell: (row) => (
-          <td className={styles.requestEventsSourceCell} title={row.sourceTitle ?? row.source}>
-            <span className={styles.requestEventsSourceStack}>
-              <span className={styles.requestEventsSourceValue}>{row.source}</span>
-              {row.sourceNote && <span className={styles.requestEventsSourceNote}>{row.sourceNote}</span>}
-              {(row.isDelete || row.sourceType) && (
-                <span className={styles.requestEventsSourceTags}>
-                  {row.sourceType && (
-                    <span className={styles.credentialType}>{row.sourceType}</span>
-                  )}
-                  {row.isDelete && (
-                    <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
-                  )}
-                </span>
-              )}
-            </span>
-          </td>
-        ),
+        renderCell: (row) => <RequestEventSourceCell row={row} t={(key, options) => t(key, options)} />,
       },
       {
         id: 'model',

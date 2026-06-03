@@ -120,6 +120,35 @@ func TestUsageMonitoringReturnsResolvedPayload(t *testing.T) {
 	}
 }
 
+func TestUsageMonitoringOmitsRequestLogsByDefault(t *testing.T) {
+	requestTime := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
+	provider := &usageMonitoringStub{monitoring: &service.UsageMonitoringSnapshot{
+		KPIs: service.UsageMonitoringKPI{TotalRequests: 1},
+		RequestLogs: []service.UsageMonitoringRequestLog{{
+			ID: 7, Timestamp: requestTime, Model: "claude-sonnet", Source: "sk-provider-key", Failed: false, TotalTokens: 10,
+		}},
+	}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "")
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
+	}
+	body := resp.Body.String()
+	if !contains(body, `"kpis":{"total_requests":1`) || !contains(body, `"request_logs":[]`) {
+		t.Fatalf("expected monitoring payload without request logs, got %s", body)
+	}
+	if contains(body, `"id":7`) || contains(body, "sk-provider-key") {
+		t.Fatalf("expected request log details to be omitted by default, got %s", body)
+	}
+	if provider.lastFilter.Limit != 0 {
+		t.Fatalf("expected default monitoring filter to leave log limit unset, got %+v", provider.lastFilter)
+	}
+}
+
 func TestUsageMonitoringReturnsPayloadWhenIdentityResolutionFails(t *testing.T) {
 	requestTime := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
 	provider := &usageMonitoringStub{monitoring: &service.UsageMonitoringSnapshot{
@@ -129,7 +158,7 @@ func TestUsageMonitoringReturnsPayloadWhenIdentityResolutionFails(t *testing.T) 
 		}},
 	}}
 	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{err: errors.New("identity store unavailable")}})
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h&log_limit=10", nil)
 	resp := httptest.NewRecorder()
 
 	router.ServeHTTP(resp, req)

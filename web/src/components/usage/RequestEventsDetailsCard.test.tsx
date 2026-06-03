@@ -173,10 +173,16 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('<td>0</td><td>60</td><td>20</td><td>25</td><td>-</td><td>200</td>');
   });
 
-  it('stacks source value above source tags', () => {
+  it('renders source note as a distinct source tag', () => {
     const html = renderCard({
       events: [{ ...events[0], isDelete: true }],
     });
+    const sourceStackIndex = html.indexOf('_requestEventsSourceStack_');
+    const sourceValueIndex = html.indexOf('_requestEventsSourceValue_', sourceStackIndex);
+    const sourceTagsIndex = html.indexOf('_requestEventsSourceTags_', sourceStackIndex);
+    const sourceTypeIndex = html.indexOf('_credentialType_', sourceStackIndex);
+    const sourceNoteIndex = html.indexOf('_requestEventsSourceNote_', sourceStackIndex);
+    const deletedTagIndex = html.indexOf('_requestEventsDeletedTag_', sourceStackIndex);
 
     expect(html).toContain('_requestEventsSourceStack_');
     expect(html).toContain('_requestEventsSourceValue_');
@@ -187,6 +193,10 @@ describe('RequestEventsDetailsCard pagination', () => {
     expect(html).toContain('Primary route note');
     expect(html).toContain('openai');
     expect(html).toContain('Deleted');
+    expect(sourceValueIndex).toBeLessThan(sourceTagsIndex);
+    expect(sourceTagsIndex).toBeLessThan(sourceTypeIndex);
+    expect(sourceTypeIndex).toBeLessThan(sourceNoteIndex);
+    expect(sourceNoteIndex).toBeLessThan(deletedTagIndex);
   });
 
   it('uses backend source values while showing resolved source labels', () => {

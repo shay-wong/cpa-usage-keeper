@@ -913,68 +913,6 @@
   font-weight: 700;
 }
 
-.requestLogDetailPanel {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  padding: 18px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 64%, transparent);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--bg-primary) 70%, transparent);
-}
-
-.requestLogDetailHeader {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.requestLogDetailBackButton {
-  flex: 0 0 auto;
-}
-
-.requestLogDetailTitle {
-  margin: 0 0 4px;
-  color: var(--text-primary);
-  font-size: 18px;
-  font-weight: 800;
-}
-
-.requestLogDetailMetaGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.requestLogDetailMetaItem {
-  min-width: 0;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 58%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
-}
-
-.requestLogDetailMetaItem span {
-  display: block;
-  margin-bottom: 5px;
-  color: var(--text-tertiary);
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.requestLogDetailMetaItem code,
-.requestLogDetailMetaItem strong {
-  display: block;
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-
 .sectionFilters {
   display: flex;
   gap: 10px;

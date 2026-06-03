@@ -233,6 +233,10 @@ func buildUsageMonitoringPayload(snapshot *service.UsageMonitoringSnapshot, reso
 			RangeEnd:          filter.EndTime,
 		}
 	}
+	requestLogs := []usageMonitoringRequestLogPayload{}
+	if filter.Limit > 0 {
+		requestLogs = buildUsageMonitoringRequestLogsPayload(snapshot.RequestLogs, resolver)
+	}
 
 	return usageMonitoringResponse{
 		KPIs:              buildUsageMonitoringKPI(snapshot.KPIs),
@@ -242,7 +246,7 @@ func buildUsageMonitoringPayload(snapshot *service.UsageMonitoringSnapshot, reso
 		HourlyTokenTrend:  buildUsageMonitoringHourlyTokenTrendPayload(snapshot.HourlyTokenTrend),
 		ChannelStats:      buildUsageMonitoringChannelStatsPayload(snapshot.ChannelStats, resolver),
 		FailureAnalysis:   buildUsageMonitoringFailureAnalysisPayload(snapshot.FailureAnalysis, resolver),
-		RequestLogs:       buildUsageMonitoringRequestLogsPayload(snapshot.RequestLogs, resolver),
+		RequestLogs:       requestLogs,
 		Timezone:          time.Local.String(),
 		RangeStart:        filter.StartTime,
 		RangeEnd:          filter.EndTime,

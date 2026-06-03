@@ -6,15 +6,17 @@ import (
 	"time"
 
 	"cpa-usage-keeper/internal/repository"
+	repositorydto "cpa-usage-keeper/internal/repository/dto"
 )
 
-func TestNormalizeMonitoringLogLimitAllowsThousandRows(t *testing.T) {
+func TestNormalizeMonitoringLogLimitRequiresExplicitLimit(t *testing.T) {
 	cases := []struct {
 		name  string
 		input int
 		want  int
 	}{
-		{name: "default", input: 0, want: monitoringDefaultLogLimit},
+		{name: "default disabled", input: 0, want: 0},
+		{name: "negative disabled", input: -1, want: 0},
 		{name: "keeps max", input: 1000, want: 1000},
 		{name: "clamps oversized", input: 5000, want: 1000},
 	}
@@ -25,6 +27,22 @@ func TestNormalizeMonitoringLogLimitAllowsThousandRows(t *testing.T) {
 				t.Fatalf("expected log limit %d, got %d", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestBuildMonitoringRequestLogsRequiresPositiveLimit(t *testing.T) {
+	events := []repositorydto.UsageEventRecord{{
+		ID:        1,
+		Timestamp: time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC),
+		Model:     "claude-sonnet",
+		Source:    "source-a",
+	}}
+
+	if got := buildMonitoringRequestLogs(events, 0); len(got) != 0 {
+		t.Fatalf("expected no request logs without explicit limit, got %+v", got)
+	}
+	if got := buildMonitoringRequestLogs(events, 1); len(got) != 1 {
+		t.Fatalf("expected request logs with explicit limit, got %+v", got)
 	}
 }
 

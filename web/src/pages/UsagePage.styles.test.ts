@@ -658,11 +658,15 @@ describe('UsagePage toolbar styles', () => {
       "import { Select, type SelectOption } from '@/components/ui/Select'",
     );
     expect(monitoringCenterSource).toContain(
-      'className={styles.monitoringSelect}',
+      'styles.monitoringSelect',
     );
     expect(monitoringCenterSource).toContain(
-      "options={withAllOption(t('usage_stats.monitoring_all_sources'), requestLogSourceOptions)}",
+      "options={withAllOption(t('usage_stats.monitoring_all_sources'), channelSourceOptions)}",
     );
+    expect(monitoringCenterSource).toContain(
+      "options={withAllOption(t('usage_stats.monitoring_all_sources'), failureSourceOptions)}",
+    );
+    expect(monitoringCenterSource).not.toContain('requestLogSourceOptions');
     expect(monitoringCenterSource).not.toContain('compactMaskedText');
     expect(monitoringCenterSource).toContain(
       "const source = String(item.source || '').trim()",
@@ -713,7 +717,7 @@ describe('UsagePage toolbar styles', () => {
     expect(refreshStartBlock).not.toContain('setData(null)');
   });
 
-  it('loads enough Monitoring request logs to support the 1000 rows page-size option', () => {
+  it('does not request expanded Monitoring request logs for the removed log table', () => {
     const monitoringDataHookSource = readFileSync(
       new URL(
         '../components/usage/monitoring/useMonitoringCenterData.ts',
@@ -722,14 +726,10 @@ describe('UsagePage toolbar styles', () => {
       'utf8',
     );
 
-    expect(monitoringCenterSource).toContain(
-      'const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 500, 1000] as const',
-    );
+    expect(monitoringCenterSource).not.toContain('REQUEST_LOG_PAGE_SIZE_OPTIONS');
+    expect(monitoringDataHookSource).not.toContain('MONITORING_REQUEST_LOG_LIMIT');
     expect(monitoringDataHookSource).toContain(
-      'const MONITORING_REQUEST_LOG_LIMIT = 1000',
-    );
-    expect(monitoringDataHookSource).toContain(
-      'fetchUsageMonitoring(range, start, end, controller.signal, MONITORING_REQUEST_LOG_LIMIT)',
+      'fetchUsageMonitoring(range, start, end, controller.signal)',
     );
   });
 
@@ -744,60 +744,45 @@ describe('UsagePage toolbar styles', () => {
     );
   });
 
-  it('lets Monitoring recent request logs reuse the Request Events table and detail action', () => {
-    expect(monitoringCenterSource).toContain('RequestEventsTable');
+  it('removes the Monitoring Recent Request Logs table and detail flow', () => {
+    expect(monitoringCenterSource).not.toContain('RequestEventsTable');
     expect(monitoringCenterSource).not.toContain('RequestEventTableRow');
+    expect(monitoringCenterSource).not.toContain('monitoring_request_logs');
+    expect(monitoringCenterSource).not.toContain('requestLogSourceFilter');
+    expect(monitoringCenterSource).not.toContain('requestLogModelFilter');
+    expect(monitoringCenterSource).not.toContain('requestLogStatusFilter');
+    expect(monitoringCenterSource).not.toContain('selectedRequestLog');
+    expect(monitoringCenterSource).not.toContain('renderRequestLogDetail');
+    expect(monitoringCenterSource).not.toContain('fetchUsageEventRequestDetail');
+    expect(monitoringCenterSource).not.toContain('RequestDetailStructuredView');
     expect(monitoringCenterSource).not.toContain(
       'styles.requestLogTableWrapper',
     );
+    expect(monitoringCenterStyles).not.toContain('.requestLogDetailPanel');
+    expect(monitoringCenterStyles).not.toContain('.requestLogDetailHeader');
     expect(monitoringCenterStyles).not.toContain('.requestLogTableWrapper');
     expect(monitoringCenterStyles).not.toContain('.requestLogTable');
     expect(monitoringCenterStyles).not.toContain('min-width: 1280px');
     expect(requestEventsSource).toContain('export function RequestEventsTable');
-    const sharedTableSource = requestEventsSource.slice(
-      requestEventsSource.indexOf('export function RequestEventsTable'),
-      requestEventsSource.indexOf('export function RequestEventsDetailsCard'),
-    );
-    expect(
-      sharedTableSource.indexOf('usage_stats.request_events_timestamp'),
-    ).toBeLessThan(sharedTableSource.indexOf('usage_stats.api_key_filter'));
-    expect(sharedTableSource.indexOf('usage_stats.api_key_filter')).toBeLessThan(
-      sharedTableSource.indexOf('usage_stats.request_events_source'),
-    );
-    expect(
-      sharedTableSource.indexOf('usage_stats.request_events_source'),
-    ).toBeLessThan(sharedTableSource.indexOf('usage_stats.model_name'));
-    expect(sharedTableSource.indexOf('usage_stats.model_name')).toBeLessThan(
-      sharedTableSource.indexOf('usage_stats.reasoning_effort'),
-    );
-    expect(
-      sharedTableSource.indexOf('usage_stats.reasoning_effort'),
-    ).toBeLessThan(
-      sharedTableSource.indexOf('usage_stats.request_events_result'),
-    );
-    expect(
-      sharedTableSource.indexOf('usage_stats.request_events_result'),
-    ).toBeLessThan(sharedTableSource.indexOf('usage_stats.ttft'));
-    expect(sharedTableSource.indexOf('usage_stats.total_tokens')).toBeLessThan(
-      sharedTableSource.indexOf('usage_stats.total_cost'),
+    expect(monitoringCenterSource).not.toContain(
+      'channelStats.length + failureAnalysis.length + requestLogs.length',
     );
     expect(monitoringCenterSource).toContain(
-      'buildRequestEventTileRow(log, modelPrices)',
+      'channelStats.length + failureAnalysis.length',
     );
-    expect(monitoringCenterSource).toContain(
-      "const source = String(log.source ?? '').trim() || '-'",
+  });
+
+  it('styles Request Event source notes as distinct inline note badges', () => {
+    const sourceNoteBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.requestEventsSourceNote {'),
+      usagePageStyles.indexOf('.requestEventsSourceTags {'),
     );
-    expect(monitoringCenterSource).toContain(
-      "reasoningEffort: String(log.reasoning_effort ?? '').trim() || '-'",
-    );
-    expect(monitoringCenterSource).toContain('calculateCost({');
-    expect(monitoringCenterSource).toContain('costAvailable: hasPricing');
-    expect(monitoringCenterSource).toContain('showCost');
-    expect(monitoringCenterSource).toContain(
-      'fetchUsageEventRequestDetail(usageEventID, controller.signal)',
-    );
-    expect(monitoringCenterSource).toContain('RequestDetailStructuredView');
-    expect(monitoringCenterSource).toContain('onOpenDetail={(row) => {');
+
+    expect(sourceNoteBlock).toContain('display: inline-flex;');
+    expect(sourceNoteBlock).toContain('border-radius: $radius-full;');
+    expect(sourceNoteBlock).toContain('var(--quota-medium-color)');
+    expect(sourceNoteBlock).toContain('white-space: nowrap;');
+    expect(sourceNoteBlock).not.toContain('color: var(--text-tertiary);');
   });
 
   it('widens only the API key dropdown menu without changing the trigger width', () => {

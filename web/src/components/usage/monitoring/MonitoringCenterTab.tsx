@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import {
   ArcElement,
   BarController,
@@ -17,28 +17,15 @@ import {
 } from 'chart.js';
 import { Chart, Doughnut } from 'react-chartjs-2';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select, type SelectOption } from '@/components/ui/Select';
-import { fetchUsageEventRequestDetail } from '@/lib/api';
 import type {
   UsageMonitoringModelDistributionItem,
-  UsageMonitoringRequestLog,
   UsageMonitoringResponse,
 } from '@/lib/usageMonitoringTypes';
-import type { UsageEventRequestDetailResponse } from '@/lib/types';
-import { buildRequestDetailViewModel } from '../requestDetailViewModel';
-import {
-  formatCacheRateForSource,
-  formatRequestEventTimestamp,
-  getRequestDetailErrorKey,
-  RequestDetailStructuredView,
-  RequestEventsTable,
-  type RequestEventTileRow,
-} from '../RequestEventsDetailsCard';
 import { useThemeStore } from '@/stores';
-import { calculateCost, formatCompactNumber, formatPerMinuteValue, formatUsd, type ModelPrice } from '@/utils/usage';
+import { formatCompactNumber, formatPerMinuteValue, formatUsd } from '@/utils/usage';
 import styles from './MonitoringCenterTab.module.scss';
 
 ChartJS.register(
@@ -61,7 +48,6 @@ interface MonitoringCenterTabProps {
   loading: boolean;
   error?: string;
   lastUpdatedAt?: Date | null;
-  modelPrices: Record<string, ModelPrice>;
   query?: string;
 }
 
@@ -80,14 +66,8 @@ const HOURLY_WINDOW_OPTIONS: ReadonlyArray<{ value: HourlyWindowMode; labelKey: 
 
 const CHART_GRID_COLOR = 'rgba(148, 163, 184, 0.14)';
 const CHART_GRID_COLOR_STRONG = 'rgba(148, 163, 184, 0.18)';
-// 最近请求日志分页选项最大 1000 条，对齐单次日志加载上限。
-const REQUEST_LOG_PAGE_SIZE_OPTIONS = [10, 20, 50, 100, 500, 1000] as const;
 const REQUEST_STATUS_BUCKET_COUNT = 16;
 const REQUEST_STATUS_SINGLE_BUCKET_MS = 60_000;
-
-type RequestLogStatusFilter = '' | 'success' | 'failed';
-
-type SelectedRequestLog = UsageMonitoringRequestLog & { usageEventID: string };
 
 interface MonitoringSourceLike {
   source: string;
@@ -131,98 +111,8 @@ function buildModelOptions(items: Array<{ models: Array<{ model: string }> }>): 
     .map((model) => ({ value: model, label: model }));
 }
 
-function buildRequestLogModelOptions(items: Array<{ model: string }>): SelectOption[] {
-  return [...new Set(items.map((item) => item.model))]
-    .sort()
-    .map((model) => ({ value: model, label: model }));
-}
-
 function withAllOption(label: string, options: SelectOption[]): SelectOption[] {
   return [{ value: '', label }, ...options];
-}
-
-function requestLogStatusOptions(t: Translate): SelectOption[] {
-  return [
-    { value: '', label: t('usage_stats.monitoring_all_statuses') },
-    { value: 'success', label: t('usage_stats.success') },
-    { value: 'failed', label: t('usage_stats.failure') },
-  ];
-}
-
-function requestLogPageSizeOptions(t: Translate): SelectOption[] {
-  return REQUEST_LOG_PAGE_SIZE_OPTIONS.map((size) => ({
-    value: String(size),
-    label: t('usage_stats.monitoring_page_size', { count: size }),
-  }));
-}
-
-function buildRequestEventTileRow(log: UsageMonitoringRequestLog, modelPrices: Record<string, ModelPrice>): RequestEventTileRow {
-  const eventID = getRequestLogEventID(log);
-  const source = String(log.source ?? '').trim() || '-';
-  const sourceType = String(log.source_type ?? '').trim();
-  const inputTokens = Math.max(Number(log.tokens.input_tokens) || 0, 0);
-  const outputTokens = Math.max(Number(log.tokens.output_tokens) || 0, 0);
-  const reasoningTokens = Math.max(Number(log.tokens.reasoning_tokens) || 0, 0);
-  const cachedTokens = Math.max(Number(log.tokens.cached_tokens) || 0, 0);
-  const totalTokens = Math.max(Number(log.tokens.total_tokens) || 0, 0);
-  const pricing = modelPrices[log.model];
-  const hasPricing = pricing !== undefined;
-  const cost = calculateCost({
-    timestamp: log.timestamp,
-    source,
-    source_raw: log.source_key || source,
-    source_type: sourceType,
-    auth_index: '-',
-    failed: log.failed,
-    latency_ms: Number.isFinite(log.latency_ms) ? log.latency_ms : 0,
-    tokens: {
-      input_tokens: inputTokens,
-      output_tokens: outputTokens,
-      reasoning_tokens: reasoningTokens,
-      cached_tokens: cachedTokens,
-      cache_read_tokens: Number(log.tokens.cache_read_tokens) || 0,
-      cache_creation_tokens: Number(log.tokens.cache_creation_tokens) || 0,
-      total_tokens: totalTokens,
-    },
-    __modelName: log.model,
-  }, modelPrices);
-
-  return {
-    id: eventID || `${log.timestamp}-${log.model}-${log.source}`,
-    usageEventID: eventID,
-    requestID: eventID,
-    timestamp: log.timestamp,
-    timestampMs: Date.parse(log.timestamp) || 0,
-    timestampLabel: formatRequestEventTimestamp(log.timestamp),
-    apiKey: '-',
-    model: log.model || '-',
-    reasoningEffort: String(log.reasoning_effort ?? '').trim() || '-',
-    requestType: '-',
-    endpoint: '-',
-    sourceRaw: log.source_key || source,
-    source,
-    sourceTitle: [source, sourceType].filter(Boolean).join(' · '),
-    sourceType,
-    authIndex: '-',
-    isDelete: false,
-    failed: log.failed,
-    latencyMs: Number.isFinite(log.latency_ms) ? log.latency_ms : null,
-    ttftMs: null,
-    inputTokens,
-    outputTokens,
-    reasoningTokens,
-    cachedTokens,
-    totalTokens,
-    cacheRate: formatCacheRateForSource(cachedTokens, inputTokens, sourceType),
-    cost: hasPricing ? cost : null,
-    costAvailable: hasPricing,
-    attempts: [],
-    attemptCount: 1,
-  };
-}
-
-function getRequestLogEventID(log: UsageMonitoringRequestLog): string {
-  return log.id ? String(log.id) : '';
 }
 
 function getChartThemeColors(isDark: boolean) {
@@ -478,7 +368,6 @@ export function MonitoringCenterTab({
   loading,
   error,
   lastUpdatedAt,
-  modelPrices,
   query = '',
 }: MonitoringCenterTabProps) {
   const { t, i18n } = useTranslation();
@@ -490,16 +379,6 @@ export function MonitoringCenterTab({
   const [channelModelFilter, setChannelModelFilter] = useState('');
   const [failureSourceFilter, setFailureSourceFilter] = useState('');
   const [failureModelFilter, setFailureModelFilter] = useState('');
-  const [requestLogSourceFilter, setRequestLogSourceFilter] = useState('');
-  const [requestLogModelFilter, setRequestLogModelFilter] = useState('');
-  const [requestLogStatusFilter, setRequestLogStatusFilter] = useState<RequestLogStatusFilter>('');
-  const [requestLogPage, setRequestLogPage] = useState(1);
-  const [requestLogPageSize, setRequestLogPageSize] = useState<(typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]>(10);
-  const [selectedRequestLog, setSelectedRequestLog] = useState<SelectedRequestLog | null>(null);
-  const [requestDetail, setRequestDetail] = useState<UsageEventRequestDetailResponse | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailErrorKey, setDetailErrorKey] = useState<string | null>(null);
-  const requestDetailControllerRef = useRef<AbortController | null>(null);
   const [distributionMetric, setDistributionMetric] = useState<DistributionMetric>('requests');
   const [hourlyModelWindowMode, setHourlyModelWindowMode] = useState<HourlyWindowMode>('24h');
   const [hourlyModelDay, setHourlyModelDay] = useState(() => getTodayDateInputValue());
@@ -566,80 +445,10 @@ export function MonitoringCenterTab({
     });
   }, [baseFailureAnalysis, failureSourceFilter, failureModelFilter]);
 
-  const baseRequestLogs = useMemo(() => {
-    const items = data?.request_logs ?? [];
-    return normalizedQuery
-      ? items.filter((item) => includesQuery([item.source, item.source_type, item.source_key, item.model], normalizedQuery))
-      : items;
-  }, [data?.request_logs, normalizedQuery]);
-
-  const requestLogs = useMemo(() => {
-    return baseRequestLogs.filter((item) => {
-      if (requestLogSourceFilter && getSourceFilterKey(item) !== requestLogSourceFilter) return false;
-      if (requestLogModelFilter && item.model !== requestLogModelFilter) return false;
-      if (requestLogStatusFilter === 'success' && item.failed) return false;
-      if (requestLogStatusFilter === 'failed' && !item.failed) return false;
-      return true;
-    });
-  }, [baseRequestLogs, requestLogModelFilter, requestLogSourceFilter, requestLogStatusFilter]);
-
   const channelSourceOptions = useMemo(() => buildSourceOptions(baseChannelStats), [baseChannelStats]);
   const channelModelOptions = useMemo(() => buildModelOptions(baseChannelStats), [baseChannelStats]);
   const failureSourceOptions = useMemo(() => buildSourceOptions(baseFailureAnalysis), [baseFailureAnalysis]);
   const failureModelOptions = useMemo(() => buildModelOptions(baseFailureAnalysis), [baseFailureAnalysis]);
-  const requestLogSourceOptions = useMemo(() => buildSourceOptions(baseRequestLogs), [baseRequestLogs]);
-  const requestLogModelOptions = useMemo(() => buildRequestLogModelOptions(baseRequestLogs), [baseRequestLogs]);
-  const requestLogTotalPages = Math.max(1, Math.ceil(requestLogs.length / requestLogPageSize));
-  const currentRequestLogPage = Math.min(requestLogPage, requestLogTotalPages);
-  const pagedRequestLogs = requestLogs.slice(
-    (currentRequestLogPage - 1) * requestLogPageSize,
-    currentRequestLogPage * requestLogPageSize,
-  );
-  const requestDetailViewModel = useMemo(
-    () => requestDetail ? buildRequestDetailViewModel(requestDetail.content) : null,
-    [requestDetail]
-  );
-
-  useEffect(() => {
-    return () => requestDetailControllerRef.current?.abort();
-  }, []);
-
-  const resetRequestLogPage = () => setRequestLogPage(1);
-
-  const handleOpenRequestLogDetail = (log: UsageMonitoringRequestLog) => {
-    const usageEventID = getRequestLogEventID(log);
-    if (!usageEventID) return;
-
-    requestDetailControllerRef.current?.abort();
-    const controller = new AbortController();
-    requestDetailControllerRef.current = controller;
-    setSelectedRequestLog({ ...log, usageEventID });
-    setRequestDetail(null);
-    setDetailErrorKey(null);
-    setDetailLoading(true);
-
-    fetchUsageEventRequestDetail(usageEventID, controller.signal)
-      .then((detail) => setRequestDetail(detail))
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted) {
-          setDetailErrorKey(getRequestDetailErrorKey(error));
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setDetailLoading(false);
-        }
-      });
-  };
-
-  const handleBackToRequestLogs = () => {
-    requestDetailControllerRef.current?.abort();
-    requestDetailControllerRef.current = null;
-    setSelectedRequestLog(null);
-    setRequestDetail(null);
-    setDetailErrorKey(null);
-    setDetailLoading(false);
-  };
 
   const hourlyModelTrend = useMemo(() => {
     const items = data?.hourly_model_trend ?? [];
@@ -654,60 +463,6 @@ export function MonitoringCenterTab({
     const fallbackDay = hourlyModelDay || toDateInputValue(filteredByQuery[filteredByQuery.length - 1]?.hour, timeZone);
     return filterHourlyPoints(filteredByQuery, hourlyModelWindowMode, fallbackDay, timeZone);
   }, [data?.hourly_model_trend, hourlyModelDay, hourlyModelWindowMode, normalizedQuery, timeZone]);
-
-  const renderRequestLogDetail = () => {
-    if (!selectedRequestLog) return null;
-
-    const displayedRequestID = requestDetail?.request_id || selectedRequestLog.usageEventID;
-
-    return (
-      <div className={styles.requestLogDetailPanel}>
-        <div className={styles.requestLogDetailHeader}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={styles.requestLogDetailBackButton}
-            onClick={handleBackToRequestLogs}
-          >
-            {t('usage_stats.request_events_back_to_list')}
-          </Button>
-          <div>
-            <h4 className={styles.requestLogDetailTitle}>{t('usage_stats.request_events_detail_title')}</h4>
-            <p className={styles.chartSubtitle}>{formatDateTime(selectedRequestLog.timestamp, locale, timeZone)}</p>
-          </div>
-        </div>
-
-        <div className={styles.requestLogDetailMetaGrid}>
-          <div className={styles.requestLogDetailMetaItem}>
-            <span>{t('usage_stats.request_events_detail_request_id')}</span>
-            <code>{displayedRequestID}</code>
-          </div>
-          <div className={styles.requestLogDetailMetaItem}>
-            <span>{t('usage_stats.request_events_detail_fetched_at')}</span>
-            <strong>{requestDetail?.fetched_at || '-'}</strong>
-          </div>
-          <div className={styles.requestLogDetailMetaItem}>
-            <span>{t('usage_stats.request_events_detail_cached')}</span>
-            <strong>{requestDetail ? (requestDetail.cached ? t('usage_stats.request_events_detail_cached_yes') : t('usage_stats.request_events_detail_cached_no')) : '-'}</strong>
-          </div>
-        </div>
-
-        {detailLoading ? (
-          <div className={styles.muted}>{t('common.loading')}</div>
-        ) : detailErrorKey ? (
-          <div className={styles.errorBox}>{t(detailErrorKey)}</div>
-        ) : (
-          requestDetail && requestDetailViewModel ? (
-            <RequestDetailStructuredView
-              detail={requestDetail}
-              model={requestDetailViewModel}
-              t={(key) => t(key)}
-            />
-          ) : null
-        )}
-      </div>
-    );
-  };
 
   const dailyTrend = data?.daily_trend ?? [];
   const dailyTrendSummary = summarizeDailyTrend(dailyTrend, t);
@@ -1124,7 +879,7 @@ export function MonitoringCenterTab({
         <div className={styles.headerActions}>
           {normalizedQuery && (
             <span className={styles.queryBadge}>
-              {t('usage_stats.monitoring_query_results', { count: channelStats.length + failureAnalysis.length + requestLogs.length })}
+              {t('usage_stats.monitoring_query_results', { count: channelStats.length + failureAnalysis.length })}
             </span>
           )}
         </div>
@@ -1525,106 +1280,6 @@ export function MonitoringCenterTab({
             </article>
           </div>
 
-          <article className={styles.chartCard}>
-            <div className={styles.chartHeader}>
-              <div>
-                <h3 className={styles.chartTitle}>{t('usage_stats.monitoring_request_logs')}</h3>
-                <p className={styles.chartSubtitle}>{t('usage_stats.monitoring_recent_requests')}</p>
-              </div>
-            </div>
-
-            <div className={styles.sectionFilters}>
-              <Select
-                value={requestLogSourceFilter}
-                options={withAllOption(t('usage_stats.monitoring_all_sources'), requestLogSourceOptions)}
-                onChange={(value) => {
-                  setRequestLogSourceFilter(value);
-                  resetRequestLogPage();
-                }}
-                className={styles.monitoringSelect}
-                ariaLabel={t('usage_stats.monitoring_all_sources')}
-                fullWidth={false}
-                dropdownMinWidth={180}
-              />
-              <Select
-                value={requestLogModelFilter}
-                options={withAllOption(t('usage_stats.monitoring_all_models'), requestLogModelOptions)}
-                onChange={(value) => {
-                  setRequestLogModelFilter(value);
-                  resetRequestLogPage();
-                }}
-                className={styles.monitoringSelect}
-                ariaLabel={t('usage_stats.monitoring_all_models')}
-                fullWidth={false}
-                dropdownMinWidth={180}
-              />
-              <Select
-                value={requestLogStatusFilter}
-                options={requestLogStatusOptions(t)}
-                onChange={(value) => {
-                  setRequestLogStatusFilter(value as RequestLogStatusFilter);
-                  resetRequestLogPage();
-                }}
-                className={`${styles.monitoringSelect} ${styles.monitoringSelectCompact}`}
-                ariaLabel={t('usage_stats.monitoring_all_statuses')}
-                fullWidth={false}
-                dropdownMinWidth={150}
-              />
-            </div>
-
-            {selectedRequestLog ? (
-              renderRequestLogDetail()
-            ) : requestLogs.length > 0 ? (
-              <RequestEventsTable
-                rows={pagedRequestLogs.map((log) => buildRequestEventTileRow(log, modelPrices))}
-                canOpenDetail={(row) => Boolean(row.usageEventID)}
-                showLatency
-                showCost
-                t={t}
-                onOpenDetail={(row) => {
-                  const log = pagedRequestLogs.find((item) => getRequestLogEventID(item) === row.usageEventID);
-                  if (log) handleOpenRequestLogDetail(log);
-                }}
-                footer={(
-                  <div className={styles.pagination}>
-                    <Select
-                      value={String(requestLogPageSize)}
-                      options={requestLogPageSizeOptions(t)}
-                      onChange={(value) => {
-                        setRequestLogPageSize(Number(value) as (typeof REQUEST_LOG_PAGE_SIZE_OPTIONS)[number]);
-                        resetRequestLogPage();
-                      }}
-                      className={`${styles.monitoringSelect} ${styles.pageSizeSelect}`}
-                      ariaLabel={t('usage_stats.request_events_rows_per_page')}
-                      fullWidth={false}
-                      dropdownMinWidth={132}
-                    />
-                    <button
-                      type="button"
-                      className={styles.pageButton}
-                      disabled={currentRequestLogPage <= 1}
-                      onClick={() => setRequestLogPage((page) => Math.max(1, page - 1))}
-                    >
-                      {t('usage_stats.request_events_previous_page')}
-                    </button>
-                    <span className={styles.pageStatus}>
-                      {t('usage_stats.request_events_page_label', { page: currentRequestLogPage, totalPages: requestLogTotalPages })}
-                    </span>
-                    <button
-                      type="button"
-                      className={styles.pageButton}
-                      disabled={currentRequestLogPage >= requestLogTotalPages}
-                      onClick={() => setRequestLogPage((page) => Math.min(requestLogTotalPages, page + 1))}
-                    >
-                      {t('usage_stats.request_events_next_page')}
-                    </button>
-                  </div>
-                )}
-              />
-            ) : (
-              <EmptyInline message={t('usage_stats.monitoring_request_logs_empty')} />
-            )}
-          </article>
         </>
       ) : null}
     </section>

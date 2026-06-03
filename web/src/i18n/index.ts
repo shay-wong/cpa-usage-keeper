@@ -568,9 +568,6 @@ const resources = {
         monitoring_recent_requests: 'Recent Requests',
         monitoring_failures: 'Failure Analysis',
         monitoring_no_failures: 'No failures in this range',
-        monitoring_request_logs: 'Recent Request Logs',
-        monitoring_request_logs_empty:
-          'No request logs match the current filters.',
         monitoring_title: 'Monitoring Center',
         monitoring_subtitle:
           'Track request volume, channel quality, model concentration, and recent failures in a CPAMC-style operational view.',
@@ -1111,8 +1108,6 @@ const resources = {
         monitoring_recent_requests: '最近请求',
         monitoring_failures: '失败分析',
         monitoring_no_failures: '当前范围内没有失败请求',
-        monitoring_request_logs: '最近请求日志',
-        monitoring_request_logs_empty: '当前筛选条件下没有匹配的请求日志。',
         monitoring_title: '监控中心',
         monitoring_subtitle:
           '以 CPAMC 风格的运营视图跟踪请求量、渠道质量、模型集中度与最近失败情况。',
@@ -1651,8 +1646,6 @@ const resources = {
         monitoring_recent_requests: '最近請求',
         monitoring_failures: '失敗分析',
         monitoring_no_failures: '目前範圍內沒有失敗請求',
-        monitoring_request_logs: '最近請求記錄',
-        monitoring_request_logs_empty: '目前篩選條件下沒有符合的請求記錄。',
         monitoring_title: '監控中心',
         monitoring_subtitle:
           '以 CPAMC 風格的營運視圖追蹤請求量、渠道品質、模型集中度與最近失敗情況。',
