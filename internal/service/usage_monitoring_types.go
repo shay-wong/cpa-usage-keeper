@@ -81,6 +81,8 @@ type UsageMonitoringChannelStat struct {
 	OutputTokens    int64
 	CachedTokens    int64
 	ReasoningTokens int64
+	TotalCost       float64
+	CostAvailable   bool
 	SuccessRate     float64
 	LastRequestTime *time.Time
 	RecentRequests  []UsageMonitoringRecentRequest

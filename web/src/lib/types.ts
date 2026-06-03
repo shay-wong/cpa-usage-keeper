@@ -134,6 +134,7 @@ export interface UpdateCheckResponse {
   updateAvailable: boolean
   canCompare: boolean
   message: string
+  error?: string
 }
 
 export interface UsageOverviewUsageSnapshot {
@@ -253,6 +254,17 @@ export interface UsageEvent {
 export interface UsageEventRequestDetailResponse {
   usage_event_id: string
   request_id: string
+  content: string
+  cached: boolean
+  fetched_at: string
+  attempts?: UsageEventRequestDetailAttempt[]
+}
+
+export interface UsageEventRequestDetailAttempt {
+  usage_event_id: string
+  timestamp: string
+  failed: boolean
+  model?: string
   content: string
   cached: boolean
   fetched_at: string

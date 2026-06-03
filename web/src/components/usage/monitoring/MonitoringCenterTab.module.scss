@@ -630,7 +630,10 @@
 }
 
 .statsTableWrapper {
-  overflow-x: auto;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--border-color) 56%, transparent);
+  border-radius: 16px;
 }
 
 .statsTable {
@@ -645,28 +648,33 @@
 
 .channelTable th:nth-child(1),
 .channelTable td:nth-child(1) {
-  width: 16%;
+  width: 15%;
 }
 
 .channelTable th:nth-child(2),
 .channelTable td:nth-child(2) {
-  width: 22%;
+  width: 20%;
 }
 
 .channelTable th:nth-child(3),
-.channelTable td:nth-child(3),
-.channelTable th:nth-child(4),
-.channelTable td:nth-child(4) {
-  width: 10%;
+.channelTable td:nth-child(3) {
+  width: 9%;
 }
 
+.channelTable th:nth-child(4),
+.channelTable td:nth-child(4),
 .channelTable th:nth-child(5),
 .channelTable td:nth-child(5) {
-  width: 26%;
+  width: 10%;
 }
 
 .channelTable th:nth-child(6),
 .channelTable td:nth-child(6) {
+  width: 30%;
+}
+
+.channelTable th:nth-child(7),
+.channelTable td:nth-child(7) {
   width: 16%;
 }
 
@@ -800,7 +808,7 @@
 .statusBars {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   max-width: 100%;
   margin: 0;
   padding: 0;
@@ -817,8 +825,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 10px;
-  height: 26px;
+  width: 9px;
+  height: 24px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -860,16 +868,36 @@
 }
 
 .statusBar {
-  width: 6px;
-  height: 24px;
-  border-radius: 3px;
+  width: 7px;
+  height: 22px;
+  border-radius: 2px;
   display: inline-flex;
   box-shadow: none;
+}
+
+.statusEmpty {
+  color: color-mix(in srgb, var(--text-tertiary) 24%, transparent);
+  background: color-mix(in srgb, var(--text-tertiary) 18%, var(--bg-secondary));
 }
 
 .statusSuccess {
   color: #22c55e;
   background: #22c55e;
+}
+
+.statusMixedLow {
+  color: #f59e0b;
+  background: #fbbf24;
+}
+
+.statusMixedMedium {
+  color: #f97316;
+  background: #f97316;
+}
+
+.statusMixedHigh {
+  color: #ea580c;
+  background: #ea580c;
 }
 
 .statusFailed {

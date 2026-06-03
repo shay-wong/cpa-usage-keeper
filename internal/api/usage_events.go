@@ -25,8 +25,19 @@ type usageEventsResponse struct {
 }
 
 type usageEventRequestDetailPayload struct {
+	UsageEventID string                                  `json:"usage_event_id"`
+	RequestID    string                                  `json:"request_id"`
+	Content      string                                  `json:"content"`
+	Cached       bool                                    `json:"cached"`
+	FetchedAt    string                                  `json:"fetched_at"`
+	Attempts     []usageEventRequestDetailAttemptPayload `json:"attempts,omitempty"`
+}
+
+type usageEventRequestDetailAttemptPayload struct {
 	UsageEventID string `json:"usage_event_id"`
-	RequestID    string `json:"request_id"`
+	Timestamp    string `json:"timestamp"`
+	Failed       bool   `json:"failed"`
+	Model        string `json:"model,omitempty"`
 	Content      string `json:"content"`
 	Cached       bool   `json:"cached"`
 	FetchedAt    string `json:"fetched_at"`
@@ -134,6 +145,7 @@ func registerUsageEventsRoute(
 			Content:      detail.Content,
 			Cached:       detail.Cached,
 			FetchedAt:    timeutil.FormatStorageTime(detail.FetchedAt),
+			Attempts:     buildUsageEventRequestDetailAttemptPayloads(detail.Attempts),
 		})
 	})
 
@@ -179,6 +191,25 @@ func registerUsageEventsRoute(
 	})
 }
 
+func buildUsageEventRequestDetailAttemptPayloads(attempts []servicedto.UsageEventRequestDetailAttempt) []usageEventRequestDetailAttemptPayload {
+	if len(attempts) == 0 {
+		return nil
+	}
+	payload := make([]usageEventRequestDetailAttemptPayload, 0, len(attempts))
+	for _, attempt := range attempts {
+		payload = append(payload, usageEventRequestDetailAttemptPayload{
+			UsageEventID: strconv.FormatInt(attempt.UsageEventID, 10),
+			Timestamp:    timeutil.FormatStorageTime(attempt.Timestamp),
+			Failed:       attempt.Failed,
+			Model:        strings.TrimSpace(attempt.Model),
+			Content:      attempt.Content,
+			Cached:       attempt.Cached,
+			FetchedAt:    timeutil.FormatStorageTime(attempt.FetchedAt),
+		})
+	}
+	return payload
+}
+
 // Source 下拉提交的是 usage identity，进入仓储前转换成 auth_index 查询。
 func applyUsageEventsSourceFilter(filter *servicedto.UsageFilter, identities []entities.UsageIdentity) error {
 	if filter == nil {
@@ -196,6 +227,28 @@ func applyUsageEventsSourceFilter(filter *servicedto.UsageFilter, identities []e
 		filter.Source = ""
 		return nil
 	}
+	if strings.HasPrefix(source, "provider:") {
+		idValue := strings.TrimSpace(strings.TrimPrefix(source, "provider:"))
+		for _, identity := range identities {
+			if identity.AuthType != entities.UsageIdentityAuthTypeAIProvider || int64ToString(identity.ID) != idValue {
+				continue
+			}
+			filter.AuthIndex = strings.TrimSpace(identity.Identity)
+			filter.Source = ""
+			return nil
+		}
+	}
+	if strings.HasPrefix(source, "auth:") {
+		alias := strings.TrimSpace(strings.TrimPrefix(source, "auth:"))
+		for _, identity := range identities {
+			if identity.AuthType != entities.UsageIdentityAuthTypeAuthFile || helper.SensitiveValueAlias(identity.Identity) != alias {
+				continue
+			}
+			filter.AuthIndex = strings.TrimSpace(identity.Identity)
+			filter.Source = ""
+			return nil
+		}
+	}
 	filter.AuthIndex = source
 	filter.Source = ""
 	return nil
@@ -209,6 +262,8 @@ func writeUsageEventDetailServiceError(c *gin.Context, err error) {
 		writeUsageEventDetailError(c, http.StatusNotFound, "event_not_found")
 	case errors.Is(err, service.ErrUsageEventRequestUnavailable):
 		writeUsageEventDetailError(c, http.StatusNotFound, "request_detail_unavailable")
+	case errors.Is(err, service.ErrUsageEventRequestUpstreamPending):
+		writeUsageEventDetailError(c, http.StatusNotFound, "upstream_log_pending")
 	case errors.Is(err, service.ErrUsageEventRequestUpstreamNotFound):
 		writeUsageEventDetailError(c, http.StatusNotFound, "upstream_log_not_found")
 	case errors.Is(err, service.ErrUsageEventRequestTooLarge):

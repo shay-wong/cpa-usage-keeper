@@ -6,14 +6,17 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
+	"cpa-usage-keeper/internal/helper"
 	"cpa-usage-keeper/internal/repository"
 	repodto "cpa-usage-keeper/internal/repository/dto"
 	servicedto "cpa-usage-keeper/internal/service/dto"
+	"cpa-usage-keeper/internal/timeutil"
 )
 
 const (
-	// 监控中心小卡片仅展示最近 12 条状态点，避免卡片过高。
-	monitoringRecentRequestLimit = 12
+	// 监控中心最近状态按前端 12 个 5 分钟桶展示，后端保留足够原始点用于计算桶内成功/失败比例。
+	monitoringRecentRequestLimit = 120
 	// 最近请求日志最大加载 1000 条，对齐前端最大每页条数。
 	monitoringMaxLogLimit = 1000
 )
@@ -23,20 +26,20 @@ type UsageMonitoringProvider interface {
 }
 
 func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto.UsageFilter) (*UsageMonitoringSnapshot, error) {
-	overview, err := s.GetUsageOverview(ctx, filter)
+	repositoryFilter, err := s.monitoringRepositoryFilter(filter)
 	if err != nil {
 		return nil, err
 	}
-	analysis, err := s.GetAnalysis(ctx, filter)
+	monitoringEvents, err := repository.ListUsageMonitoringEventsWithFilter(ctx, s.db, repositoryFilter)
+	if err != nil {
+		return nil, err
+	}
+	overview, analysis, channelCosts, err := s.buildUsageMonitoringSnapshots(repositoryFilter, monitoringEvents)
 	if err != nil {
 		return nil, err
 	}
 
 	logLimit := normalizeMonitoringLogLimit(filter.Limit)
-	repositoryFilter := repodto.UsageQueryFilter{
-		StartTime: filter.StartTime,
-		EndTime:   filter.EndTime,
-	}
 	hourlyModelRows, err := repository.ListUsageMonitoringHourlyModelStatsWithFilter(ctx, s.db, repositoryFilter)
 	if err != nil {
 		return nil, err
@@ -56,28 +59,237 @@ func (s *usageService) GetUsageMonitoring(ctx context.Context, filter servicedto
 	}
 	recentEvents := []repodto.UsageEventRecord{}
 	if logLimit > 0 {
-		recentEvents, err = repository.ListRecentUsageMonitoringEventsWithFilter(ctx, s.db, repodto.UsageQueryFilter{
-			StartTime: filter.StartTime,
-			EndTime:   filter.EndTime,
-			Limit:     logLimit,
-		})
+		logFilter := repositoryFilter
+		logFilter.Limit = logLimit
+		recentEvents, err = repository.ListRecentUsageMonitoringEventsWithFilter(ctx, s.db, logFilter)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	recentRequestsBySource, recentRequestsBySourceModel := buildMonitoringRecentRequestMaps(recentRequestRows)
-
 	return &UsageMonitoringSnapshot{
 		KPIs:              buildMonitoringKPI(overview, analysis),
 		ModelDistribution: buildMonitoringModelDistribution(analysis, hourlyModelRows),
 		DailyTrend:        buildMonitoringTrend(overview.DailySeries, true),
 		HourlyModelTrend:  buildMonitoringHourlyModelTrend(hourlyModelRows),
 		HourlyTokenTrend:  buildMonitoringTrend(overview.HourlySeries, false),
-		ChannelStats:      buildMonitoringChannelStats(channelRows, channelModelRows, recentRequestsBySource, recentRequestsBySourceModel),
+		ChannelStats:      buildMonitoringChannelStats(channelRows, channelModelRows, recentRequestsBySource, recentRequestsBySourceModel, channelCosts),
 		FailureAnalysis:   buildMonitoringFailureAnalysis(failureRows, failureModelRows, recentRequestsBySourceModel),
 		RequestLogs:       buildMonitoringRequestLogs(recentEvents, logLimit),
 	}, nil
+}
+
+func (s *usageService) monitoringRepositoryFilter(filter servicedto.UsageFilter) (repodto.UsageQueryFilter, error) {
+	apiGroupKey, err := s.resolveAPIGroupKey(filter.APIKeyID)
+	if err != nil {
+		return repodto.UsageQueryFilter{}, err
+	}
+	return repodto.UsageQueryFilter{
+		Range:       filter.Range,
+		StartTime:   filter.StartTime,
+		EndTime:     filter.EndTime,
+		Model:       filter.Model,
+		Source:      filter.Source,
+		AuthIndex:   filter.AuthIndex,
+		APIGroupKey: apiGroupKey,
+		Result:      filter.Result,
+		Query:       filter.Query,
+	}, nil
+}
+
+func (s *usageService) buildUsageMonitoringSnapshots(filter repodto.UsageQueryFilter, events []repodto.UsageEventRecord) (*servicedto.UsageOverviewSnapshot, *servicedto.AnalysisSnapshot, map[string]monitoringChannelCost, error) {
+	prices, err := repository.ListModelPriceSettings(s.db)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	pricingByModel := make(map[string]entities.ModelPriceSetting, len(prices))
+	for _, price := range prices {
+		pricingByModel[strings.TrimSpace(price.Model)] = price
+	}
+
+	windowMinutes := monitoringWindowMinutes(filter)
+	overview := &servicedto.UsageOverviewSnapshot{
+		Usage: &repodto.StatisticsSnapshot{
+			RequestsByDay:  map[string]int64{},
+			RequestsByHour: map[string]int64{},
+			TokensByDay:    map[string]int64{},
+			TokensByHour:   map[string]int64{},
+		},
+		Summary: servicedto.UsageOverviewSummary{
+			WindowMinutes: windowMinutes,
+			CostAvailable: true,
+		},
+		Series:       newMonitoringUsageOverviewSeries(),
+		HourlySeries: newMonitoringUsageOverviewSeries(),
+		DailySeries:  newMonitoringUsageOverviewSeries(),
+	}
+	analysis := &servicedto.AnalysisSnapshot{
+		Granularity: servicedto.AnalysisGranularityHourly,
+		RangeStart:  filter.StartTime,
+		RangeEnd:    filter.EndTime,
+	}
+	channelCosts := map[string]monitoringChannelCost{}
+	if windowMinutes > 24*60 {
+		analysis.Granularity = servicedto.AnalysisGranularityDaily
+	}
+
+	models := map[string]servicedto.AnalysisCompositionItem{}
+	for _, event := range events {
+		record := mapUsageEventRecord(event)
+		overview.Usage.TotalRequests++
+		overview.Usage.TotalTokens += record.TotalTokens
+		overview.Summary.CachedTokens += record.CachedTokens
+		overview.Summary.ReasoningTokens += record.ReasoningTokens
+		if record.Failed {
+			overview.Usage.FailureCount++
+			overview.Health.TotalFailure++
+		} else {
+			overview.Usage.SuccessCount++
+			overview.Health.TotalSuccess++
+		}
+
+		cost, costAvailable := monitoringEventCost(record, pricingByModel)
+		overview.Summary.TotalCost += cost
+		if !costAvailable {
+			overview.Summary.CostAvailable = false
+		}
+		sourceKey := monitoringSourceKey(record.Source, record.AuthIndex)
+		channelCost := channelCosts[sourceKey]
+		channelCost.TotalCost += cost
+		if _, exists := channelCosts[sourceKey]; !exists {
+			channelCost.CostAvailable = true
+		}
+		if !costAvailable {
+			channelCost.CostAvailable = false
+		}
+		channelCosts[sourceKey] = channelCost
+
+		timestamp := timeutil.NormalizeStorageTime(record.Timestamp)
+		hourKey := timestamp.Truncate(time.Hour).Format(time.RFC3339)
+		dayKey := timestamp.Format("2006-01-02")
+		overview.Usage.RequestsByHour[hourKey]++
+		overview.Usage.TokensByHour[hourKey] += record.TotalTokens
+		overview.Usage.RequestsByDay[dayKey]++
+		overview.Usage.TokensByDay[dayKey] += record.TotalTokens
+		applyMonitoringEventToSeries(&overview.HourlySeries, record, cost, hourKey, 60)
+		applyMonitoringEventToSeries(&overview.DailySeries, record, cost, dayKey, 24*60)
+		if analysis.Granularity == servicedto.AnalysisGranularityDaily {
+			applyMonitoringEventToSeries(&overview.Series, record, cost, dayKey, 24*60)
+		} else {
+			applyMonitoringEventToSeries(&overview.Series, record, cost, hourKey, 60)
+		}
+
+		modelName := normalizeMonitoringDimension(record.Model)
+		modelItem := models[modelName]
+		modelItem.Key = modelName
+		modelItem.Label = modelName
+		modelItem.Requests++
+		modelItem.TotalTokens += record.TotalTokens
+		modelItem.InputTokens += record.InputTokens
+		modelItem.OutputTokens += record.OutputTokens
+		modelItem.CachedTokens += record.CachedTokens
+		modelItem.ReasoningTokens += record.ReasoningTokens
+		models[modelName] = modelItem
+	}
+	overview.Summary.RequestCount = overview.Usage.TotalRequests
+	overview.Summary.TokenCount = overview.Usage.TotalTokens
+	if overview.Summary.WindowMinutes > 0 {
+		overview.Summary.RPM = float64(overview.Summary.RequestCount) / float64(overview.Summary.WindowMinutes)
+		overview.Summary.TPM = float64(overview.Summary.TokenCount) / float64(overview.Summary.WindowMinutes)
+	}
+	if total := overview.Health.TotalSuccess + overview.Health.TotalFailure; total > 0 {
+		overview.Health.SuccessRate = (float64(overview.Health.TotalSuccess) / float64(total)) * 100
+	}
+	analysis.ModelComposition = sortedMonitoringAnalysisItems(models)
+	return overview, analysis, channelCosts, nil
+}
+
+func monitoringWindowMinutes(filter repodto.UsageQueryFilter) int64 {
+	if filter.StartTime == nil || filter.EndTime == nil {
+		return 0
+	}
+	duration := timeutil.NormalizeStorageTime(*filter.EndTime).Sub(timeutil.NormalizeStorageTime(*filter.StartTime))
+	if duration <= 0 {
+		return 0
+	}
+	return int64((duration + time.Minute - time.Nanosecond) / time.Minute)
+}
+
+func newMonitoringUsageOverviewSeries() servicedto.UsageOverviewSeries {
+	return servicedto.UsageOverviewSeries{
+		Requests:        map[string]int64{},
+		Tokens:          map[string]int64{},
+		RPM:             map[string]float64{},
+		TPM:             map[string]float64{},
+		Cost:            map[string]float64{},
+		InputTokens:     map[string]int64{},
+		OutputTokens:    map[string]int64{},
+		CachedTokens:    map[string]int64{},
+		ReasoningTokens: map[string]int64{},
+		Models:          map[string]servicedto.UsageOverviewSeries{},
+	}
+}
+
+func applyMonitoringEventToSeries(series *servicedto.UsageOverviewSeries, event servicedto.UsageEventRecord, cost float64, bucketKey string, bucketMinutes int64) {
+	series.Requests[bucketKey]++
+	series.Tokens[bucketKey] += event.TotalTokens
+	series.Cost[bucketKey] += cost
+	series.InputTokens[bucketKey] += event.InputTokens
+	series.OutputTokens[bucketKey] += event.OutputTokens
+	series.CachedTokens[bucketKey] += event.CachedTokens
+	series.ReasoningTokens[bucketKey] += event.ReasoningTokens
+	if bucketMinutes > 0 {
+		series.RPM[bucketKey] = float64(series.Requests[bucketKey]) / float64(bucketMinutes)
+		series.TPM[bucketKey] = float64(series.Tokens[bucketKey]) / float64(bucketMinutes)
+	}
+	modelName := normalizeMonitoringDimension(event.Model)
+	modelSeries := series.Models[modelName]
+	if modelSeries.Requests == nil {
+		modelSeries = newMonitoringUsageOverviewSeries()
+	}
+	applyMonitoringEventToSeriesNoModel(&modelSeries, event, cost, bucketKey, bucketMinutes)
+	series.Models[modelName] = modelSeries
+}
+
+func applyMonitoringEventToSeriesNoModel(series *servicedto.UsageOverviewSeries, event servicedto.UsageEventRecord, cost float64, bucketKey string, bucketMinutes int64) {
+	series.Requests[bucketKey]++
+	series.Tokens[bucketKey] += event.TotalTokens
+	series.Cost[bucketKey] += cost
+	series.InputTokens[bucketKey] += event.InputTokens
+	series.OutputTokens[bucketKey] += event.OutputTokens
+	series.CachedTokens[bucketKey] += event.CachedTokens
+	series.ReasoningTokens[bucketKey] += event.ReasoningTokens
+	if bucketMinutes > 0 {
+		series.RPM[bucketKey] = float64(series.Requests[bucketKey]) / float64(bucketMinutes)
+		series.TPM[bucketKey] = float64(series.Tokens[bucketKey]) / float64(bucketMinutes)
+	}
+}
+
+func monitoringEventCost(event servicedto.UsageEventRecord, pricingByModel map[string]entities.ModelPriceSetting) (float64, bool) {
+	pricing, ok := pricingByModel[strings.TrimSpace(event.Model)]
+	input := helper.UsageTokenCostInput{
+		InputTokens:         event.InputTokens,
+		OutputTokens:        event.OutputTokens,
+		CachedTokens:        event.CachedTokens,
+		CacheReadTokens:     event.CacheReadTokens,
+		CacheCreationTokens: event.CacheCreationTokens,
+	}
+	return helper.CalculateUsageTokenCost(input, pricing), ok || !helper.UsageTokenInputRequiresPricing(input)
+}
+
+func sortedMonitoringAnalysisItems(itemsByKey map[string]servicedto.AnalysisCompositionItem) []servicedto.AnalysisCompositionItem {
+	items := make([]servicedto.AnalysisCompositionItem, 0, len(itemsByKey))
+	for _, item := range itemsByKey {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].TotalTokens == items[j].TotalTokens {
+			return items[i].Key < items[j].Key
+		}
+		return items[i].TotalTokens > items[j].TotalTokens
+	})
+	return items
 }
 
 func normalizeMonitoringLogLimit(limit int) int {
@@ -217,7 +429,7 @@ func buildMonitoringHourlyModelTrend(rows []repository.UsageMonitoringHourlyMode
 	return points
 }
 
-func buildMonitoringChannelStats(rows []repository.UsageMonitoringChannelStatRecord, modelRows []repository.UsageMonitoringChannelModelStatRecord, recentRequestsBySource map[string][]UsageMonitoringRecentRequest, recentRequestsBySourceModel map[string][]UsageMonitoringRecentRequest) []UsageMonitoringChannelStat {
+func buildMonitoringChannelStats(rows []repository.UsageMonitoringChannelStatRecord, modelRows []repository.UsageMonitoringChannelModelStatRecord, recentRequestsBySource map[string][]UsageMonitoringRecentRequest, recentRequestsBySourceModel map[string][]UsageMonitoringRecentRequest, channelCosts map[string]monitoringChannelCost) []UsageMonitoringChannelStat {
 	modelsBySource := map[string][]UsageMonitoringChannelModelStat{}
 	for _, row := range modelRows {
 		key := monitoringSourceKey(row.Source, row.AuthIndex)
@@ -239,6 +451,7 @@ func buildMonitoringChannelStats(rows []repository.UsageMonitoringChannelStatRec
 	for _, row := range rows {
 		key := monitoringSourceKey(row.Source, row.AuthIndex)
 		models := modelsBySource[key]
+		cost := channelCosts[key]
 		sort.Slice(models, func(i, j int) bool {
 			if models[i].Requests == models[j].Requests {
 				return models[i].Model < models[j].Model
@@ -257,6 +470,8 @@ func buildMonitoringChannelStats(rows []repository.UsageMonitoringChannelStatRec
 			OutputTokens:    row.OutputTokens,
 			CachedTokens:    row.CachedTokens,
 			ReasoningTokens: row.ReasoningTokens,
+			TotalCost:       cost.TotalCost,
+			CostAvailable:   cost.CostAvailable,
 			SuccessRate:     MonitoringPercentage(row.SuccessRequests, row.TotalRequests),
 			LastRequestTime: &lastRequestTime,
 			RecentRequests:  trimRecentRequests(recentRequestsBySource[key]),
@@ -264,6 +479,11 @@ func buildMonitoringChannelStats(rows []repository.UsageMonitoringChannelStatRec
 		})
 	}
 	return result
+}
+
+type monitoringChannelCost struct {
+	TotalCost     float64
+	CostAvailable bool
 }
 
 func buildMonitoringFailureAnalysis(rows []repository.UsageMonitoringFailureStatRecord, modelRows []repository.UsageMonitoringFailureModelStatRecord, recentRequestsBySourceModel map[string][]UsageMonitoringRecentRequest) []UsageMonitoringFailureStat {

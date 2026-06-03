@@ -93,6 +93,43 @@ func TestListRecentUsageMonitoringEventsWithFilterKeepsReasoningEffort(t *testin
 	}
 }
 
+func TestListUsageMonitoringEventsWithFilterAppliesDashboardFilters(t *testing.T) {
+	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-dashboard-filters.db")})
+	if err != nil {
+		t.Fatalf("OpenDatabase returned error: %v", err)
+	}
+	closeTestDatabase(t, db)
+
+	base := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
+	events := []entities.UsageEvent{
+		{EventKey: "match", APIGroupKey: "sk-target", Source: "source-a", AuthIndex: "auth-a", Provider: "Provider A", Model: "claude-sonnet", Timestamp: base, Failed: true, TotalTokens: 10},
+		{EventKey: "other-key", APIGroupKey: "sk-other", Source: "source-a", AuthIndex: "auth-a", Provider: "Provider A", Model: "claude-sonnet", Timestamp: base.Add(time.Minute), Failed: true, TotalTokens: 20},
+		{EventKey: "other-auth", APIGroupKey: "sk-target", Source: "source-a", AuthIndex: "auth-b", Provider: "Provider A", Model: "claude-sonnet", Timestamp: base.Add(2 * time.Minute), Failed: true, TotalTokens: 30},
+		{EventKey: "other-result", APIGroupKey: "sk-target", Source: "source-a", AuthIndex: "auth-a", Provider: "Provider A", Model: "claude-sonnet", Timestamp: base.Add(3 * time.Minute), Failed: false, TotalTokens: 40},
+		{EventKey: "other-query", APIGroupKey: "sk-target", Source: "source-a", AuthIndex: "auth-a", Provider: "Provider A", Model: "gpt-5", Timestamp: base.Add(4 * time.Minute), Failed: true, TotalTokens: 50},
+	}
+	if _, _, err := InsertUsageEvents(db, events); err != nil {
+		t.Fatalf("InsertUsageEvents returned error: %v", err)
+	}
+
+	filter := dto.UsageQueryFilter{APIGroupKey: "sk-target", AuthIndex: "auth-a", Query: "sonnet", Result: "failed"}
+	rows, err := ListUsageMonitoringEventsWithFilter(context.Background(), db, filter)
+	if err != nil {
+		t.Fatalf("ListUsageMonitoringEventsWithFilter returned error: %v", err)
+	}
+	if len(rows) != 1 || rows[0].APIGroupKey != "sk-target" || rows[0].AuthIndex != "auth-a" || rows[0].Model != "claude-sonnet" || !rows[0].Failed {
+		t.Fatalf("expected only the matching filtered monitoring row, got %+v", rows)
+	}
+
+	hourlyRows, err := ListUsageMonitoringHourlyModelStatsWithFilter(context.Background(), db, filter)
+	if err != nil {
+		t.Fatalf("ListUsageMonitoringHourlyModelStatsWithFilter returned error: %v", err)
+	}
+	if len(hourlyRows) != 1 || hourlyRows[0].Model != "claude-sonnet" || hourlyRows[0].Requests != 1 {
+		t.Fatalf("expected hourly model stats to use same filters, got %+v", hourlyRows)
+	}
+}
+
 func TestListUsageMonitoringStatsWithFilterParsesAggregateTimestamps(t *testing.T) {
 	db, err := OpenDatabase(config.Config{SQLitePath: filepath.Join(t.TempDir(), "usage-monitoring-aggregate-time.db")})
 	if err != nil {

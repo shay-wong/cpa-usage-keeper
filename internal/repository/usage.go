@@ -143,6 +143,29 @@ func GetUsageEventByID(db *gorm.DB, id int64) (dto.UsageEventRecord, error) {
 	return usageEventProjectionToRecord(event), nil
 }
 
+func ListUsageEventAttemptsByRequestID(db *gorm.DB, requestID string) ([]dto.UsageEventRecord, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return []dto.UsageEventRecord{}, nil
+	}
+	var events []usageEventProjection
+	if err := db.Model(&entities.UsageEvent{}).
+		Select(usageEventProjectionColumns).
+		Where("request_id = ?", requestID).
+		Order("timestamp ASC, id ASC").
+		Find(&events).Error; err != nil {
+		return nil, fmt.Errorf("load usage event request attempts: %w", err)
+	}
+	rows := make([]dto.UsageEventRecord, 0, len(events))
+	for _, event := range events {
+		rows = append(rows, usageEventProjectionToRecord(event))
+	}
+	return rows, nil
+}
+
 func GetUsageRequestDetailByRequestID(db *gorm.DB, requestID string) (entities.UsageRequestDetail, error) {
 	if db == nil {
 		return entities.UsageRequestDetail{}, fmt.Errorf("database is nil")
@@ -473,6 +496,19 @@ func applyUsageEventAttemptScopeQuery(query *gorm.DB, filter dto.UsageQueryFilte
 	if authIndex := strings.TrimSpace(filter.AuthIndex); authIndex != "" {
 		// Source 下拉在 API 层已转换成 auth_index，仓储层只保留真实查询维度。
 		query = query.Where("auth_index = ?", authIndex)
+	}
+	if source := strings.TrimSpace(filter.Source); source != "" && strings.TrimSpace(filter.AuthIndex) == "" {
+		query = query.Where("source = ?", source)
+	}
+	if queryText := strings.ToLower(strings.TrimSpace(filter.Query)); queryText != "" {
+		like := "%" + queryText + "%"
+		query = query.Where(
+			"(LOWER(COALESCE(model, '')) LIKE ? OR LOWER(COALESCE(source, '')) LIKE ? OR LOWER(COALESCE(auth_index, '')) LIKE ? OR LOWER(COALESCE(provider, '')) LIKE ?)",
+			like,
+			like,
+			like,
+			like,
+		)
 	}
 	return query
 }

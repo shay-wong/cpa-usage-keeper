@@ -114,6 +114,30 @@ func ListPendingRedisUsageInbox(db *gorm.DB, limit int) ([]entities.RedisUsageIn
 	return rows, nil
 }
 
+func ListProcessedRedisUsageInboxByEventKey(db *gorm.DB, eventKey string, limit int) ([]entities.RedisUsageInbox, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is nil")
+	}
+	eventKey = strings.TrimSpace(eventKey)
+	if eventKey == "" {
+		return []entities.RedisUsageInbox{}, nil
+	}
+	query := db.
+		Where("status = ? AND usage_event_key = ?", RedisUsageInboxStatusProcessed, eventKey).
+		Order("CASE WHEN processed_at IS NULL THEN 1 ELSE 0 END ASC").
+		Order("processed_at DESC").
+		Order("popped_at DESC").
+		Order("id DESC")
+	if limit > 0 {
+		query = query.Limit(limit)
+	}
+	var rows []entities.RedisUsageInbox
+	if err := query.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // CleanupRedisUsageInbox 清理已完成和失败的 Redis inbox 原始消息，pending 数据永远不在这里删除。
 // processed 保留到下一个本地日开始后才清理；decode_failed/process_failed/discarded 保留 7 天便于排查。
 func CleanupRedisUsageInbox(db *gorm.DB, now time.Time) (dto.RedisUsageInboxCleanupResult, error) {

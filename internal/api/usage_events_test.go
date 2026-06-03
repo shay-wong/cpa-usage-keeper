@@ -171,9 +171,9 @@ func TestUsageEventDetailReturnsPayloadAndMapsErrors(t *testing.T) {
 	}{
 		{
 			name:       "success",
-			detail:     &servicedto.UsageEventRequestDetail{UsageEventID: 42, RequestID: "req-42", Content: "=== REQUEST INFO ===\nraw", Cached: true, FetchedAt: fetchedAt},
+			detail:     &servicedto.UsageEventRequestDetail{UsageEventID: 42, RequestID: "req-42", Content: "=== REQUEST INFO ===\nraw", Cached: true, FetchedAt: fetchedAt, Attempts: []servicedto.UsageEventRequestDetailAttempt{{UsageEventID: 41, Timestamp: fetchedAt.Add(-time.Minute), Failed: true, Model: "gpt-5.5", Content: "first attempt", Cached: false, FetchedAt: fetchedAt.Add(-time.Minute)}, {UsageEventID: 42, Timestamp: fetchedAt, Failed: false, Model: "gpt-5.5", Content: "second attempt", Cached: true, FetchedAt: fetchedAt}}},
 			wantStatus: http.StatusOK,
-			wantBody:   []string{`"usage_event_id":"42"`, `"request_id":"req-42"`, `"content":"=== REQUEST INFO ===\nraw"`, `"cached":true`, `"fetched_at":"2026-05-16T16:00:00+08:00"`},
+			wantBody:   []string{`"usage_event_id":"42"`, `"request_id":"req-42"`, `"content":"=== REQUEST INFO ===\nraw"`, `"cached":true`, `"fetched_at":"2026-05-16T16:00:00+08:00"`, `"attempts":[{"usage_event_id":"41"`, `"content":"first attempt"`, `"usage_event_id":"42","timestamp":"2026-05-16T16:00:00+08:00","failed":false`},
 		},
 		{
 			name:       "invalid id",
@@ -183,9 +183,9 @@ func TestUsageEventDetailReturnsPayloadAndMapsErrors(t *testing.T) {
 		},
 		{
 			name:       "upstream log not found",
-			detailErr:  service.ErrUsageEventRequestUpstreamNotFound,
+			detailErr:  service.ErrUsageEventRequestUpstreamPending,
 			wantStatus: http.StatusNotFound,
-			wantBody:   []string{`"code":"upstream_log_not_found"`},
+			wantBody:   []string{`"code":"upstream_log_pending"`},
 		},
 	}
 

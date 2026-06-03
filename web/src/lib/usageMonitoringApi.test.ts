@@ -25,7 +25,14 @@ describe('fetchUsageMonitoring', () => {
     } as Response);
     const signal = new AbortController().signal;
 
-    await fetchUsageMonitoring('custom', '2026-04-20T00:00:00Z', '2026-04-21T00:00:00Z', signal, 250);
+    await fetchUsageMonitoring('custom', '2026-04-20T00:00:00Z', '2026-04-21T00:00:00Z', signal, {
+      apiKeyId: '7',
+      query: ' sonnet ',
+      model: 'claude-sonnet',
+      source: 'identity:12',
+      result: 'failed',
+      logLimit: 250,
+    });
 
     const [url, init] = fetchMock.mock.calls[0];
     const parsed = new URL(String(url), 'http://localhost');
@@ -34,6 +41,11 @@ describe('fetchUsageMonitoring', () => {
     expect(parsed.searchParams.get('range')).toBe('custom');
     expect(parsed.searchParams.get('start')).toBe('2026-04-20T00:00:00Z');
     expect(parsed.searchParams.get('end')).toBe('2026-04-21T00:00:00Z');
+    expect(parsed.searchParams.get('api_key_id')).toBe('7');
+    expect(parsed.searchParams.get('query')).toBe('sonnet');
+    expect(parsed.searchParams.get('model')).toBe('claude-sonnet');
+    expect(parsed.searchParams.get('source')).toBe('identity:12');
+    expect(parsed.searchParams.get('result')).toBe('failed');
     expect(parsed.searchParams.get('log_limit')).toBe('250');
     expect(init).toMatchObject({ credentials: 'include', signal });
   });

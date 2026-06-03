@@ -3,6 +3,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { IconRefreshCw } from '@/components/ui/icons'
 import quotaCostIcon from '@/assets/icons/quota-cost.svg'
 import quotaTokenIcon from '@/assets/icons/quota-token.svg'
+import { UsageNoteBadge } from '../UsageNoteBadge'
 import styles from './CredentialSections.module.scss'
 import type { AuthFileCredentialRow, DisplayQuota, PlanTypeTone } from './credentialViewModels'
 import type { UsageIdentityPageSort } from '@/lib/api'
@@ -78,7 +79,7 @@ export function AuthFileCredentialsSection({ rows, total, page, totalPages, page
                 {row.planTypeLabel && <CredentialPlanBadge tone={row.planTypeTone}>{row.planTypeLabel}</CredentialPlanBadge>}
                 {row.remainingDaysLabel && <span className={styles.credentialRemainingDaysBadge}>{row.remainingDaysLabel}</span>}
                 {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
-                {row.note && <span className={styles.credentialNoteBadge}>{row.note}</span>}
+                {row.note && <UsageNoteBadge title={row.note}>{row.note}</UsageNoteBadge>}
               </span>
             )}
             badges={null}

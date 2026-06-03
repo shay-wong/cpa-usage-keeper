@@ -16,6 +16,7 @@ type UsageQueryFilter struct {
 	AuthIndex   string
 	APIGroupKey string
 	Result      string
+	Query       string
 }
 
 const DefaultUsageEventsLimit = 100

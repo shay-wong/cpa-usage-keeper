@@ -22,6 +22,7 @@ type UsageFilter struct {
 	AuthIndex string
 	APIKeyID  string
 	Result    string
+	Query     string
 }
 
 // UsageEventsPage 是 usage events 列表的服务层结果。
@@ -89,6 +90,17 @@ type UsageEventRecord struct {
 type UsageEventRequestDetail struct {
 	UsageEventID int64
 	RequestID    string
+	Content      string
+	Cached       bool
+	FetchedAt    time.Time
+	Attempts     []UsageEventRequestDetailAttempt
+}
+
+type UsageEventRequestDetailAttempt struct {
+	UsageEventID int64
+	Timestamp    time.Time
+	Failed       bool
+	Model        string
 	Content      string
 	Cached       bool
 	FetchedAt    time.Time

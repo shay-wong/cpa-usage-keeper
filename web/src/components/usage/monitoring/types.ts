@@ -8,4 +8,9 @@ export interface MonitoringCenterQuery {
   start?: string;
   end?: string;
   filterError?: string;
+  apiKeyId?: string;
+  query?: string;
+  model?: string;
+  source?: string;
+  result?: string;
 }

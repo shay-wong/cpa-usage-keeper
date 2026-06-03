@@ -23,6 +23,24 @@ const usagePageSource = readSource(new URL('./UsagePage.tsx', import.meta.url));
 const requestEventsSource = readSource(
   new URL('../components/usage/RequestEventsDetailsCard.tsx', import.meta.url),
 );
+const usageNoteBadgeSource = readSource(
+  new URL('../components/usage/UsageNoteBadge.tsx', import.meta.url),
+);
+const usageNoteBadgeStyles = readSource(
+  new URL('../components/usage/UsageNoteBadge.module.scss', import.meta.url),
+);
+const authFileCredentialsSource = readSource(
+  new URL(
+    '../components/usage/credentials/AuthFileCredentialsSection.tsx',
+    import.meta.url,
+  ),
+);
+const aiProviderCredentialsSource = readSource(
+  new URL(
+    '../components/usage/credentials/AiProviderCredentialsSection.tsx',
+    import.meta.url,
+  ),
+);
 const requestDetailJsonViewerSource = readSource(
   new URL('../components/usage/RequestDetailJsonViewer.tsx', import.meta.url),
 );
@@ -729,7 +747,7 @@ describe('UsagePage toolbar styles', () => {
     expect(monitoringCenterSource).not.toContain('REQUEST_LOG_PAGE_SIZE_OPTIONS');
     expect(monitoringDataHookSource).not.toContain('MONITORING_REQUEST_LOG_LIMIT');
     expect(monitoringDataHookSource).toContain(
-      'fetchUsageMonitoring(range, start, end, controller.signal)',
+      'fetchUsageMonitoring(range, start, end, controller.signal, {',
     );
   });
 
@@ -773,16 +791,34 @@ describe('UsagePage toolbar styles', () => {
   });
 
   it('styles Request Event source notes as distinct inline note badges', () => {
-    const sourceNoteBlock = usagePageStyles.slice(
-      usagePageStyles.indexOf('.requestEventsSourceNote {'),
-      usagePageStyles.indexOf('.requestEventsSourceTags {'),
-    );
+    expect(usageNoteBadgeSource).toContain('UsageNoteBadge');
+    expect(requestEventsSource).toContain('<UsageNoteBadge');
+    expect(authFileCredentialsSource).toContain('<UsageNoteBadge');
+    expect(aiProviderCredentialsSource).toContain('<UsageNoteBadge');
+    expect(usageNoteBadgeStyles).toContain('display: inline-flex;');
+    expect(usageNoteBadgeStyles).toContain('border-radius: $radius-full;');
+    expect(usageNoteBadgeStyles).toContain('var(--quota-medium-color)');
+    expect(usageNoteBadgeStyles).toContain('white-space: nowrap;');
+    expect(usageNoteBadgeStyles).not.toContain('color: var(--text-tertiary);');
+  });
 
-    expect(sourceNoteBlock).toContain('display: inline-flex;');
-    expect(sourceNoteBlock).toContain('border-radius: $radius-full;');
-    expect(sourceNoteBlock).toContain('var(--quota-medium-color)');
-    expect(sourceNoteBlock).toContain('white-space: nowrap;');
-    expect(sourceNoteBlock).not.toContain('color: var(--text-tertiary);');
+  it('keeps Monitoring recent status as twelve five-minute aligned buckets', () => {
+    expect(monitoringCenterSource).toContain('const REQUEST_STATUS_BUCKET_COUNT = 12;');
+    expect(monitoringCenterSource).toContain('const REQUEST_STATUS_BUCKET_MS = 5 * 60_000;');
+    expect(monitoringCenterSource).toContain('styles.statusMixedLow');
+    expect(monitoringCenterSource).toContain('styles.statusMixedMedium');
+    expect(monitoringCenterSource).toContain('styles.statusMixedHigh');
+    expect(monitoringCenterStyles).toMatch(/\.statusBars\s*\{[\s\S]*?gap:\s*1px;/);
+    expect(monitoringCenterStyles).toContain('.statusEmpty');
+    expect(monitoringCenterStyles).toContain('.statusMixedLow');
+    expect(monitoringCenterStyles).toContain('.statusMixedMedium');
+    expect(monitoringCenterStyles).toContain('.statusMixedHigh');
+  });
+
+  it('shows Monitoring channel total cost and keeps stats tables compact', () => {
+    expect(monitoringCenterSource).toContain("<th>{t('usage_stats.total_cost')}</th>");
+    expect(monitoringCenterSource).toContain('channel.cost_available ? formatUsd(channel.total_cost) :');
+    expect(monitoringCenterStyles).toMatch(/\.statsTableWrapper\s*\{[\s\S]*?max-height:\s*360px;/);
   });
 
   it('widens only the API key dropdown menu without changing the trigger width', () => {

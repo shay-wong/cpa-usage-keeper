@@ -2,12 +2,14 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  getRequestDetailErrorKey,
   RequestDetailStructuredView,
   RequestEventsDetailsCard,
   resolveRequestEventColumnMenuFocusIndex,
   toggleRequestEventColumnId,
   type RequestEventColumnId,
 } from './RequestEventsDetailsCard';
+import { ApiError } from '@/lib/api';
 import { requestDetailBodyToJsonValue } from './RequestDetailJsonViewer';
 import { buildRequestDetailViewModel } from './requestDetailViewModel';
 import type { UsageEvent } from '@/lib/types';
@@ -514,5 +516,16 @@ describe('RequestEventsDetailsCard pagination', () => {
 
     expect(html).toContain('Total Cost');
     expect(html).toContain('title="Set pricing to calculate cost">-</td>');
+  });
+});
+
+describe('getRequestDetailErrorKey', () => {
+  it('distinguishes upstream request log lag from unavailable local details', () => {
+    expect(getRequestDetailErrorKey(new ApiError('upstream_log_not_found', 404))).toBe(
+      'usage_stats.request_events_detail_upstream_pending',
+    );
+    expect(getRequestDetailErrorKey(new ApiError('request_detail_unavailable', 404))).toBe(
+      'usage_stats.request_events_detail_missing',
+    );
   });
 });

@@ -149,6 +149,31 @@ func TestUsageMonitoringOmitsRequestLogsByDefault(t *testing.T) {
 	}
 }
 
+func TestUsageMonitoringParsesServerSideFilters(t *testing.T) {
+	provider := &usageMonitoringStub{monitoring: &service.UsageMonitoringSnapshot{}}
+	router := NewRouter(nil, nil, provider, nil, AuthConfig{}, nil, "", OptionalProviders{UsageIdentity: usageIdentitiesStub{items: []entities.UsageIdentity{{
+		ID:           12,
+		Name:         "Provider A",
+		AuthType:     entities.UsageIdentityAuthTypeAIProvider,
+		AuthTypeName: "apikey",
+		Identity:     "provider-auth",
+		Type:         "openai",
+		LookupKey:    "sk-provider",
+	}}}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/usage/monitoring?range=24h&api_key_id=7&query=sonnet&model=claude-sonnet&source=identity:12&result=failed&log_limit=25", nil)
+	resp := httptest.NewRecorder()
+
+	router.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", resp.Code, resp.Body.String())
+	}
+	filter := provider.lastFilter
+	if filter.APIKeyID != "7" || filter.Query != "sonnet" || filter.Model != "claude-sonnet" || filter.AuthIndex != "provider-auth" || filter.Source != "" || filter.Result != "failed" || filter.Limit != 25 {
+		t.Fatalf("expected monitoring filters to be parsed and resolved, got %+v", filter)
+	}
+}
+
 func TestUsageMonitoringReturnsPayloadWhenIdentityResolutionFails(t *testing.T) {
 	requestTime := time.Date(2026, 4, 22, 11, 0, 0, 0, time.UTC)
 	provider := &usageMonitoringStub{monitoring: &service.UsageMonitoringSnapshot{

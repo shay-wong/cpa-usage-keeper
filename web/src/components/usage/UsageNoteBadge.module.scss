@@ -1,0 +1,19 @@
+@use '../../styles/variables' as *;
+
+.usageNoteBadge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  padding: 1px 7px;
+  border-radius: $radius-full;
+  border: 1px solid color-mix(in srgb, var(--quota-medium-color) 34%, var(--border-color));
+  background: color-mix(in srgb, var(--quota-medium-color) 12%, var(--bg-primary));
+  color: color-mix(in srgb, var(--text-primary) 76%, var(--quota-medium-color));
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}

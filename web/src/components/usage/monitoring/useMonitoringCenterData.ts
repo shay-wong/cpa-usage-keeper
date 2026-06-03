@@ -15,7 +15,7 @@ interface MonitoringCenterState {
   refresh: () => Promise<void>;
 }
 
-export function useMonitoringCenterData({ range, start, end, filterError, enabled, onAuthRequired }: UseMonitoringCenterDataOptions): MonitoringCenterState {
+export function useMonitoringCenterData({ range, start, end, filterError, enabled, onAuthRequired, apiKeyId, query, model, source, result }: UseMonitoringCenterDataOptions): MonitoringCenterState {
   const [data, setData] = useState<MonitoringCenterViewModel | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -39,7 +39,13 @@ export function useMonitoringCenterData({ range, start, end, filterError, enable
     setLoading(true);
     setError('');
     try {
-      const response = await fetchUsageMonitoring(range, start, end, controller.signal);
+      const response = await fetchUsageMonitoring(range, start, end, controller.signal, {
+        apiKeyId,
+        query,
+        model,
+        source,
+        result,
+      });
       if (controllerRef.current !== controller) return;
       setData(response);
     } catch (err: unknown) {
@@ -58,7 +64,7 @@ export function useMonitoringCenterData({ range, start, end, filterError, enable
         controllerRef.current = null;
       }
     }
-  }, [enabled, end, filterError, onAuthRequired, range, start]);
+  }, [apiKeyId, enabled, end, filterError, model, onAuthRequired, query, range, result, source, start]);
 
   useEffect(() => {
     if (!enabled) {

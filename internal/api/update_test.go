@@ -43,7 +43,7 @@ func TestUpdateCheckReturnsResult(t *testing.T) {
 	}
 }
 
-func TestUpdateCheckReturnsInternalError(t *testing.T) {
+func TestUpdateCheckReturnsUnavailableResultOnCheckerError(t *testing.T) {
 	router := gin.New()
 	registerUpdateRoutes(router.Group("/api/v1"), updateCheckerStub{err: errors.New("network unavailable")})
 
@@ -51,10 +51,10 @@ func TestUpdateCheckReturnsInternalError(t *testing.T) {
 	resp := httptest.NewRecorder()
 	router.ServeHTTP(resp, req)
 
-	if resp.Code != http.StatusInternalServerError {
-		t.Fatalf("expected status 500, got %d", resp.Code)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.Code)
 	}
-	if body := resp.Body.String(); !contains(body, `"error":"internal server error"`) {
+	if body := resp.Body.String(); !contains(body, `"message":"update check unavailable"`) || !contains(body, `"error":"network unavailable"`) || !contains(body, `"canCompare":false`) {
 		t.Fatalf("unexpected response body: %s", body)
 	}
 }

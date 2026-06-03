@@ -15,9 +15,10 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
-import { IconCheck, IconChevronDown } from '@/components/ui/icons';
+import { IconCheck } from '@/components/ui/icons';
 import { ApiError, fetchUsageEventRequestDetail } from '@/lib/api';
 import type { UsageEvent, UsageEventAttempt, UsageEventRequestDetailResponse, UsageSourceFilterOption } from '@/lib/types';
+import { UsageNoteBadge } from './UsageNoteBadge';
 import { buildRequestDetailViewModel, type RequestDetailViewModel } from './requestDetailViewModel';
 import {
   RequestDetailJsonBlock,
@@ -224,6 +225,9 @@ export const getRequestDetailErrorKey = (error: unknown): string => {
     return 'usage_stats.request_events_detail_too_large';
   }
   if (error instanceof ApiError && error.status === 404) {
+    if (error.message === 'upstream_log_pending' || error.message === 'upstream_log_not_found') {
+      return 'usage_stats.request_events_detail_upstream_pending';
+    }
     return 'usage_stats.request_events_detail_missing';
   }
   return 'usage_stats.request_events_detail_load_failed';
@@ -626,9 +630,6 @@ function RequestEventsColumnSelector({
           onKeyDown={handleTriggerKeyDown}
         >
           <span>{summary}</span>
-          <span className={styles.requestEventsColumnTriggerIcon} aria-hidden="true">
-            <IconChevronDown size={14} />
-          </span>
         </button>
       </div>
       {dropdown && (typeof document === 'undefined' ? dropdown : createPortal(dropdown, document.body))}
@@ -663,7 +664,7 @@ function RequestEventSourceCell({ row, t }: { row: RequestEventTileRow; t: Reque
               <span className={styles.credentialType}>{row.sourceType}</span>
             )}
             {row.sourceNote && (
-              <span className={styles.requestEventsSourceNote}>{row.sourceNote}</span>
+              <UsageNoteBadge className={styles.requestEventsSourceNote} title={row.sourceNote}>{row.sourceNote}</UsageNoteBadge>
             )}
             {row.isDelete && (
               <span className={styles.requestEventsDeletedTag}>{t('usage_stats.deleted')}</span>
@@ -1375,6 +1376,40 @@ export function RequestEventsDetailsCard({
     () => requestDetail ? buildRequestDetailViewModel(requestDetail.content) : null,
     [requestDetail]
   );
+  const requestDetailAttempts = useMemo(() => {
+    if (!requestDetail) return [];
+    const attempts = Array.isArray(requestDetail.attempts) && requestDetail.attempts.length > 0
+      ? requestDetail.attempts
+      : [{
+          usage_event_id: requestDetail.usage_event_id,
+          timestamp: '',
+          failed: false,
+          model: '',
+          content: requestDetail.content,
+          cached: requestDetail.cached,
+          fetched_at: requestDetail.fetched_at,
+        }];
+    return attempts.map((attempt, index) => {
+      const content = attempt.content || requestDetail.content;
+      return {
+        key: attempt.usage_event_id || `${requestDetail.request_id}-${index}`,
+        index,
+        timestampLabel: attempt.timestamp ? formatRequestEventTimestamp(attempt.timestamp) : selectedRow?.timestampLabel ?? '-',
+        failed: attempt.failed === true,
+        model: String(attempt.model ?? '').trim(),
+        cached: attempt.cached === true,
+        fetchedAt: attempt.fetched_at || requestDetail.fetched_at,
+        detail: {
+          usage_event_id: attempt.usage_event_id || requestDetail.usage_event_id,
+          request_id: requestDetail.request_id,
+          content,
+          cached: attempt.cached === true,
+          fetched_at: attempt.fetched_at || requestDetail.fetched_at,
+        } satisfies UsageEventRequestDetailResponse,
+        viewModel: buildRequestDetailViewModel(content),
+      };
+    });
+  }, [requestDetail, selectedRow?.timestampLabel]);
 
   useEffect(() => {
     return () => requestDetailControllerRef.current?.abort();
@@ -1464,9 +1499,34 @@ export function RequestEventsDetailsCard({
         </div>
 
         {detailLoading ? (
-          <div className={styles.hint}>{t('common.loading')}</div>
+          <div className={styles.hint}>{t('usage_stats.request_events_detail_waiting_upstream')}</div>
         ) : detailErrorKey ? (
           <div className={styles.requestEventsDetailError}>{t(detailErrorKey)}</div>
+        ) : requestDetailAttempts.length > 1 ? (
+          <div className={styles.requestEventsDetailAttemptList}>
+            {requestDetailAttempts.map((attempt) => (
+              <section key={attempt.key} className={styles.requestEventsDetailAttemptCard}>
+                <div className={styles.requestEventsDetailAttemptHeader}>
+                  <div>
+                    <h5>{t('usage_stats.request_events_detail_attempt_title', { index: attempt.index + 1, total: requestDetailAttempts.length })}</h5>
+                    <span>{attempt.timestampLabel}</span>
+                  </div>
+                  <div className={styles.requestEventsDetailAttemptMeta}>
+                    <span className={attempt.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess}>
+                      {attempt.failed ? t('usage_stats.failure') : t('usage_stats.success')}
+                    </span>
+                    {attempt.model && <span>{attempt.model}</span>}
+                    <span>{attempt.cached ? t('usage_stats.request_events_detail_cached_yes') : t('usage_stats.request_events_detail_cached_no')}</span>
+                  </div>
+                </div>
+                <RequestDetailStructuredView
+                  detail={attempt.detail}
+                  model={attempt.viewModel}
+                  t={(key) => t(key)}
+                />
+              </section>
+            ))}
+          </div>
         ) : (
           requestDetail && requestDetailViewModel ? (
             <RequestDetailStructuredView

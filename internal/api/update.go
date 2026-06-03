@@ -20,7 +20,12 @@ func registerUpdateRoutes(router gin.IRoutes, checker updateChecker) {
 	router.GET("/update/check", func(c *gin.Context) {
 		result, err := checker.Check(c.Request.Context())
 		if err != nil {
-			writeInternalError(c, "update check failed", err)
+			c.JSON(http.StatusOK, updatecheck.Result{
+				UpdateAvailable: false,
+				CanCompare:      false,
+				Message:         "update check unavailable",
+				Error:           err.Error(),
+			})
 			return
 		}
 		c.JSON(http.StatusOK, result)

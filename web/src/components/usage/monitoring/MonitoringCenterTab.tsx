@@ -66,8 +66,9 @@ const HOURLY_WINDOW_OPTIONS: ReadonlyArray<{ value: HourlyWindowMode; labelKey: 
 
 const CHART_GRID_COLOR = 'rgba(148, 163, 184, 0.14)';
 const CHART_GRID_COLOR_STRONG = 'rgba(148, 163, 184, 0.18)';
-const REQUEST_STATUS_BUCKET_COUNT = 16;
-const REQUEST_STATUS_SINGLE_BUCKET_MS = 60_000;
+const REQUEST_STATUS_BUCKET_COUNT = 12;
+const REQUEST_STATUS_BUCKET_MS = 5 * 60_000;
+const REQUEST_STATUS_WINDOW_MS = REQUEST_STATUS_BUCKET_COUNT * REQUEST_STATUS_BUCKET_MS;
 
 interface MonitoringSourceLike {
   source: string;
@@ -139,11 +140,6 @@ function getChartThemeColors(isDark: boolean) {
 
 function normalizeQuery(value: string): string {
   return value.trim().toLowerCase();
-}
-
-function includesQuery(values: Array<string | null | undefined>, query: string): boolean {
-  if (!query) return true;
-  return values.some((value) => value?.toLowerCase().includes(query));
 }
 
 function formatRate(value: number): string {
@@ -289,22 +285,26 @@ function buildRequestStatusBuckets(requests: Array<{ timestamp: string; failed: 
     .map((request) => ({ ...request, timestampMs: Date.parse(request.timestamp) }))
     .filter((request) => Number.isFinite(request.timestampMs))
     .sort((a, b) => a.timestampMs - b.timestampMs);
-  if (!parsedRequests.length) return [];
+  if (!parsedRequests.length) return Array.from({ length: REQUEST_STATUS_BUCKET_COUNT }, (_, index) => ({
+    start: Date.now() - REQUEST_STATUS_WINDOW_MS + index * REQUEST_STATUS_BUCKET_MS,
+    end: Date.now() - REQUEST_STATUS_WINDOW_MS + (index + 1) * REQUEST_STATUS_BUCKET_MS,
+    success: 0,
+    failed: 0,
+  }));
 
-  const firstTimestamp = parsedRequests[0].timestampMs;
-  const lastTimestamp = parsedRequests[parsedRequests.length - 1].timestampMs;
-  const spanMs = Math.max(REQUEST_STATUS_SINGLE_BUCKET_MS, lastTimestamp - firstTimestamp);
-  const bucketMs = Math.max(REQUEST_STATUS_SINGLE_BUCKET_MS, Math.ceil(spanMs / REQUEST_STATUS_BUCKET_COUNT));
-  const bucketCount = Math.max(1, Math.min(REQUEST_STATUS_BUCKET_COUNT, Math.ceil(spanMs / bucketMs) + 1));
-  const buckets = Array.from({ length: bucketCount }, (_, index) => ({
-    start: firstTimestamp + index * bucketMs,
-    end: firstTimestamp + (index + 1) * bucketMs,
+  const latestTimestamp = parsedRequests[parsedRequests.length - 1].timestampMs;
+  const windowEnd = Math.ceil(latestTimestamp / REQUEST_STATUS_BUCKET_MS) * REQUEST_STATUS_BUCKET_MS;
+  const windowStart = windowEnd - REQUEST_STATUS_WINDOW_MS;
+  const buckets = Array.from({ length: REQUEST_STATUS_BUCKET_COUNT }, (_, index) => ({
+    start: windowStart + index * REQUEST_STATUS_BUCKET_MS,
+    end: windowStart + (index + 1) * REQUEST_STATUS_BUCKET_MS,
     success: 0,
     failed: 0,
   }));
 
   parsedRequests.forEach((request) => {
-    const bucketIndex = Math.min(bucketCount - 1, Math.floor((request.timestampMs - firstTimestamp) / bucketMs));
+    if (request.timestampMs < windowStart || request.timestampMs > windowEnd) return;
+    const bucketIndex = Math.min(REQUEST_STATUS_BUCKET_COUNT - 1, Math.max(0, Math.floor((request.timestampMs - windowStart) / REQUEST_STATUS_BUCKET_MS)));
     if (request.failed) {
       buckets[bucketIndex] = { ...buckets[bucketIndex], failed: buckets[bucketIndex].failed + 1 };
     } else {
@@ -313,6 +313,17 @@ function buildRequestStatusBuckets(requests: Array<{ timestamp: string; failed: 
   });
 
   return buckets;
+}
+
+function getStatusBucketClass(bucket: RequestStatusBucket): string {
+  const total = bucket.success + bucket.failed;
+  if (total <= 0) return styles.statusEmpty;
+  if (bucket.failed <= 0) return styles.statusSuccess;
+  if (bucket.success <= 0) return styles.statusFailed;
+  const failureRatio = bucket.failed / total;
+  if (failureRatio >= 0.75) return styles.statusMixedHigh;
+  if (failureRatio >= 0.4) return styles.statusMixedMedium;
+  return styles.statusMixedLow;
 }
 
 function RequestDots({
@@ -327,15 +338,10 @@ function RequestDots({
   timeZone?: string;
 }) {
   const buckets = buildRequestStatusBuckets(requests);
-  if (!buckets.length) {
-    return <span className={styles.muted}>-</span>;
-  }
-
   return (
     <ol className={styles.statusBars} aria-label={t('usage_stats.monitoring_recent_request_buckets_count', { count: buckets.length })}>
       {buckets.map((bucket, index) => {
         const total = bucket.success + bucket.failed;
-        const hasFailures = bucket.failed > 0;
         const label = t('usage_stats.monitoring_recent_request_bucket_item', {
           start: formatDateTime(new Date(bucket.start).toISOString(), locale, timeZone),
           end: formatDateTime(new Date(bucket.end).toISOString(), locale, timeZone),
@@ -347,7 +353,7 @@ function RequestDots({
           <li className={styles.statusDotItem} key={`${bucket.start}-${index}`}>
             <button className={styles.statusDotButton} type="button" title={label} aria-label={label}>
               <span
-                className={`${styles.statusBar} ${hasFailures ? styles.statusFailed : styles.statusSuccess}`.trim()}
+                className={`${styles.statusBar} ${getStatusBucketClass(bucket)}`.trim()}
                 aria-hidden="true"
               />
             </button>
@@ -401,21 +407,12 @@ export function MonitoringCenterTab({
   const averageRpd = (kpis?.total_requests ?? 0) / rpdDays;
   const normalizedQuery = normalizeQuery(query);
   const modelDistribution = useMemo(() => {
-    const items = data?.model_distribution ?? [];
-    return normalizedQuery ? items.filter((item) => includesQuery([item.model], normalizedQuery)) : items;
-  }, [data?.model_distribution, normalizedQuery]);
+    return data?.model_distribution ?? [];
+  }, [data?.model_distribution]);
 
   const baseChannelStats = useMemo(() => {
-    const items = data?.channel_stats ?? [];
-    return normalizedQuery
-      ? items.filter((item) =>
-          includesQuery(
-            [item.source, item.source_type, item.source_key, ...item.models.map((model) => model.model)],
-            normalizedQuery,
-          ),
-        )
-      : items;
-  }, [data?.channel_stats, normalizedQuery]);
+    return data?.channel_stats ?? [];
+  }, [data?.channel_stats]);
 
   const channelStats = useMemo(() => {
     return baseChannelStats.filter((item) => {
@@ -426,16 +423,8 @@ export function MonitoringCenterTab({
   }, [baseChannelStats, channelSourceFilter, channelModelFilter]);
 
   const baseFailureAnalysis = useMemo(() => {
-    const items = data?.failure_analysis ?? [];
-    return normalizedQuery
-      ? items.filter((item) =>
-          includesQuery(
-            [item.source, item.source_type, item.source_key, ...item.models.map((model) => model.model)],
-            normalizedQuery,
-          ),
-        )
-      : items;
-  }, [data?.failure_analysis, normalizedQuery]);
+    return data?.failure_analysis ?? [];
+  }, [data?.failure_analysis]);
 
   const failureAnalysis = useMemo(() => {
     return baseFailureAnalysis.filter((item) => {
@@ -452,17 +441,9 @@ export function MonitoringCenterTab({
 
   const hourlyModelTrend = useMemo(() => {
     const items = data?.hourly_model_trend ?? [];
-    const filteredByQuery = normalizedQuery
-      ? items
-          .map((point) => ({
-            ...point,
-            models: point.models.filter((model) => includesQuery([model.model], normalizedQuery)),
-          }))
-          .filter((point) => point.models.length > 0)
-      : items;
-    const fallbackDay = hourlyModelDay || toDateInputValue(filteredByQuery[filteredByQuery.length - 1]?.hour, timeZone);
-    return filterHourlyPoints(filteredByQuery, hourlyModelWindowMode, fallbackDay, timeZone);
-  }, [data?.hourly_model_trend, hourlyModelDay, hourlyModelWindowMode, normalizedQuery, timeZone]);
+    const fallbackDay = hourlyModelDay || toDateInputValue(items[items.length - 1]?.hour, timeZone);
+    return filterHourlyPoints(items, hourlyModelWindowMode, fallbackDay, timeZone);
+  }, [data?.hourly_model_trend, hourlyModelDay, hourlyModelWindowMode, timeZone]);
 
   const dailyTrend = data?.daily_trend ?? [];
   const dailyTrendSummary = summarizeDailyTrend(dailyTrend, t);
@@ -1152,6 +1133,7 @@ export function MonitoringCenterTab({
                         <th>{t('usage_stats.source_name')}</th>
                         <th>{t('usage_stats.monitoring_table_models')}</th>
                         <th>{t('usage_stats.requests_count')}</th>
+                        <th>{t('usage_stats.total_cost')}</th>
                         <th>{t('usage_stats.success_rate')}</th>
                         <th>{t('usage_stats.monitoring_table_recent_status')}</th>
                         <th>{t('usage_stats.last_request')}</th>
@@ -1179,6 +1161,9 @@ export function MonitoringCenterTab({
                             </div>
                           </td>
                           <td>{formatCompactNumber(channel.total_requests)}</td>
+                          <td title={channel.cost_available ? undefined : t('usage_stats.cost_need_price')}>
+                            {channel.cost_available ? formatUsd(channel.total_cost) : '-'}
+                          </td>
                           <td className={getRateClass(channel.success_rate)}>{formatRate(channel.success_rate)}</td>
                           <td>
                             <RequestDots requests={channel.recent_requests} t={t} locale={locale} timeZone={timeZone} />

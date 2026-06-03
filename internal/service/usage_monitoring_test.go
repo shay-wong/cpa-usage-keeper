@@ -66,6 +66,7 @@ func TestBuildMonitoringChannelStatsKeepsAllModelDetailsForAPIMerge(t *testing.T
 		modelRows,
 		map[string][]UsageMonitoringRecentRequest{},
 		map[string][]UsageMonitoringRecentRequest{},
+		map[string]monitoringChannelCost{"source-a\x001": {TotalCost: 0.42, CostAvailable: true}},
 	)
 
 	if len(stats) != 1 {
@@ -77,6 +78,9 @@ func TestBuildMonitoringChannelStatsKeepsAllModelDetailsForAPIMerge(t *testing.T
 	}
 	if stats[0].Models[0].Model != "model-00" || stats[0].Models[totalModels-1].Model != "model-11" {
 		t.Fatalf("expected request models to stay sorted, got %+v", stats[0].Models)
+	}
+	if stats[0].TotalCost != 0.42 || !stats[0].CostAvailable {
+		t.Fatalf("expected channel cost to be attached, got %+v", stats[0])
 	}
 }
 

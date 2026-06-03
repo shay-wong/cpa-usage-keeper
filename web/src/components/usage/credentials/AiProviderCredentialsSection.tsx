@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { UsageNoteBadge } from '../UsageNoteBadge'
 import styles from './CredentialSections.module.scss'
 import type { AiProviderCredentialRow } from './credentialViewModels'
 import type { UsageIdentityPageSort } from '@/lib/api'
@@ -37,7 +38,7 @@ export function AiProviderCredentialsSection({ rows, total, page, totalPages, pa
             <span className={styles.credentialIdentityBadges}>
               <CredentialBadge>{row.typeLabel}</CredentialBadge>
               {row.priorityLabel && <CredentialPriorityBadge>{row.priorityLabel}</CredentialPriorityBadge>}
-              {row.note && <span className={styles.credentialNoteBadge}>{row.note}</span>}
+              {row.note && <UsageNoteBadge title={row.note}>{row.note}</UsageNoteBadge>}
             </span>
           )}
           badges={null}

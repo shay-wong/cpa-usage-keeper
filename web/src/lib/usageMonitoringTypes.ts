@@ -90,6 +90,8 @@ export interface UsageMonitoringChannelStat {
   output_tokens: number
   cached_tokens: number
   reasoning_tokens: number
+  total_cost: number
+  cost_available: boolean
   success_rate: number
   last_request_time: string | null
   recent_requests: UsageMonitoringRecentRequest[]

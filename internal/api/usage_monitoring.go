@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"cpa-usage-keeper/internal/entities"
 	"cpa-usage-keeper/internal/service"
 	servicedto "cpa-usage-keeper/internal/service/dto"
 	"github.com/gin-gonic/gin"
@@ -118,6 +119,8 @@ type usageMonitoringChannelStatPayload struct {
 	OutputTokens    int64                                    `json:"output_tokens"`
 	CachedTokens    int64                                    `json:"cached_tokens"`
 	ReasoningTokens int64                                    `json:"reasoning_tokens"`
+	TotalCost       float64                                  `json:"total_cost"`
+	CostAvailable   bool                                     `json:"cost_available"`
 	SuccessRate     float64                                  `json:"success_rate"`
 	LastRequestTime *time.Time                               `json:"last_request_time"`
 	RecentRequests  []usageMonitoringRecentRequestPayload    `json:"recent_requests"`
@@ -189,6 +192,10 @@ func registerUsageMonitoringRoute(
 			slog.Warn("load usage resolution data failed", "error", err)
 		} else {
 			resolver = newUsageSourceResolver(identities)
+			if err := applyUsageMonitoringSourceFilter(&filter, identities); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 		}
 
 		snapshot, err := monitoringProvider.GetUsageMonitoring(c.Request.Context(), filter)
@@ -207,6 +214,14 @@ func parseUsageMonitoringFilterQuery(req *http.Request, anchor time.Time) (servi
 		return servicedto.UsageFilter{}, err
 	}
 	logLimitValue := strings.TrimSpace(req.URL.Query().Get("log_limit"))
+	filter.Model = strings.TrimSpace(req.URL.Query().Get("model"))
+	filter.Source = strings.TrimSpace(req.URL.Query().Get("source"))
+	filter.AuthIndex = strings.TrimSpace(req.URL.Query().Get("auth_index"))
+	filter.Result = strings.TrimSpace(req.URL.Query().Get("result"))
+	filter.Query = strings.TrimSpace(req.URL.Query().Get("query"))
+	if filter.Result != "" && filter.Result != "success" && filter.Result != "failed" {
+		return servicedto.UsageFilter{}, fmt.Errorf("invalid result %q", filter.Result)
+	}
 	if logLimitValue == "" {
 		return filter, nil
 	}
@@ -216,6 +231,13 @@ func parseUsageMonitoringFilterQuery(req *http.Request, anchor time.Time) (servi
 	}
 	filter.Limit = logLimit
 	return filter, nil
+}
+
+func applyUsageMonitoringSourceFilter(filter *servicedto.UsageFilter, identities []entities.UsageIdentity) error {
+	if filter == nil {
+		return nil
+	}
+	return applyUsageEventsSourceFilter(filter, identities)
 }
 
 func buildUsageMonitoringPayload(snapshot *service.UsageMonitoringSnapshot, resolver usageSourceResolver, filter servicedto.UsageFilter) usageMonitoringResponse {
@@ -364,7 +386,7 @@ func buildUsageMonitoringChannelStatsPayload(rows []service.UsageMonitoringChann
 		index, exists := indexBySourceKey[key]
 		if !exists {
 			indexBySourceKey[key] = len(merged)
-			merged = append(merged, usageMonitoringChannelStatPayload{usageMonitoringSourcePayload: source})
+			merged = append(merged, usageMonitoringChannelStatPayload{usageMonitoringSourcePayload: source, CostAvailable: true})
 			index = len(merged) - 1
 		}
 		current := &merged[index]
@@ -376,6 +398,8 @@ func buildUsageMonitoringChannelStatsPayload(rows []service.UsageMonitoringChann
 		current.OutputTokens += row.OutputTokens
 		current.CachedTokens += row.CachedTokens
 		current.ReasoningTokens += row.ReasoningTokens
+		current.TotalCost += row.TotalCost
+		current.CostAvailable = current.CostAvailable && row.CostAvailable
 		current.SuccessRate = service.MonitoringPercentage(current.SuccessRequests, current.TotalRequests)
 		current.LastRequestTime = latestTimePtr(current.LastRequestTime, row.LastRequestTime)
 		current.RecentRequests = mergeUsageMonitoringRecentRequestPayloads(current.RecentRequests, buildUsageMonitoringRecentRequestsPayload(row.RecentRequests))

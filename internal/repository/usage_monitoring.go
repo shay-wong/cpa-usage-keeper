@@ -235,9 +235,26 @@ func usageMonitoringRecentRequestFilterSQL(filter dto.UsageQueryFilter) (string,
 		conditions = append(conditions, "usage_events.timestamp <= ?")
 		args = append(args, timeutil.FormatStorageTime(*filter.EndTime))
 	}
+	if apiGroupKey := strings.TrimSpace(filter.APIGroupKey); apiGroupKey != "" {
+		conditions = append(conditions, "COALESCE(TRIM(usage_events.api_group_key), '') = ?")
+		args = append(args, apiGroupKey)
+	}
 	if model := strings.TrimSpace(filter.Model); model != "" {
 		conditions = append(conditions, "COALESCE(TRIM(usage_events.model), '') = ?")
 		args = append(args, model)
+	}
+	if authIndex := strings.TrimSpace(filter.AuthIndex); authIndex != "" {
+		conditions = append(conditions, "COALESCE(TRIM(usage_events.auth_index), '') = ?")
+		args = append(args, authIndex)
+	}
+	if source := strings.TrimSpace(filter.Source); source != "" {
+		conditions = append(conditions, "COALESCE(TRIM(usage_events.source), '') = ?")
+		args = append(args, source)
+	}
+	if queryText := strings.ToLower(strings.TrimSpace(filter.Query)); queryText != "" {
+		like := "%" + queryText + "%"
+		conditions = append(conditions, "(LOWER(COALESCE(usage_events.model, '')) LIKE ? OR LOWER(COALESCE(usage_events.source, '')) LIKE ? OR LOWER(COALESCE(usage_events.auth_index, '')) LIKE ? OR LOWER(COALESCE(usage_events.provider, '')) LIKE ?)")
+		args = append(args, like, like, like, like)
 	}
 	switch strings.TrimSpace(filter.Result) {
 	case "success":

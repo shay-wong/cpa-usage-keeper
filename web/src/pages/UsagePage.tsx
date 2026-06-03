@@ -1612,6 +1612,8 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     filterError: monitoringFilterError,
     enabled: activeTab === 'monitoring',
     onAuthRequired,
+    apiKeyId: selectedApiKeyId,
+    query: monitoringQuery,
   });
 
   const loadEventFilterOptions = useCallback(async () => {
@@ -1918,6 +1920,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       setUpdateCheckLoading(true);
       try {
         const result = await fetchUpdateCheck();
+        if (result.error) {
+          setHasNewVersion(false);
+          if (shouldNotifyLatest) {
+            showUpdateCheckNotice('error', t('usage_stats.update_check_failed'));
+          }
+          return;
+        }
         if (!result.canCompare) {
           setHasNewVersion(false);
           if (shouldNotifyLatest) {

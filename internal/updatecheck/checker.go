@@ -28,6 +28,7 @@ type Result struct {
 	UpdateAvailable bool   `json:"updateAvailable"`
 	CanCompare      bool   `json:"canCompare"`
 	Message         string `json:"message"`
+	Error           string `json:"error,omitempty"`
 }
 
 type Checker struct {
@@ -141,7 +142,13 @@ func (c *Checker) Check(ctx context.Context) (Result, error) {
 
 	latestVersion, ok, err := c.latestStableVersion(ctx)
 	if err != nil {
-		return Result{}, err
+		return Result{
+			CurrentVersion:  c.currentVersion,
+			UpdateAvailable: false,
+			CanCompare:      false,
+			Message:         "update check unavailable",
+			Error:           err.Error(),
+		}, nil
 	}
 	if !ok {
 		return Result{

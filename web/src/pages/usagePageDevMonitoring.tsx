@@ -16,6 +16,8 @@ type UseDevMonitoringCenterDataOptions = {
   filterError?: string;
   enabled: boolean;
   onAuthRequired?: () => void;
+  apiKeyId?: string;
+  query?: string;
 };
 
 export const useDevMonitoringCenterData = ({
@@ -24,6 +26,8 @@ export const useDevMonitoringCenterData = ({
   filterError,
   enabled,
   onAuthRequired,
+  apiKeyId,
+  query,
 }: UseDevMonitoringCenterDataOptions): DevMonitoringData => useMonitoringCenterData({
   range,
   start: queryState.start,
@@ -31,6 +35,8 @@ export const useDevMonitoringCenterData = ({
   filterError,
   enabled,
   onAuthRequired,
+  apiKeyId,
+  query,
 });
 
 type DevMonitoringCenterTabProps = Pick<DevMonitoringData, 'data' | 'loading' | 'error'> & {
