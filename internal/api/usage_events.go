@@ -73,6 +73,7 @@ type usageEventPayload struct {
 	SourceNote      string                     `json:"source_note,omitempty"`
 	SourceRaw       string                     `json:"source_raw,omitempty"`
 	SourceType      string                     `json:"source_type,omitempty"`
+	AuthIndex       string                     `json:"auth_index,omitempty"`
 	IsDelete        bool                       `json:"isDelete,omitempty"`
 	Failed          bool                       `json:"failed"`
 	LatencyMS       int64                      `json:"latency_ms"`
@@ -306,6 +307,7 @@ func buildUsageEventsPayload(rows []servicedto.UsageEventRecord, resolver usageI
 			Source:          source,
 			SourceNote:      identity.Note,
 			SourceType:      identity.Type,
+			AuthIndex:       row.AuthIndex,
 			IsDelete:        isDelete,
 			Failed:          row.Failed,
 			LatencyMS:       row.LatencyMS,

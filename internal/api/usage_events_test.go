@@ -120,7 +120,10 @@ func TestUsageEventsReturnsFilteredRows(t *testing.T) {
 	if contains(body, `"source_type"`) || contains(body, `"source_key"`) {
 		t.Fatalf("expected source metadata fields to stay omitted, got %s", body)
 	}
-	if contains(body, `"auth_index"`) || contains(body, `"source_raw"`) {
+	if !contains(body, `"auth_index":"2"`) {
+		t.Fatalf("expected auth index in response body: %s", body)
+	}
+	if contains(body, `"source_raw"`) {
 		t.Fatalf("expected raw source metadata to be omitted from response body: %s", body)
 	}
 	if !contains(body, `"timestamp":"2026-04-22T19:00:00+08:00"`) {
@@ -506,8 +509,8 @@ func TestUsageEventsShowsMissingOAuthIdentityEmailSource(t *testing.T) {
 	if !contains(body, `"source":"user@example.com"`) {
 		t.Fatalf("expected missing oauth identity email source to stay unmasked, got %s", body)
 	}
-	if contains(body, rawAuthIndex) || contains(body, `"auth_index"`) {
-		t.Fatalf("expected auth index data to stay hidden, got %s", body)
+	if !contains(body, `"auth_index":"auth-secret"`) {
+		t.Fatalf("expected auth index data to be returned, got %s", body)
 	}
 }
 
