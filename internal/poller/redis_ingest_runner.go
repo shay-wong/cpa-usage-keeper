@@ -27,6 +27,7 @@ var errRedisIngestInboxWrite = errors.New("redis ingest inbox write failed")
 type RedisIngestRunnerConfig struct {
 	IdleInterval       time.Duration
 	BatchSize          int
+	PreferredMode      RedisIngestSyncMode
 	HTTPBackoffInitial time.Duration
 	HTTPBackoffMax     time.Duration
 }
@@ -118,6 +119,14 @@ func (r *RedisIngestRunner) Run(ctx context.Context) error {
 	r.setRunning(true)
 	// 无论哪条路径退出，都必须清掉 running 状态。
 	defer r.setRunning(false)
+	switch r.config.PreferredMode {
+	case RedisIngestSyncModeSubscribe:
+		return r.runPreferredSubscribeMode(ctx)
+	case RedisIngestSyncModeRedisPull:
+		return r.runRedisPullMode(ctx)
+	case RedisIngestSyncModeHTTPPull:
+		return r.runHTTPPullMode(ctx)
+	}
 	// 外层循环负责“启动探测”和“固定模式退出后重新探测”。
 	for {
 		// context 取消代表应用关闭，后台 runner 正常退出，不把关闭当作错误。
@@ -202,6 +211,29 @@ func (r *RedisIngestRunner) Run(ctx context.Context) error {
 		// 等待可被 context 取消；取消时正常退出后台任务。
 		if !r.sleep(ctx, delay) {
 			return nil
+		}
+	}
+}
+
+func (r *RedisIngestRunner) runPreferredSubscribeMode(ctx context.Context) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		r.recordState(RedisIngestSyncModeSubscribe, RedisIngestSubStateStarting, "starting", "", "")
+		sub, err := r.subscribeSource.Subscribe(ctx)
+		if err == nil {
+			r.failureBackoff.Reset()
+			r.recordState(RedisIngestSyncModeSubscribe, RedisIngestSubStateSubscribeBackfill, "subscribe_connected", "", "")
+			if runErr := r.runSubscribeMode(ctx, sub); runErr != nil && !errors.Is(runErr, context.Canceled) {
+				r.recordError("subscribe_stopped", runErr)
+			}
+			continue
+		}
+		delay := r.failureBackoff.NextDelay()
+		r.recordError("subscribe_failed", err)
+		if !r.sleep(ctx, delay) {
+			return context.Canceled
 		}
 	}
 }

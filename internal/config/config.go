@@ -19,6 +19,10 @@ const (
 	DefaultDatabaseDriver           = "sqlite"
 	DatabaseDriverSQLite            = "sqlite"
 	DatabaseDriverPostgres          = "postgres"
+	UsageSyncModeAuto               = "auto"
+	UsageSyncModeSubscribe          = "subscribe"
+	UsageSyncModeRedisPull          = "redis_pull"
+	UsageSyncModeHTTPPull           = "http_pull"
 	RedisQueueKeyDefault            = cpa.ManagementUsageQueueKey
 	RedisQueueBatchSizeDefault      = 10000
 	MetadataSyncIntervalDefault     = 30 * time.Second
@@ -65,6 +69,8 @@ type Config struct {
 	RedisQueueBatchSize int
 	// RedisQueueIdleInterval 是 Redis 队列为空时的下一次检查间隔。
 	RedisQueueIdleInterval time.Duration
+	// UsageSyncMode 控制 usage 远端拉取方式，auto 会按 subscribe -> redis_pull -> http_pull 探测。
+	UsageSyncMode string
 	// MetadataSyncInterval 是 auth files 和 provider metadata 的固定刷新间隔。
 	MetadataSyncInterval time.Duration
 	// DatabaseDriver 是主库存储后端，支持 sqlite 和 postgres。
@@ -242,6 +248,16 @@ func Load(options LoadOptions) (*Config, error) {
 		return nil, err
 	}
 
+	usageSyncMode := strings.TrimSpace(os.Getenv("USAGE_SYNC_MODE"))
+	if usageSyncMode == "" {
+		usageSyncMode = UsageSyncModeAuto
+	}
+	switch usageSyncMode {
+	case UsageSyncModeAuto, UsageSyncModeSubscribe, UsageSyncModeRedisPull, UsageSyncModeHTTPPull:
+	default:
+		return nil, fmt.Errorf("unsupported USAGE_SYNC_MODE: %s", usageSyncMode)
+	}
+
 	appBasePath, err := normalizeBasePath(strings.TrimSpace(os.Getenv("APP_BASE_PATH")))
 	if err != nil {
 		return nil, fmt.Errorf("APP_BASE_PATH is invalid: %w", err)
@@ -268,6 +284,7 @@ func Load(options LoadOptions) (*Config, error) {
 		RedisQueueKey:            RedisQueueKeyDefault,
 		RedisQueueBatchSize:      redisQueueBatchSize,
 		RedisQueueIdleInterval:   redisQueueIdleInterval,
+		UsageSyncMode:            usageSyncMode,
 		MetadataSyncInterval:     MetadataSyncIntervalDefault,
 		DatabaseDriver:           databaseDriver,
 		DatabaseURL:              databaseURL,

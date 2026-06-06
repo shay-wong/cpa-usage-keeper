@@ -125,6 +125,109 @@ docker compose down
 
 PostgreSQL 数据保存在 Docker named volume `postgres-data` 中，Keeper 日志写入 `./data`。示例把 PostgreSQL 端口绑定到宿主机 `127.0.0.1:5432`，可在 macOS 上用 TablePlus、psql 等工具连接 live DB：数据库 `cpa_usage_keeper`，用户 `keeper`，密码使用 `.env` 中的 `POSTGRES_PASSWORD`。
 
+### 远端 CPA 通过 SSH Tunnel Sidecar 接入
+
+如果 Keeper 跑在本地，但 CPA 跑在远端服务器上，并且 CPA 的 Redis/RESP 端口只监听远端 `127.0.0.1:8317`，可以把 SSH tunnel 作为 sidecar 加入同一个 Compose 网络，再让 Keeper 连接 sidecar：
+
+```yaml
+services:
+  cpa-tunnel:
+    build:
+      context: .
+      dockerfile: cpa-tunnel.Dockerfile
+    environment:
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN:-}
+      CPA_TUNNEL_SSH_PRIVATE_KEY_REF: ${CPA_TUNNEL_SSH_PRIVATE_KEY_REF:-}
+      CPA_TUNNEL_REMOTE: ${CPA_TUNNEL_REMOTE:?set CPA_TUNNEL_REMOTE}
+      CPA_TUNNEL_SSH_PORT: ${CPA_TUNNEL_SSH_PORT:-22}
+      CPA_TUNNEL_LOCAL_PORT: ${CPA_TUNNEL_LOCAL_PORT:-8317}
+      CPA_TUNNEL_REMOTE_HOST: ${CPA_TUNNEL_REMOTE_HOST:-127.0.0.1}
+      CPA_TUNNEL_REMOTE_PORT: ${CPA_TUNNEL_REMOTE_PORT:-8317}
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        if [ -z "$${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
+          echo "OP_SERVICE_ACCOUNT_TOKEN is required" >&2
+          exit 1
+        fi
+        if [ -z "$${CPA_TUNNEL_SSH_PRIVATE_KEY_REF:-}" ]; then
+          echo "CPA_TUNNEL_SSH_PRIVATE_KEY_REF is required" >&2
+          exit 1
+        fi
+        mkdir -p /tmp/ssh ~/.ssh
+        chmod 700 /tmp/ssh ~/.ssh
+        op read "$${CPA_TUNNEL_SSH_PRIVATE_KEY_REF}" > /tmp/ssh/id_ed25519
+        chmod 600 /tmp/ssh/id_ed25519
+        ssh_host="$${CPA_TUNNEL_REMOTE#*@}"
+        ssh-keyscan -p "$${CPA_TUNNEL_SSH_PORT}" -H "$${ssh_host}" >> ~/.ssh/known_hosts
+        exec ssh -i /tmp/ssh/id_ed25519 \
+          -p "$${CPA_TUNNEL_SSH_PORT}" \
+          -N \
+          -o ExitOnForwardFailure=yes \
+          -o IdentitiesOnly=yes \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=3 \
+          -L "0.0.0.0:$${CPA_TUNNEL_LOCAL_PORT}:$${CPA_TUNNEL_REMOTE_HOST}:$${CPA_TUNNEL_REMOTE_PORT}" \
+          "$${CPA_TUNNEL_REMOTE}"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 $${CPA_TUNNEL_LOCAL_PORT}"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  cpa-usage-keeper:
+    depends_on:
+      cpa-tunnel:
+        condition: service_healthy
+```
+
+然后让 Keeper 通过 sidecar 订阅：
+
+```env
+USAGE_SYNC_MODE=subscribe
+REDIS_QUEUE_ADDR=cpa-tunnel:8317
+```
+
+sidecar 不应该把 `8317` 映射到宿主机，它只在 Compose 网络内部监听，所以不会占用或影响宿主机上的本地 CPA。如果要接入宿主机本地 CPA，不要启动 tunnel sidecar，改用 `REDIS_QUEUE_ADDR=host.docker.internal:8317`。
+
+示例使用 1Password Service Account，让 tunnel 容器自己读取 SSH 私钥。先创建一个专用 vault，把只用于 tunnel 的 SSH Key item 放进去，再给 Service Account 授予这个 vault 的只读权限。Service Account 不能读取内置的 Personal、Private、Employee 或默认 Shared vault。
+
+```env
+OP_SERVICE_ACCOUNT_TOKEN=replace-with-service-account-token
+CPA_TUNNEL_SSH_PRIVATE_KEY_REF=op://VaultName/<ssh-key-item-id>/private_key?ssh-format=openssh
+CPA_TUNNEL_REMOTE=admin@example.com
+```
+
+`CPA_TUNNEL_SSH_PRIVATE_KEY_REF` 建议使用 item ID，这样 1Password item 改名后仍然可用。基于名称的引用也可以，例如 `op://Docker/Aliyun Docker Admin/private_key?ssh-format=openssh`，但 item 改名后需要同步改 `.env`。
+
+`OP_SERVICE_ACCOUNT_TOKEN` 是敏感密钥，不要提交到版本控制；Service Account 权限应限制到最小 vault。服务器端也建议把这把 SSH key 限制为只用于这条 tunnel：
+
+```text
+restrict,port-forwarding,permitopen="127.0.0.1:8317" ssh-ed25519 AAAA...
+```
+
+tunnel 镜像需要同时包含 `op` 和 OpenSSH 工具，一个最小 Dockerfile 示例：
+
+```dockerfile
+FROM 1password/op:latest
+
+USER root
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends netcat-openbsd openssh-client ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+USER opuser
+```
+
+```bash
+docker compose up -d --build --remove-orphans
+```
+
 ### 从 SQLite 迁移到 PostgreSQL
 
 全新 PostgreSQL 部署会在首次启动时自动建表并标记迁移版本；但已有 SQLite 数据不会在切换 `DATABASE_DRIVER=postgres` 时自动导入。SQLite 模式仍然受支持，如果你选择继续使用 SQLite，保持 `DATABASE_DRIVER=sqlite` 或同时留空 `DATABASE_DRIVER` 和 `DATABASE_URL` 即可，不需要执行本节迁移。自动导入可能误迁损坏的 SQLite、覆盖已写入的 PostgreSQL 数据，或让回滚边界不清楚，所以要切到 PostgreSQL 的老用户需要按下面步骤手动做一次性迁移。
@@ -319,6 +422,7 @@ cp .env.example .env
 
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
+| `USAGE_SYNC_MODE` | 否 | `auto` | Usage 同步模式：`auto`、`subscribe`、`redis_pull` 或 `http_pull`。Keeper 直连 CPA Redis/RESP stream 或通过 SSH tunnel sidecar 连接时使用 `subscribe`；只通过 HTTP 定时拉取时使用 `http_pull` |
 | `REDIS_QUEUE_ADDR` | 否 | `CPA_BASE_URL` 主机名 + `8317` | CPA Redis/RESP TCP 地址；一般保持空即可。非默认端口或单独暴露 Redis stream 时填写 `host:port` |
 | `REDIS_QUEUE_TLS` | 否 | `false` | 是否使用 TLS 连接 Redis 队列；显式设置 `REDIS_QUEUE_ADDR` 且需要 TLS 时设为 `true` |
 | `REDIS_QUEUE_BATCH_SIZE` | 否 | `10000` | 每次最多拉取的队列记录数 |

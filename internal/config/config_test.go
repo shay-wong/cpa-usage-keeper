@@ -415,15 +415,28 @@ func TestLoadFromEnvRejectsUnsupportedDatabaseDriver(t *testing.T) {
 	}
 }
 
-func TestLoadFromEnvIgnoresRemovedLegacySyncEnvVars(t *testing.T) {
+func TestLoadFromEnvUsesUsageSyncMode(t *testing.T) {
+	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
+	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
+	t.Setenv("USAGE_SYNC_MODE", UsageSyncModeHTTPPull)
+
+	cfg, err := LoadFromEnv()
+	if err != nil {
+		t.Fatalf("LoadFromEnv returned error: %v", err)
+	}
+	if cfg.UsageSyncMode != UsageSyncModeHTTPPull {
+		t.Fatalf("expected usage sync mode %q, got %q", UsageSyncModeHTTPPull, cfg.UsageSyncMode)
+	}
+}
+
+func TestLoadFromEnvRejectsUnsupportedUsageSyncMode(t *testing.T) {
 	t.Setenv("CPA_BASE_URL", "http://127.0.0.1:"+cpa.ManagementRedisDefaultPort)
 	t.Setenv("CPA_MANAGEMENT_KEY", "secret")
 	t.Setenv("USAGE_SYNC_MODE", "invalid")
-	t.Setenv("POLL_INTERVAL", "not-a-duration")
 
 	_, err := LoadFromEnv()
-	if err != nil {
-		t.Fatalf("LoadFromEnv should ignore removed legacy sync env vars, got error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "unsupported USAGE_SYNC_MODE") {
+		t.Fatalf("expected unsupported USAGE_SYNC_MODE error, got %v", err)
 	}
 }
 

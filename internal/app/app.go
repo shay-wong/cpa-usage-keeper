@@ -126,6 +126,7 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 	redisIngestRunner := poller.NewRedisIngestRunner(redisSubscribeSource, redisPullSource, httpPullSource, redisInboxWriter, poller.RedisIngestRunnerConfig{
 		IdleInterval:       cfg.RedisQueueIdleInterval,
 		BatchSize:          cfg.RedisQueueBatchSize,
+		PreferredMode:      usageSyncMode(cfg.UsageSyncMode),
 		HTTPBackoffInitial: time.Second,
 		HTTPBackoffMax:     30 * time.Second,
 	})
@@ -211,6 +212,19 @@ func NewWithConfig(cfg config.Config) (*App, error) {
 			},
 		),
 	}, nil
+}
+
+func usageSyncMode(mode string) poller.RedisIngestSyncMode {
+	switch mode {
+	case config.UsageSyncModeSubscribe:
+		return poller.RedisIngestSyncModeSubscribe
+	case config.UsageSyncModeRedisPull:
+		return poller.RedisIngestSyncModeRedisPull
+	case config.UsageSyncModeHTTPPull:
+		return poller.RedisIngestSyncModeHTTPPull
+	default:
+		return poller.RedisIngestSyncModeUnknown
+	}
 }
 
 func quotaActiveRecorder(cfg config.Config, service *quota.Service) api.ActiveStatusRecorder {

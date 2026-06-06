@@ -125,6 +125,109 @@ docker compose down
 
 PostgreSQL data is stored in the Docker named volume `postgres-data`, and Keeper logs are written to `./data`. The example binds PostgreSQL to host `127.0.0.1:5432`, so tools such as TablePlus or psql on macOS can inspect the live DB with database `cpa_usage_keeper`, user `keeper`, and the `POSTGRES_PASSWORD` from `.env`.
 
+### Remote CPA Through SSH Tunnel Sidecar
+
+If Keeper runs locally but CPA runs on a remote server where the CPA Redis/RESP port only listens on `127.0.0.1:8317`, add an SSH tunnel sidecar to the same Compose network and point Keeper at the sidecar:
+
+```yaml
+services:
+  cpa-tunnel:
+    build:
+      context: .
+      dockerfile: cpa-tunnel.Dockerfile
+    environment:
+      OP_SERVICE_ACCOUNT_TOKEN: ${OP_SERVICE_ACCOUNT_TOKEN:-}
+      CPA_TUNNEL_SSH_PRIVATE_KEY_REF: ${CPA_TUNNEL_SSH_PRIVATE_KEY_REF:-}
+      CPA_TUNNEL_REMOTE: ${CPA_TUNNEL_REMOTE:?set CPA_TUNNEL_REMOTE}
+      CPA_TUNNEL_SSH_PORT: ${CPA_TUNNEL_SSH_PORT:-22}
+      CPA_TUNNEL_LOCAL_PORT: ${CPA_TUNNEL_LOCAL_PORT:-8317}
+      CPA_TUNNEL_REMOTE_HOST: ${CPA_TUNNEL_REMOTE_HOST:-127.0.0.1}
+      CPA_TUNNEL_REMOTE_PORT: ${CPA_TUNNEL_REMOTE_PORT:-8317}
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        if [ -z "$${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
+          echo "OP_SERVICE_ACCOUNT_TOKEN is required" >&2
+          exit 1
+        fi
+        if [ -z "$${CPA_TUNNEL_SSH_PRIVATE_KEY_REF:-}" ]; then
+          echo "CPA_TUNNEL_SSH_PRIVATE_KEY_REF is required" >&2
+          exit 1
+        fi
+        mkdir -p /tmp/ssh ~/.ssh
+        chmod 700 /tmp/ssh ~/.ssh
+        op read "$${CPA_TUNNEL_SSH_PRIVATE_KEY_REF}" > /tmp/ssh/id_ed25519
+        chmod 600 /tmp/ssh/id_ed25519
+        ssh_host="$${CPA_TUNNEL_REMOTE#*@}"
+        ssh-keyscan -p "$${CPA_TUNNEL_SSH_PORT}" -H "$${ssh_host}" >> ~/.ssh/known_hosts
+        exec ssh -i /tmp/ssh/id_ed25519 \
+          -p "$${CPA_TUNNEL_SSH_PORT}" \
+          -N \
+          -o ExitOnForwardFailure=yes \
+          -o IdentitiesOnly=yes \
+          -o ServerAliveInterval=30 \
+          -o ServerAliveCountMax=3 \
+          -L "0.0.0.0:$${CPA_TUNNEL_LOCAL_PORT}:$${CPA_TUNNEL_REMOTE_HOST}:$${CPA_TUNNEL_REMOTE_PORT}" \
+          "$${CPA_TUNNEL_REMOTE}"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 $${CPA_TUNNEL_LOCAL_PORT}"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  cpa-usage-keeper:
+    depends_on:
+      cpa-tunnel:
+        condition: service_healthy
+```
+
+Then set Keeper to subscribe through the sidecar:
+
+```env
+USAGE_SYNC_MODE=subscribe
+REDIS_QUEUE_ADDR=cpa-tunnel:8317
+```
+
+The sidecar should not publish port `8317` to the host. It only listens inside the Compose network, so it does not occupy or interfere with a CPA instance running on the host. For a local CPA on the host, do not start the tunnel sidecar; use `REDIS_QUEUE_ADDR=host.docker.internal:8317` instead.
+
+The example uses a 1Password Service Account so the tunnel container can read the SSH private key itself. Create a dedicated vault, put a tunnel-only SSH Key item in that vault, then grant a Service Account read access to the vault. Service Accounts cannot read built-in Personal, Private, Employee, or default Shared vaults.
+
+```env
+OP_SERVICE_ACCOUNT_TOKEN=replace-with-service-account-token
+CPA_TUNNEL_SSH_PRIVATE_KEY_REF=op://VaultName/<ssh-key-item-id>/private_key?ssh-format=openssh
+CPA_TUNNEL_REMOTE=admin@example.com
+```
+
+Prefer an item ID in `CPA_TUNNEL_SSH_PRIVATE_KEY_REF` because it keeps working if the 1Password item is renamed. A name-based reference such as `op://Docker/Aliyun Docker Admin/private_key?ssh-format=openssh` also works, but renaming that item requires updating `.env`.
+
+`OP_SERVICE_ACCOUNT_TOKEN` is sensitive. Store it outside version control and scope the Service Account to the smallest vault possible. The referenced SSH key should also be restricted on the server side to this tunnel when possible:
+
+```text
+restrict,port-forwarding,permitopen="127.0.0.1:8317" ssh-ed25519 AAAA...
+```
+
+The tunnel image needs both `op` and OpenSSH tools. A minimal Dockerfile is:
+
+```dockerfile
+FROM 1password/op:latest
+
+USER root
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends netcat-openbsd openssh-client ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+USER opuser
+```
+
+```bash
+docker compose up -d --build --remove-orphans
+```
+
 ### Migrate From SQLite To PostgreSQL
 
 New PostgreSQL deployments create the current schema and mark migrations automatically on first start. Existing SQLite data is not imported automatically when you switch to `DATABASE_DRIVER=postgres`. SQLite mode is still supported; if you choose to keep using SQLite, keep `DATABASE_DRIVER=sqlite` or leave both `DATABASE_DRIVER` and `DATABASE_URL` empty, and you do not need to run this migration. Automatic import could migrate a corrupted SQLite file, overwrite PostgreSQL rows that were already written, or make rollback unclear, so existing users who switch to PostgreSQL must run this one-time migration explicitly.
@@ -319,6 +422,7 @@ For first-time deployments, start with "Minimum required" and "Web access and re
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
+| `USAGE_SYNC_MODE` | No | `auto` | Usage sync mode: `auto`, `subscribe`, `redis_pull`, or `http_pull`. Use `subscribe` when Keeper connects to CPA's Redis/RESP stream directly or through an SSH tunnel sidecar; use `http_pull` for HTTP-only polling |
 | `REDIS_QUEUE_ADDR` | No | `CPA_BASE_URL` hostname + `8317` | CPA Redis/RESP TCP address; normally leave empty. Set `host:port` for non-default ports or separately exposed Redis streams |
 | `REDIS_QUEUE_TLS` | No | `false` | Use TLS for Redis queue connection; set `true` when `REDIS_QUEUE_ADDR` is explicit and requires TLS |
 | `REDIS_QUEUE_BATCH_SIZE` | No | `10000` | Maximum queue records per pull |
