@@ -1,7 +1,9 @@
 package migration
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,6 +33,48 @@ func TestBackfillGeminiCodexTokenFormatMigrationNormalizesEventsAndAggregates(t 
 		t.Fatalf("backfill Gemini Codex token format should be idempotent: %v", err)
 	}
 	assertGeminiCodexTokenBackfillRows(t, db)
+}
+
+func TestBackfillGeminiCodexTokenFormatMigrationSupportsPostgresTimestamps(t *testing.T) {
+	databaseURL := strings.TrimSpace(os.Getenv("POSTGRES_TEST_DATABASE_URL"))
+	if databaseURL == "" {
+		t.Skip("set POSTGRES_TEST_DATABASE_URL to run PostgreSQL integration test")
+	}
+
+	db := openPostgresMigrationTestDatabase(t, databaseURL)
+	if err := db.AutoMigrate(
+		&entities.UsageEvent{},
+		&entities.UsageIdentity{},
+		&entities.UsageOverviewHourlyStat{},
+		&entities.UsageOverviewDailyStat{},
+		&entities.UsageOverviewAggregationCheckpoint{},
+	); err != nil {
+		t.Fatalf("create postgres test schema: %v", err)
+	}
+
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.FixedZone("CST", 8*60*60))
+	if err := db.Create(&entities.UsageEvent{
+		ID:              1,
+		EventKey:        "postgres-gemini-old",
+		APIGroupKey:     "api-key",
+		Provider:        "Gemini",
+		AuthType:        "apikey",
+		AuthIndex:       "missing-gemini-auth",
+		Model:           "gemini-pro",
+		Timestamp:       time.Date(2026, 6, 1, 10, 15, 0, 0, now.Location()),
+		InputTokens:     11,
+		OutputTokens:    7,
+		ReasoningTokens: 3,
+		TotalTokens:     21,
+		CreatedAt:       now,
+	}).Error; err != nil {
+		t.Fatalf("seed postgres usage event: %v", err)
+	}
+
+	if err := backfillGeminiCodexTokenFormatMigration(db); err != nil {
+		t.Fatalf("backfill Gemini Codex token format on postgres: %v", err)
+	}
+	assertGeminiBackfillEventTokens(t, db, "postgres-gemini-old", 10, 3, 21)
 }
 
 func openGeminiCodexTokenBackfillTestDatabase(t *testing.T) *gorm.DB {
