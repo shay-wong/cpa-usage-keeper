@@ -704,9 +704,11 @@ describe('fetchUsageEvents', () => {
         running: true,
         completed: false,
         normal: 1,
+        limit_reached: 0,
         unauthorized_401: 0,
         payment_required_402: 0,
         other_failed: 0,
+        unknown: 1,
         results: [
           {
             auth_index: 'auth-1',
@@ -745,9 +747,11 @@ describe('fetchUsageEvents', () => {
         running: true,
         completed: false,
         normal: 0,
+        limit_reached: 0,
         unauthorized_401: 0,
         payment_required_402: 0,
         other_failed: 0,
+        unknown: 2,
         results: [],
       }),
     } as Response);

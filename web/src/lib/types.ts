@@ -244,6 +244,7 @@ export interface UsageEvent {
   failed: boolean
   latency_ms: number
   ttft_ms?: number
+  speed_tps?: number
   tokens: UsageEventTokens
   attempt_count?: number
   attempts?: UsageEventAttempt[]
@@ -406,7 +407,7 @@ export interface UsageQuotaRefreshTaskResponse {
   expiresAt?: string
 }
 
-export type UsageQuotaInspectionResultStatus = 'normal' | 'unauthorized_401' | 'payment_required_402' | 'other_failed'
+export type UsageQuotaInspectionResultStatus = 'normal' | 'limit_reached' | 'unauthorized_401' | 'payment_required_402' | 'other_failed'
 
 export interface UsageQuotaInspectionResult {
   auth_index: string
@@ -426,9 +427,11 @@ export interface UsageQuotaInspectionStatusResponse {
   completed: boolean
   completed_at?: string
   normal: number
+  limit_reached: number
   unauthorized_401: number
   payment_required_402: number
   other_failed: number
+  unknown: number
   results: UsageQuotaInspectionResult[]
 }
 

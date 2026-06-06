@@ -75,7 +75,6 @@ import {
   AuthFileCredentialsSection,
   AiProviderCredentialsSection,
   CredentialProviderFilterBar,
-  RequestEventsDetailsCard,
   TokenBreakdownChart,
   CostTrendChart,
   ServiceHealthCard,
@@ -85,6 +84,12 @@ import {
   useChartData,
   useCredentialsTabData,
 } from '@/components/usage';
+import {
+  RequestEventsDetailsCard,
+  REQUEST_EVENT_COLUMN_IDS,
+  normalizeRequestEventVisibleColumnIds,
+  type RequestEventColumnId,
+} from '@/components/usage/RequestEventsDetailsCard';
 import { buildUsageRangeQuery } from '@/utils/usage/rangeQuery';
 import {
   getOverviewModelNames,
@@ -122,6 +127,7 @@ ChartJS.register(
 const CHART_LINES_STORAGE_KEY = 'cli-proxy-usage-chart-lines-v1';
 const TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-time-range-v1';
 const CUSTOM_TIME_RANGE_STORAGE_KEY = 'cli-proxy-usage-custom-range-v1';
+export const REQUEST_EVENTS_PREFERENCES_STORAGE_KEY = 'cli-proxy-usage-request-events-preferences-v1';
 const DEFAULT_CHART_LINES = ['all'];
 const DEFAULT_TIME_RANGE: UsageTimeRange = '8h';
 const DEFAULT_CUSTOM_WINDOW_HOURS = 8;
@@ -351,6 +357,110 @@ type RequestEventFilterOptionsState = {
   sources: UsageSourceFilterOption[];
 };
 
+export type RequestEventsPreferences = {
+  version: 1;
+  pageSize: number;
+  filters: RequestEventFilterState;
+  visibleColumnIds: RequestEventColumnId[];
+};
+
+type RequestEventsPreferenceStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+const DEFAULT_REQUEST_EVENT_FILTERS: RequestEventFilterState = {
+  model: ALL_REQUEST_EVENTS_FILTER,
+  source: ALL_REQUEST_EVENTS_FILTER,
+  result: ALL_REQUEST_EVENTS_FILTER,
+};
+
+const buildDefaultRequestEventsPreferences = (): RequestEventsPreferences => ({
+  version: 1,
+  pageSize: REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
+  filters: { ...DEFAULT_REQUEST_EVENT_FILTERS },
+  visibleColumnIds: [...REQUEST_EVENT_COLUMN_IDS],
+});
+
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+);
+
+const isRequestEventPageSize = (value: unknown): value is typeof REQUEST_EVENTS_PAGE_SIZES[number] => (
+  typeof value === 'number' && REQUEST_EVENTS_PAGE_SIZES.includes(value as typeof REQUEST_EVENTS_PAGE_SIZES[number])
+);
+
+const isRequestEventColumnId = (value: unknown): value is RequestEventColumnId => (
+  typeof value === 'string' && (REQUEST_EVENT_COLUMN_IDS as readonly string[]).includes(value)
+);
+
+const normalizeRequestEventFilterValue = (value: unknown): string => (
+  typeof value === 'string' && value !== '' ? value : ALL_REQUEST_EVENTS_FILTER
+);
+
+const normalizeRequestEventResultFilter = (value: unknown): string => (
+  value === 'success' || value === 'failed' ? value : ALL_REQUEST_EVENTS_FILTER
+);
+
+const normalizeRequestEventPreferenceFilters = (value: unknown): RequestEventFilterState => {
+  const filters = isRecord(value) ? value : {};
+  return {
+    model: normalizeRequestEventFilterValue(filters.model),
+    source: normalizeRequestEventFilterValue(filters.source),
+    result: normalizeRequestEventResultFilter(filters.result),
+  };
+};
+
+const normalizeRequestEventPreferenceColumnIds = (value: unknown): RequestEventColumnId[] => {
+  if (!Array.isArray(value)) {
+    return [...REQUEST_EVENT_COLUMN_IDS];
+  }
+  return normalizeRequestEventVisibleColumnIds(value.filter(isRequestEventColumnId));
+};
+
+export const normalizeRequestEventsPreferences = (value: unknown): RequestEventsPreferences => {
+  const preferences = isRecord(value) ? value : {};
+  return {
+    version: 1,
+    pageSize: isRequestEventPageSize(preferences.pageSize) ? preferences.pageSize : REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
+    filters: normalizeRequestEventPreferenceFilters(preferences.filters),
+    visibleColumnIds: normalizeRequestEventPreferenceColumnIds(preferences.visibleColumnIds),
+  };
+};
+
+const getRequestEventsPreferenceStorage = (): RequestEventsPreferenceStorage | null => {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return null;
+    }
+    return localStorage;
+  } catch {
+    return null;
+  }
+};
+
+export const loadRequestEventsPreferences = (
+  storage: RequestEventsPreferenceStorage | null = getRequestEventsPreferenceStorage(),
+): RequestEventsPreferences => {
+  try {
+    const raw = storage?.getItem(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY);
+    if (!raw) {
+      return buildDefaultRequestEventsPreferences();
+    }
+    return normalizeRequestEventsPreferences(JSON.parse(raw));
+  } catch {
+    return buildDefaultRequestEventsPreferences();
+  }
+};
+
+export const saveRequestEventsPreferences = (
+  preferences: RequestEventsPreferences,
+  storage: RequestEventsPreferenceStorage | null = getRequestEventsPreferenceStorage(),
+) => {
+  try {
+    storage?.setItem(REQUEST_EVENTS_PREFERENCES_STORAGE_KEY, JSON.stringify(normalizeRequestEventsPreferences(preferences)));
+  } catch {
+    // Ignore storage errors.
+  }
+};
+
 type RefreshPageDataOptions = {
   refreshActiveTab: () => Promise<void>;
 };
@@ -574,21 +684,25 @@ export const scheduleStatusActiveHeartbeat = ({
 export const sanitizeRequestEventFilters = (
   filters: RequestEventFilterState,
   options: RequestEventFilterOptionsState,
+  optionsLoaded = true,
 ): RequestEventFilterState => {
-  const model =
-    filters.model === ALL_REQUEST_EVENTS_FILTER ||
-    options.models.includes(filters.model)
-      ? filters.model
-      : ALL_REQUEST_EVENTS_FILTER;
-  const source =
-    filters.source === ALL_REQUEST_EVENTS_FILTER ||
-    options.sources.some((option) => option.value === filters.source)
-      ? filters.source
-      : ALL_REQUEST_EVENTS_FILTER;
-  const result =
-    filters.result === 'success' || filters.result === 'failed'
-      ? filters.result
-      : ALL_REQUEST_EVENTS_FILTER;
+  const result = filters.result === 'success' || filters.result === 'failed'
+    ? filters.result
+    : ALL_REQUEST_EVENTS_FILTER;
+  if (!optionsLoaded) {
+    return {
+      model: normalizeRequestEventFilterValue(filters.model),
+      source: normalizeRequestEventFilterValue(filters.source),
+      result,
+    };
+  }
+
+  const model = filters.model === ALL_REQUEST_EVENTS_FILTER || options.models.includes(filters.model)
+    ? filters.model
+    : ALL_REQUEST_EVENTS_FILTER;
+  const source = filters.source === ALL_REQUEST_EVENTS_FILTER || options.sources.some((option) => option.value === filters.source)
+    ? filters.source
+    : ALL_REQUEST_EVENTS_FILTER;
 
   return { model, source, result };
 };
@@ -1016,28 +1130,21 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   > | null>(null);
   const [customRangeError, setCustomRangeError] = useState('');
   const [customRangeHint, setCustomRangeHint] = useState('');
+  const [initialRequestEventsPreferences] = useState(loadRequestEventsPreferences);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsError, setEventsError] = useState('');
   const [eventsData, setEventsData] = useState<UsageEvent[]>([]);
   const [eventsPage, setEventsPage] = useState(1);
-  const [eventsPageSize, setEventsPageSize] = useState<number>(
-    REQUEST_EVENTS_DEFAULT_PAGE_SIZE,
-  );
+  const [eventsPageSize, setEventsPageSize] = useState<number>(initialRequestEventsPreferences.pageSize);
   const [eventsTotalCount, setEventsTotalCount] = useState(0);
   const [eventsTotalPages, setEventsTotalPages] = useState(0);
   const [eventsModelOptions, setEventsModelOptions] = useState<string[]>([]);
-  const [eventsSourceOptions, setEventsSourceOptions] = useState<
-    UsageSourceFilterOption[]
-  >([]);
-  const [eventsModelFilter, setEventsModelFilter] = useState(
-    ALL_REQUEST_EVENTS_FILTER,
-  );
-  const [eventsSourceFilter, setEventsSourceFilter] = useState(
-    ALL_REQUEST_EVENTS_FILTER,
-  );
-  const [eventsResultFilter, setEventsResultFilter] = useState(
-    ALL_REQUEST_EVENTS_FILTER,
-  );
+  const [eventsSourceOptions, setEventsSourceOptions] = useState<UsageSourceFilterOption[]>([]);
+  const [eventsModelFilter, setEventsModelFilter] = useState(initialRequestEventsPreferences.filters.model);
+  const [eventsSourceFilter, setEventsSourceFilter] = useState(initialRequestEventsPreferences.filters.source);
+  const [eventsResultFilter, setEventsResultFilter] = useState(initialRequestEventsPreferences.filters.result);
+  const [eventsVisibleColumnIds, setEventsVisibleColumnIds] = useState<RequestEventColumnId[]>(initialRequestEventsPreferences.visibleColumnIds);
+  const [eventsFilterOptionsLoaded, setEventsFilterOptionsLoaded] = useState(false);
   const eventsRequestControllerRef = useRef<AbortController | null>(null);
   const eventsFilterOptionsRequestControllerRef =
     useRef<AbortController | null>(null);
@@ -1541,6 +1648,19 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
   }, [activeTab]);
 
   useEffect(() => {
+    saveRequestEventsPreferences({
+      version: 1,
+      pageSize: eventsPageSize,
+      filters: {
+        model: eventsModelFilter,
+        source: eventsSourceFilter,
+        result: eventsResultFilter,
+      },
+      visibleColumnIds: eventsVisibleColumnIds,
+    });
+  }, [eventsModelFilter, eventsPageSize, eventsResultFilter, eventsSourceFilter, eventsVisibleColumnIds]);
+
+  useEffect(() => {
     setEventsPage(1);
   }, [customTimeRange.end, customTimeRange.start, selectedApiKeyId, timeRange]);
 
@@ -1644,6 +1764,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     eventsFilterOptionsRequestControllerRef.current?.abort();
     const controller = new AbortController();
     eventsFilterOptionsRequestControllerRef.current = controller;
+    setEventsFilterOptionsLoaded(false);
 
     try {
       const [modelResponse, sourceResponse] = await Promise.all([
@@ -1655,6 +1776,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       }
       setEventsModelOptions(modelResponse.models ?? []);
       setEventsSourceOptions(sourceResponse.sources ?? []);
+      setEventsFilterOptionsLoaded(true);
     } catch (error) {
       if (controller.signal.aborted) {
         return;
@@ -1662,6 +1784,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
       if (eventsFilterOptionsRequestControllerRef.current === controller) {
         setEventsModelOptions([]);
         setEventsSourceOptions([]);
+        setEventsFilterOptionsLoaded(false);
       }
       if (error instanceof ApiError && error.status === 401) {
         onAuthRequired?.();
@@ -2096,6 +2219,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
         models: eventsModelOptions,
         sources: eventsSourceOptions,
       },
+      eventsFilterOptionsLoaded,
     );
 
     if (next.model !== eventsModelFilter) {
@@ -2114,14 +2238,7 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
     ) {
       resetEventsPage();
     }
-  }, [
-    eventsModelFilter,
-    eventsModelOptions,
-    eventsResultFilter,
-    eventsSourceFilter,
-    eventsSourceOptions,
-    resetEventsPage,
-  ]);
+  }, [eventsFilterOptionsLoaded, eventsModelFilter, eventsModelOptions, eventsResultFilter, eventsSourceFilter, eventsSourceOptions, resetEventsPage]);
 
   const lastSyncAt = useMemo(() => {
     if (!status?.last_run_at) return null;
@@ -2763,11 +2880,13 @@ export function UsagePage({ onAuthRequired }: { onAuthRequired?: () => void }) {
                   modelFilter={eventsModelFilter}
                   sourceFilter={eventsSourceFilter}
                   resultFilter={eventsResultFilter}
+                  visibleColumnIds={eventsVisibleColumnIds}
                   onPageChange={setEventsPage}
                   onPageSizeChange={handleEventsPageSizeChange}
                   onModelFilterChange={handleEventsModelFilterChange}
                   onSourceFilterChange={handleEventsSourceFilterChange}
                   onResultFilterChange={handleEventsResultFilterChange}
+                  onVisibleColumnIdsChange={setEventsVisibleColumnIds}
                 />
               </>
             )}

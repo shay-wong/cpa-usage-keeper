@@ -84,6 +84,16 @@ const statCardsSource = readSource(
   new URL('../components/usage/StatCards.tsx', import.meta.url),
 );
 
+const requestEventColumnDefinitionBlock = (columnId: string) => {
+  const definitionsStart = requestEventsSource.indexOf('const definitions: RequestEventColumnDefinition[] = [')
+  expect(definitionsStart).toBeGreaterThanOrEqual(0)
+  const start = requestEventsSource.indexOf(`id: '${columnId}',`, definitionsStart)
+  expect(start).toBeGreaterThanOrEqual(0)
+  const next = requestEventsSource.indexOf('\n      {', start + 1)
+  const end = next === -1 ? requestEventsSource.indexOf('\n    ];', start) : next
+  return requestEventsSource.slice(start, end)
+}
+
 describe('UsagePage toolbar styles', () => {
   it('keeps visible range controls content-sized in narrow layouts', () => {
     expect(usagePageStyles).toMatch(
@@ -725,6 +735,11 @@ it('keeps the Analysis chart presentation aligned with the redesigned Analysis d
     );
   });
 
+  it('removes the Overview Request Health Timeline label instead of toggling it off', () => {
+    expect(usagePageSource).toMatch(/<ServiceHealthCard\s+usage=\{overviewUsage\}\s+loading=\{overviewDisplayLoading\}\s*\/>/)
+    expect(usagePageSource).not.toContain('showEyebrow')
+  })
+
   it('keeps chart line controls aligned with reusable pill controls', () => {
     expect(chartLineSelectorSource).toContain(
       'className={styles.usagePillControl}',
@@ -926,33 +941,52 @@ it('keeps the Analysis chart presentation aligned with the redesigned Analysis d
     expect(tableFrameBlock).toMatch(/border-radius:\s*\$radius-lg;/)
   })
 
-  it('keeps the Request Event Log timestamp column compact', () => {
-    expect(usagePageStyles).toMatch(
-      /\.requestEventsTimestamp\s*\{[\s\S]*?width:\s*136px;/,
-    );
-    expect(usagePageStyles).toMatch(
-      /\.requestEventsTimestamp\s*\{[\s\S]*?min-width:\s*136px;/,
-    );
-    expect(usagePageStyles).toMatch(
-      /\.requestEventsTimestamp\s*\{[\s\S]*?font-variant-numeric:\s*tabular-nums;/,
-    );
-  });
-
-  it('keeps the Request Event Log reasoning header on one line without fixing column width', () => {
-    expect(usagePageStyles).toMatch(
-      /\.requestEventsReasoningHeader\s*\{[\s\S]*?white-space:\s*nowrap;/,
-    );
-    expect(usagePageStyles).not.toMatch(
-      /\.requestEventsReasoningHeader\s*\{[^}]*width:/,
-    );
-    expect(requestEventsSource).toContain(
-      "<th className={styles.requestEventsReasoningHeader}>{t('usage_stats.reasoning_tokens')}</th>",
-    );
-  });
-
-  it('keeps Request Event Log model and endpoint columns compact', () => {
+  it('keeps Request Event Log long text columns controlled', () => {
+    expect(usagePageStyles).toMatch(/\.requestEventsAPIKeyCell\s*\{[\s\S]*?min-width:\s*135px;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsAPIKeyCell\s*\{[\s\S]*?max-width:\s*240px;/)
+    expect(usagePageStyles).toMatch(/\.requestEventsSourceCell\s*\{[\s\S]*?min-width:\s*165px;/)
     expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?min-width:\s*110px;/)
-    expect(usagePageStyles).toMatch(/\.requestEventsEndpointCell\s*\{[\s\S]*?min-width:\s*100px;/)
+    expect(usagePageStyles).toMatch(/\.modelCell\s*\{[\s\S]*?max-width:\s*240px;/)
+    expect(usagePageStyles).not.toContain('.requestEventsAuthIndex')
+    expect(usagePageStyles).not.toContain('.requestEventsEndpointCell')
+  })
+
+  it('keeps Request Event Log non-text columns adaptive and non-wrapping', () => {
+    const adaptiveColumnIds = [
+      'timestamp',
+      'reasoning_effort',
+      'result',
+      'request_type',
+      'endpoint',
+      'ttft',
+      'latency',
+      'speed',
+      'input_tokens',
+      'output_tokens',
+      'reasoning_tokens',
+      'cached_tokens',
+      'cache_rate',
+      'total_tokens',
+      'total_cost',
+    ]
+    const noWrapCellBlock = usagePageStyles.slice(
+      usagePageStyles.indexOf('.requestEventsNoWrapCell {'),
+      usagePageStyles.indexOf('.requestEventsSourceCell')
+    )
+
+    expect(noWrapCellBlock).toMatch(/white-space:\s*nowrap;/)
+    expect(noWrapCellBlock).toMatch(/font-variant-numeric:\s*tabular-nums;/)
+    expect(usagePageStyles).not.toContain('.requestEventsSpeedCell')
+
+    adaptiveColumnIds.forEach((columnId) => {
+      const block = requestEventColumnDefinitionBlock(columnId)
+      expect(block).toMatch(/header:\s*<th[^>]*styles\.requestEventsNoWrapCell/)
+      expect(block).toMatch(/renderCell:[\s\S]*<td[^>]*styles\.requestEventsNoWrapCell/)
+    })
+
+    ;['api_key', 'source', 'model'].forEach((columnId) => {
+      expect(requestEventColumnDefinitionBlock(columnId)).not.toContain('styles.requestEventsNoWrapCell')
+    })
   })
 
   it('provides reusable pill controls for usage subpages', () => {
